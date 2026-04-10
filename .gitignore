@@ -1,0 +1,5 @@
+".env" 
+".env.txt" 
+"*.json" 
+"*.txt" 
+"__pycache__/" 
