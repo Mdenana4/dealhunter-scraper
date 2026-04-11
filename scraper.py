@@ -1,5 +1,5 @@
 # DealHunter Egypt - Main Scraper
-# This script runs every 3 minutes and finds deals on Amazon.eg and Noon.com
+# Reads Firebase credentials from environment variable (for Render)
 
 import requests
 import schedule
@@ -13,16 +13,38 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from dotenv import load_dotenv
 
-# Load your secret keys from .env file
+# Load .env file if running locally on your PC
 load_dotenv()
 
 PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID")
 MIN_DISCOUNT = int(os.getenv("MIN_DISCOUNT", 40))
 INTERVAL = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 3))
 
-# Connect to Firebase
+# ─────────────────────────────────────────
+# CONNECT TO FIREBASE
+# Works both locally (file) and on Render (environment variable)
+# ─────────────────────────────────────────
+
 print("Connecting to Firebase...")
-cred = credentials.Certificate("firebase-key.json")
+
+firebase_key_json = os.getenv("FIREBASE_KEY_JSON")
+
+if firebase_key_json:
+    # Running on Render — read key from environment variable
+    try:
+        key_dict = json.loads(firebase_key_json)
+        cred = credentials.Certificate(key_dict)
+        print("Firebase key loaded from environment variable.")
+    except Exception as e:
+        print(f"ERROR reading FIREBASE_KEY_JSON: {e}")
+        raise
+elif os.path.exists("firebase-key.json"):
+    # Running locally on your PC — read key from file
+    cred = credentials.Certificate("firebase-key.json")
+    print("Firebase key loaded from firebase-key.json file.")
+else:
+    raise Exception("No Firebase key found. Set FIREBASE_KEY_JSON or add firebase-key.json file.")
+
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 print("Connected to Firebase successfully!")
@@ -45,49 +67,56 @@ def generate_deal_id(site, url, price):
     return hashlib.md5(raw.encode()).hexdigest()
 
 def save_deal_to_firebase(deal):
-    """Save a deal to Firebase database"""
+    """Save or update a deal in Firebase"""
     deal_id = deal["deal_id"]
     deal_ref = db.collection("deals").document(deal_id)
-    existing = deal_ref.get()
 
-    if existing.exists:
-        existing_data = existing.to_dict()
-        old_price = existing_data.get("current_price", 0)
-        new_price = deal["current_price"]
+    try:
+        existing = deal_ref.get()
 
-        if old_price != new_price:
-            # Price changed - update deal and log price history
-            deal_ref.update({
-                "current_price": new_price,
-                "discount_percent": deal["discount_percent"],
-                "timestamp": deal["timestamp"]
-            })
-            # Save price history for Safqa feature
+        if existing.exists:
+            existing_data = existing.to_dict()
+            old_price = existing_data.get("current_price", 0)
+            new_price = deal["current_price"]
+
+            if old_price != new_price:
+                # Price changed — update deal
+                deal_ref.update({
+                    "current_price": new_price,
+                    "discount_percent": deal["discount_percent"],
+                    "timestamp": deal["timestamp"]
+                })
+                # Save to price history for Safqa feature
+                history_ref = deal_ref.collection("price_history").document()
+                history_ref.set({
+                    "price": new_price,
+                    "timestamp": deal["timestamp"]
+                })
+                print(f"  UPDATED: {deal['title'][:45]} | {old_price} → {new_price} EGP")
+            else:
+                print(f"  SAME:    {deal['title'][:45]} | No change")
+        else:
+            # Brand new deal — save it
+            deal_ref.set(deal)
+            # Save first price history entry
             history_ref = deal_ref.collection("price_history").document()
             history_ref.set({
-                "price": new_price,
+                "price": deal["current_price"],
                 "timestamp": deal["timestamp"]
             })
-            print(f"  UPDATED: {deal['title'][:40]} | Price changed {old_price} → {new_price} EGP")
-        else:
-            print(f"  SKIPPED: {deal['title'][:40]} | Same price")
-    else:
-        # New deal - save it and send notification
-        deal_ref.set(deal)
-        # Save initial price history
-        history_ref = deal_ref.collection("price_history").document()
-        history_ref.set({
-            "price": deal["current_price"],
-            "timestamp": deal["timestamp"]
-        })
-        print(f"  NEW DEAL: {deal['title'][:40]} | {deal['discount_percent']}% OFF | EGP {deal['current_price']}")
+            print(f"  NEW:     {deal['title'][:45]} | {deal['discount_percent']}% OFF | EGP {deal['current_price']}")
+
+    except Exception as e:
+        print(f"  ERROR saving deal: {e}")
 
 def get_headers():
-    """Browser headers so websites don't block us"""
+    """Browser-like headers to avoid being blocked"""
     return {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
     }
 
 # ─────────────────────────────────────────
@@ -98,109 +127,118 @@ def scrape_amazon_egypt():
     """Scrape deals from Amazon Egypt"""
     print("\n[AMAZON] Starting scrape...")
 
-    # Amazon Egypt deal pages to scrape
     urls = [
-        "https://www.amazon.eg/s?i=electronics&rh=n%3A21419864031&s=price-asc-rank&dc&language=en_AE",
-        "https://www.amazon.eg/s?i=fashion&rh=n%3A21419911031&s=price-asc-rank&language=en_AE",
-        "https://www.amazon.eg/deals?language=en_AE",
+        "https://www.amazon.eg/s?i=electronics&rh=n%3A21419864031&s=price-asc-rank&language=en_AE",
+        "https://www.amazon.eg/s?i=fashion&rh=n%3A21419911031&language=en_AE",
+        "https://www.amazon.eg/gp/goldbox?language=en_AE",
     ]
 
     deals_found = 0
 
     for url in urls:
         try:
-            response = requests.get(url, headers=get_headers(), timeout=15)
+            print(f"  Fetching: {url[:60]}...")
+            response = requests.get(url, headers=get_headers(), timeout=20)
+
             if response.status_code != 200:
-                print(f"  [AMAZON] Could not reach page: {url[:50]} | Status: {response.status_code}")
+                print(f"  [AMAZON] HTTP {response.status_code} — skipping this page")
                 continue
 
             soup = BeautifulSoup(response.content, "lxml")
 
-            # Find all product containers on the page
+            # Try multiple ways to find products
             products = soup.find_all("div", {"data-component-type": "s-search-result"})
-
             if not products:
-                # Try alternate product container
                 products = soup.find_all("div", class_="s-result-item")
+            if not products:
+                products = soup.find_all("div", attrs={"data-asin": True})
 
-            print(f"  [AMAZON] Found {len(products)} products on page")
+            print(f"  [AMAZON] {len(products)} products found on this page")
 
             for product in products:
                 try:
-                    # Get product title
-                    title_elem = product.find("span", class_="a-size-medium") or \
-                                 product.find("span", class_="a-size-base-plus") or \
-                                 product.find("h2")
+                    # Skip sponsored/ad items
+                    if product.get("data-component-type") == "sp-sponsored-result":
+                        continue
+
+                    # Get title
+                    title_elem = (
+                        product.find("span", class_="a-size-medium") or
+                        product.find("span", class_="a-size-base-plus") or
+                        product.find("span", class_="a-size-large") or
+                        product.find("h2")
+                    )
                     if not title_elem:
                         continue
                     title = title_elem.get_text(strip=True)
                     if not title or len(title) < 5:
                         continue
 
-                    # Get product URL
+                    # Get product link
                     link_elem = product.find("a", class_="a-link-normal")
                     if not link_elem:
                         continue
-                    product_url = "https://www.amazon.eg" + link_elem.get("href", "")
+                    href = link_elem.get("href", "")
+                    if not href:
+                        continue
+                    product_url = "https://www.amazon.eg" + href if href.startswith("/") else href
 
                     # Get current price
-                    price_elem = product.find("span", class_="a-price-whole")
-                    if not price_elem:
+                    price_whole = product.find("span", class_="a-price-whole")
+                    if not price_whole:
                         continue
-                    price_text = price_elem.get_text(strip=True).replace(",", "").replace(".", "")
+                    price_text = price_whole.get_text(strip=True).replace(",", "").replace(".", "").strip()
                     try:
                         current_price = float(price_text)
                     except:
                         continue
+                    if current_price <= 0:
+                        continue
 
-                    # Get original price (strikethrough price)
-                    orig_elem = product.find("span", class_="a-price a-text-price")
-                    if orig_elem:
-                        orig_text = orig_elem.find("span", class_="a-offscreen")
-                        if orig_text:
-                            orig_clean = orig_text.get_text(strip=True).replace(",", "").replace("EGP", "").strip()
+                    # Get original (strikethrough) price
+                    orig_price_block = product.find("span", class_="a-price a-text-price")
+                    original_price = current_price
+                    if orig_price_block:
+                        orig_offscreen = orig_price_block.find("span", class_="a-offscreen")
+                        if orig_offscreen:
+                            orig_text = orig_offscreen.get_text(strip=True)
+                            orig_text = orig_text.replace(",", "").replace("EGP", "").replace("ج.م", "").strip()
                             try:
-                                original_price = float(orig_clean)
+                                original_price = float(orig_text)
                             except:
                                 original_price = current_price
-                        else:
-                            original_price = current_price
-                    else:
-                        original_price = current_price
 
-                    # Calculate discount
+                    # Calculate and filter by discount
                     discount = calculate_discount(original_price, current_price)
-
-                    # Only keep deals with 40%+ discount
                     if discount < MIN_DISCOUNT:
                         continue
 
-                    # Get product image
+                    # Get image URL
                     img_elem = product.find("img", class_="s-image")
                     image_url = img_elem.get("src", "") if img_elem else ""
 
                     # Get rating
-                    rating_elem = product.find("span", class_="a-icon-alt")
                     rating = 0.0
+                    rating_elem = product.find("span", class_="a-icon-alt")
                     if rating_elem:
                         try:
                             rating = float(rating_elem.get_text(strip=True).split(" ")[0])
                         except:
                             rating = 0.0
 
-                    # Detect category from URL
-                    if "electronics" in url.lower() or "mobiles" in url.lower():
+                    # Detect category
+                    if "electronics" in url:
                         category = "electronics"
-                    elif "fashion" in url.lower():
+                    elif "fashion" in url:
                         category = "fashion"
                     else:
                         category = "general"
 
-                    # Build the deal object
                     deal = {
                         "deal_id": generate_deal_id("amazon_eg", product_url, current_price),
                         "title": title,
                         "site": "amazon_eg",
+                        "site_display": "Amazon Egypt",
                         "category": category,
                         "current_price": current_price,
                         "original_price": original_price,
@@ -218,14 +256,18 @@ def scrape_amazon_egypt():
                     deals_found += 1
 
                 except Exception as e:
-                    print(f"  [AMAZON] Error parsing product: {e}")
+                    print(f"  [AMAZON] Product parse error: {e}")
                     continue
 
+            # Be polite — wait 2 seconds between pages
+            time.sleep(2)
+
         except Exception as e:
-            print(f"  [AMAZON] Error fetching page: {e}")
+            print(f"  [AMAZON] Page fetch error: {e}")
             continue
 
-    print(f"[AMAZON] Done. {deals_found} deals saved.")
+    print(f"[AMAZON] Finished. {deals_found} deals saved this cycle.")
+    return deals_found
 
 # ─────────────────────────────────────────
 # NOON EGYPT SCRAPER
@@ -247,26 +289,35 @@ def scrape_noon_egypt():
 
     for url in urls:
         try:
-            response = requests.get(url, headers=get_headers(), timeout=15)
+            print(f"  Fetching: {url[:60]}...")
+            response = requests.get(url, headers=get_headers(), timeout=20)
+
             if response.status_code != 200:
-                print(f"  [NOON] Could not reach page: {url[:50]} | Status: {response.status_code}")
+                print(f"  [NOON] HTTP {response.status_code} — skipping this page")
                 continue
 
             soup = BeautifulSoup(response.content, "lxml")
 
-            # Noon product containers
-            products = soup.find_all("div", class_="productContainer") or \
-                       soup.find_all("div", attrs={"data-qa": "product-block"}) or \
-                       soup.find_all("article")
+            # Try multiple selectors for Noon products
+            products = (
+                soup.find_all("div", class_="productContainer") or
+                soup.find_all("div", attrs={"data-qa": "product-block"}) or
+                soup.find_all("div", class_="sc-eBMEer") or
+                soup.find_all("article") or
+                soup.find_all("div", class_="grid-item")
+            )
 
-            print(f"  [NOON] Found {len(products)} products on page")
+            print(f"  [NOON] {len(products)} products found on this page")
 
             for product in products:
                 try:
                     # Get title
-                    title_elem = product.find("div", class_="name") or \
-                                 product.find("h2") or \
-                                 product.find("p", class_="name")
+                    title_elem = (
+                        product.find("div", class_="name") or
+                        product.find("p", class_="name") or
+                        product.find("h2") or
+                        product.find("span", class_="name")
+                    )
                     if not title_elem:
                         continue
                     title = title_elem.get_text(strip=True)
@@ -278,35 +329,43 @@ def scrape_noon_egypt():
                     if not link_elem:
                         continue
                     href = link_elem.get("href", "")
-                    if href.startswith("/"):
-                        product_url = "https://www.noon.com" + href
-                    else:
-                        product_url = href
+                    product_url = "https://www.noon.com" + href if href.startswith("/") else href
+                    if not product_url:
+                        continue
 
                     # Get current price
-                    price_elem = product.find("strong", class_="price") or \
-                                 product.find("span", class_="price")
+                    price_elem = (
+                        product.find("strong", class_="price") or
+                        product.find("span", class_="price") or
+                        product.find("div", class_="price")
+                    )
                     if not price_elem:
                         continue
-                    price_text = price_elem.get_text(strip=True).replace(",", "").replace("EGP", "").strip()
+                    price_text = price_elem.get_text(strip=True)
+                    price_text = price_text.replace(",", "").replace("EGP", "").replace("ج.م", "").strip()
                     try:
                         current_price = float(price_text)
                     except:
                         continue
+                    if current_price <= 0:
+                        continue
 
                     # Get original price
-                    orig_elem = product.find("span", class_="was-price") or \
-                                product.find("del")
+                    orig_elem = (
+                        product.find("span", class_="was-price") or
+                        product.find("del") or
+                        product.find("span", class_="oldPrice")
+                    )
+                    original_price = current_price
                     if orig_elem:
-                        orig_text = orig_elem.get_text(strip=True).replace(",", "").replace("EGP", "").strip()
+                        orig_text = orig_elem.get_text(strip=True)
+                        orig_text = orig_text.replace(",", "").replace("EGP", "").replace("ج.م", "").strip()
                         try:
                             original_price = float(orig_text)
                         except:
                             original_price = current_price
-                    else:
-                        original_price = current_price
 
-                    # Calculate discount
+                    # Filter by discount
                     discount = calculate_discount(original_price, current_price)
                     if discount < MIN_DISCOUNT:
                         continue
@@ -315,7 +374,7 @@ def scrape_noon_egypt():
                     img_elem = product.find("img")
                     image_url = img_elem.get("src", "") if img_elem else ""
 
-                    # Detect category
+                    # Detect category from URL
                     if "electronics" in url:
                         category = "electronics"
                     elif "fashion" in url:
@@ -333,6 +392,7 @@ def scrape_noon_egypt():
                         "deal_id": generate_deal_id("noon_eg", product_url, current_price),
                         "title": title,
                         "site": "noon_eg",
+                        "site_display": "Noon Egypt",
                         "category": category,
                         "current_price": current_price,
                         "original_price": original_price,
@@ -350,48 +410,50 @@ def scrape_noon_egypt():
                     deals_found += 1
 
                 except Exception as e:
-                    print(f"  [NOON] Error parsing product: {e}")
+                    print(f"  [NOON] Product parse error: {e}")
                     continue
 
+            time.sleep(2)
+
         except Exception as e:
-            print(f"  [NOON] Error fetching page: {e}")
+            print(f"  [NOON] Page fetch error: {e}")
             continue
 
-    print(f"[NOON] Done. {deals_found} deals saved.")
+    print(f"[NOON] Finished. {deals_found} deals saved this cycle.")
+    return deals_found
 
 # ─────────────────────────────────────────
 # MAIN SCRAPE CYCLE
 # ─────────────────────────────────────────
 
 def run_scraper():
-    """Run one full scrape cycle"""
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"\n{'='*50}")
-    print(f"SCRAPE CYCLE STARTED: {now}")
-    print(f"{'='*50}")
+    """Run one complete scrape of all sites"""
+    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    print(f"\n{'='*55}")
+    print(f"  SCRAPE CYCLE: {now}")
+    print(f"{'='*55}")
 
-    scrape_amazon_egypt()
-    scrape_noon_egypt()
+    total = 0
+    total += scrape_amazon_egypt()
+    total += scrape_noon_egypt()
 
-    print(f"\nCYCLE COMPLETE. Next run in {INTERVAL} minutes.")
-    print(f"{'='*50}")
+    print(f"\n  TOTAL THIS CYCLE: {total} deals saved")
+    print(f"  Next run in {INTERVAL} minutes")
+    print(f"{'='*55}\n")
 
 # ─────────────────────────────────────────
-# START THE SCHEDULER
+# START — only runs when called directly
 # ─────────────────────────────────────────
 
 if __name__ == "__main__":
-    print("DealHunter Egypt Scraper Starting...")
-    print(f"Will scrape every {INTERVAL} minutes")
-    print(f"Minimum discount: {MIN_DISCOUNT}%")
+    print("DealHunter Egypt Scraper")
+    print(f"Min discount: {MIN_DISCOUNT}%")
+    print(f"Interval: every {INTERVAL} minutes")
     print("Press CTRL+C to stop\n")
 
-    # Run immediately on start
     run_scraper()
 
-    # Then run every X minutes
     schedule.every(INTERVAL).minutes.do(run_scraper)
-
     while True:
         schedule.run_pending()
         time.sleep(30)
