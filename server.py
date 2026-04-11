@@ -1,44 +1,63 @@
-# This file makes Render think we are a website
-# While secretly running the scraper in the background
+# DealHunter Egypt - Web Server Wrapper
+# Keeps Render alive while scraper runs in background
 
 import threading
-import time
+import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from scraper import run_scraper, INTERVAL
 import schedule
+import time
+
 
 class SimpleHandler(BaseHTTPRequestHandler):
+
     def do_GET(self):
         self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", "26")
         self.end_headers()
         self.wfile.write(b"DealHunter Scraper is running!")
 
+    def do_HEAD(self):
+        # UptimeRobot uses HEAD requests — we must support this
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+
+    def do_POST(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"OK")
+
     def log_message(self, format, *args):
-        pass  # Silence web server logs
+        # Silence web server access logs — only show scraper logs
+        pass
+
 
 def run_web_server():
-    """Start a tiny web server so Render keeps us alive"""
-    port = int(os.environ.get("PORT", 8080))
+    """Start tiny web server so Render and UptimeRobot are happy"""
+    port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), SimpleHandler)
     print(f"Web server started on port {port}")
     server.serve_forever()
 
+
 def run_scheduler():
-    """Run the scraper on a schedule"""
-    print("Scheduler started")
-    run_scraper()  # Run immediately on start
+    """Run scraper immediately then on schedule"""
+    print("Scheduler started — running first scrape now...")
+    run_scraper()
     schedule.every(INTERVAL).minutes.do(run_scraper)
     while True:
         schedule.run_pending()
         time.sleep(30)
 
+
 if __name__ == "__main__":
-    import os
-    print("DealHunter starting...")
+    print("DealHunter Egypt Starting...")
 
     # Start scraper in background thread
-    scraper_thread = threading.Thread(target=run_scheduler)
-    scraper_thread.daemon = True
+    scraper_thread = threading.Thread(target=run_scheduler, daemon=True)
     scraper_thread.start()
 
     # Start web server in main thread (Render requires this)
