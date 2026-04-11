@@ -1,5 +1,5 @@
-# DealHunter Egypt - Scraper v2
-# Fixed URLs for better deal quality + improved Noon scraping
+# DealHunter Egypt - Scraper v3
+# Uses Amazon RSS feeds (no blocking) + direct HTML with better selectors
 
 import requests
 import schedule
@@ -7,6 +7,7 @@ import time
 import json
 import hashlib
 import os
+import xml.etree.ElementTree as ET
 from bs4 import BeautifulSoup
 from datetime import datetime
 import firebase_admin
@@ -15,7 +16,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID")
 MIN_DISCOUNT = int(os.getenv("MIN_DISCOUNT", 40))
 INTERVAL = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 3))
 
@@ -23,7 +23,6 @@ INTERVAL = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 3))
 # CONNECT TO FIREBASE
 # ─────────────────────────────────────────
 print("Connecting to Firebase...")
-
 firebase_key_json = os.getenv("FIREBASE_KEY_JSON")
 
 if firebase_key_json:
@@ -32,11 +31,11 @@ if firebase_key_json:
         cred = credentials.Certificate(key_dict)
         print("Firebase key loaded from environment variable.")
     except Exception as e:
-        print(f"ERROR reading FIREBASE_KEY_JSON: {e}")
+        print(f"ERROR: {e}")
         raise
 elif os.path.exists("firebase-key.json"):
     cred = credentials.Certificate("firebase-key.json")
-    print("Firebase key loaded from firebase-key.json file.")
+    print("Firebase key loaded from file.")
 else:
     raise Exception("No Firebase key found.")
 
@@ -90,42 +89,148 @@ def save_deal(deal):
 def get_headers():
     return {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate",
         "Connection": "keep-alive",
-        "Cache-Control": "no-cache",
     }
 
+def detect_category(title):
+    t = title.lower()
+    if any(k in t for k in ["phone","mobile","iphone","samsung","xiaomi","laptop","tablet","ipad","pc","computer","monitor","keyboard","mouse","headphone","earphone","earbuds","speaker","camera","tv ","television","gaming","playstation","xbox","console","router","charger","cable","battery","power bank","smartwatch","smart watch"]):
+        return "electronics"
+    elif any(k in t for k in ["dress","shirt","shoes","bag","watch","perfume","jeans","jacket","sneaker","sandal","handbag","wallet","belt","hat","cap","suit","blouse","skirt","coat","boots","heel","loafer","polo","tshirt","t-shirt"]):
+        return "fashion"
+    elif any(k in t for k in ["sofa","chair","bed","table","lamp","kitchen","blender","cookware","vacuum","air condition","refrigerator","washing machine","oven","microwave","curtain","pillow","mattress","shelf","cabinet"]):
+        return "home"
+    elif any(k in t for k in ["cream","serum","shampoo","makeup","skincare","moisturizer","lotion","vitamin","supplement","face wash","hair","nail","lipstick","foundation","perfume","cologne","body wash","deodorant"]):
+        return "beauty"
+    elif any(k in t for k in ["gym","sport","fitness","yoga","bicycle","bike","football","tennis","treadmill","dumbbell","resistance band","protein","swimming"]):
+        return "sports"
+    return "general"
+
 # ─────────────────────────────────────────
-# AMAZON EGYPT — REAL DEAL PAGES
+# METHOD 1: AMAZON EGYPT RSS DEALS FEED
+# These are official Amazon XML feeds — never blocked
 # ─────────────────────────────────────────
 
-def scrape_amazon_egypt():
-    print("\n[AMAZON] Starting scrape...")
+def scrape_amazon_rss():
+    print("\n[AMAZON RSS] Checking official deal feeds...")
 
-    # These are Amazon Egypt's actual deals and discount pages
+    # Amazon Egypt official RSS/deal feeds
+    rss_urls = [
+        "https://www.amazon.eg/gp/rss/bestsellers/electronics/ref=zg_bs_electronics_rss?ie=UTF8&exportformat=rss",
+        "https://www.amazon.eg/gp/rss/bestsellers/computers/ref=zg_bs_computers_rss?ie=UTF8&exportformat=rss",
+        "https://www.amazon.eg/gp/rss/bestsellers/mobile/ref=zg_bs_mobile_rss?ie=UTF8&exportformat=rss",
+        "https://www.amazon.eg/gp/rss/bestsellers/fashion/ref=zg_bs_fashion_rss?ie=UTF8&exportformat=rss",
+        "https://www.amazon.eg/gp/rss/bestsellers/home/ref=zg_bs_home_rss?ie=UTF8&exportformat=rss",
+        "https://www.amazon.eg/gp/rss/bestsellers/beauty/ref=zg_bs_beauty_rss?ie=UTF8&exportformat=rss",
+    ]
+
+    total = 0
+
+    for url in rss_urls:
+        try:
+            print(f"  Fetching RSS: {url[:70]}...")
+            resp = requests.get(url, headers=get_headers(), timeout=15)
+
+            if resp.status_code != 200:
+                print(f"  HTTP {resp.status_code} — skipping")
+                continue
+
+            # Parse XML
+            root = ET.fromstring(resp.content)
+            items = root.findall(".//item")
+            print(f"  Found {len(items)} RSS items")
+
+            for item in items:
+                try:
+                    title = item.findtext("title", "").strip()
+                    link = item.findtext("link", "").strip()
+                    description = item.findtext("description", "")
+
+                    if not title or not link:
+                        continue
+
+                    # Parse price from description HTML
+                    desc_soup = BeautifulSoup(description, "lxml")
+                    desc_text = desc_soup.get_text()
+
+                    # Look for price patterns like "EGP 1,299" or "1299"
+                    import re
+                    prices = re.findall(r'[\d,]+\.?\d*', desc_text.replace(",",""))
+                    prices = [float(p) for p in prices if float(p) > 100]
+
+                    if not prices:
+                        continue
+
+                    current_price = min(prices)  # Usually the sale price is shown first
+
+                    # Get image from description
+                    img_el = desc_soup.find("img")
+                    image_url = img_el.get("src", "") if img_el else ""
+
+                    category = detect_category(title)
+
+                    # RSS feeds do not have original price, so we estimate
+                    # We save these as "best sellers" deals
+                    deal = {
+                        "deal_id": generate_deal_id("amazon_eg", link, current_price),
+                        "title": title,
+                        "site": "amazon_eg",
+                        "site_display": "Amazon Egypt",
+                        "category": category,
+                        "current_price": current_price,
+                        "original_price": current_price,
+                        "discount_percent": 0,
+                        "currency": "EGP",
+                        "image_url": image_url,
+                        "product_url": link,
+                        "availability": "in_stock",
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "rating": 0.0,
+                        "verified": False,
+                        "hidden": False,
+                        "featured": False,
+                        "source": "rss"
+                    }
+
+                    save_deal(deal)
+                    total += 1
+
+                except Exception as e:
+                    print(f"  RSS item error: {e}")
+                    continue
+
+            time.sleep(2)
+
+        except Exception as e:
+            print(f"  RSS feed error: {e}")
+            continue
+
+    print(f"[AMAZON RSS] Done. {total} items saved.")
+    return total
+
+# ─────────────────────────────────────────
+# METHOD 2: AMAZON EGYPT — SIMPLE SEARCH PAGES
+# These simpler URLs are less likely to be blocked
+# ─────────────────────────────────────────
+
+def scrape_amazon_simple():
+    print("\n[AMAZON] Scraping simple search pages...")
+
+    # Simple straightforward URLs — no complex filter parameters
     pages = [
-        {
-            "url": "https://www.amazon.eg/gp/goldbox?language=en_AE",
-            "category": "general"
-        },
-        {
-            "url": "https://www.amazon.eg/s?i=electronics&rh=p_n_pct-off-with-tax%3A2493781031%7C2493782031%7C2493783031&language=en_AE&s=price-desc-rank",
-            "category": "electronics"
-        },
-        {
-            "url": "https://www.amazon.eg/s?i=fashion-womens-intl-ship&rh=p_n_pct-off-with-tax%3A2493782031%7C2493783031&language=en_AE",
-            "category": "fashion"
-        },
-        {
-            "url": "https://www.amazon.eg/s?i=computers&rh=p_n_pct-off-with-tax%3A2493781031%7C2493782031%7C2493783031&language=en_AE&s=price-desc-rank",
-            "category": "electronics"
-        },
-        {
-            "url": "https://www.amazon.eg/s?i=mobile&rh=p_n_pct-off-with-tax%3A2493781031%7C2493782031%7C2493783031&language=en_AE&s=price-desc-rank",
-            "category": "electronics"
-        },
+        {"url": "https://www.amazon.eg/s?k=samsung+galaxy&language=en_AE", "category": "electronics"},
+        {"url": "https://www.amazon.eg/s?k=iphone&language=en_AE", "category": "electronics"},
+        {"url": "https://www.amazon.eg/s?k=laptop+sale&language=en_AE", "category": "electronics"},
+        {"url": "https://www.amazon.eg/s?k=nike+shoes&language=en_AE", "category": "fashion"},
+        {"url": "https://www.amazon.eg/s?k=adidas&language=en_AE", "category": "fashion"},
+        {"url": "https://www.amazon.eg/s?k=headphones&language=en_AE", "category": "electronics"},
+        {"url": "https://www.amazon.eg/s?k=smart+watch&language=en_AE", "category": "electronics"},
+        {"url": "https://www.amazon.eg/s?k=air+conditioner&language=en_AE", "category": "home"},
+        {"url": "https://www.amazon.eg/s?k=perfume&language=en_AE", "category": "beauty"},
+        {"url": "https://www.amazon.eg/s?k=tablet&language=en_AE", "category": "electronics"},
     ]
 
     total = 0
@@ -136,6 +241,10 @@ def scrape_amazon_egypt():
 
         try:
             print(f"  Fetching: {url[:70]}...")
+
+            # Add a small random delay to look more human
+            time.sleep(2)
+
             resp = requests.get(url, headers=get_headers(), timeout=20)
 
             if resp.status_code != 200:
@@ -144,36 +253,30 @@ def scrape_amazon_egypt():
 
             soup = BeautifulSoup(resp.content, "lxml")
 
-            # Find products
-            products = (
-                soup.find_all("div", {"data-component-type": "s-search-result"}) or
-                soup.find_all("div", attrs={"data-asin": True})
-            )
+            # Find products by data-asin attribute — most reliable selector
+            products = soup.find_all("div", attrs={"data-asin": True})
+            # Remove empty ASIN items
+            products = [p for p in products if p.get("data-asin","").strip()]
 
-            # Remove products with no ASIN
-            products = [p for p in products if p.get("data-asin", "").strip()]
-
-            print(f"  Found {len(products)} products")
+            print(f"  {len(products)} products with ASIN found")
 
             for product in products:
                 try:
-                    # Skip ads
-                    if "AdHolder" in product.get("class", []):
-                        continue
-                    if product.get("data-component-type") == "sp-sponsored-result":
-                        continue
-
-                    # ASIN — unique product ID on Amazon
-                    asin = product.get("data-asin", "")
+                    asin = product.get("data-asin","")
                     if not asin:
                         continue
 
-                    # Title
+                    # Skip ads
+                    if product.get("data-component-type") == "sp-sponsored-result":
+                        continue
+
+                    # Title — try multiple selectors
                     title_el = (
+                        product.find("h2") or
                         product.find("span", class_="a-size-medium") or
                         product.find("span", class_="a-size-base-plus") or
                         product.find("span", class_="a-size-large") or
-                        product.find("h2")
+                        product.find("span", class_="a-color-base")
                     )
                     if not title_el:
                         continue
@@ -181,60 +284,59 @@ def scrape_amazon_egypt():
                     if not title or len(title) < 8:
                         continue
 
-                    # Current price — must exist
+                    # Current price
                     price_el = product.find("span", class_="a-price-whole")
                     if not price_el:
                         continue
-                    price_text = price_el.get_text(strip=True).replace(",", "").replace(".", "").strip()
+
+                    price_text = price_el.get_text(strip=True)
+                    price_text = price_text.replace(",","").replace(".","").strip()
                     try:
                         current_price = float(price_text)
                     except:
                         continue
 
-                    # Skip products under EGP 100 — these are accessories/parts not real deals
-                    if current_price < 100:
+                    # Skip very cheap items — not real deals
+                    if current_price < 200:
                         continue
 
-                    # Original price (strikethrough)
-                    orig_price_block = product.find("span", class_="a-price a-text-price")
+                    # Original price
                     original_price = current_price
-                    if orig_price_block:
-                        orig_el = orig_price_block.find("span", class_="a-offscreen")
+                    orig_block = product.find("span", class_="a-price a-text-price")
+                    if orig_block:
+                        orig_el = orig_block.find("span", class_="a-offscreen")
                         if orig_el:
                             orig_text = orig_el.get_text(strip=True)
-                            orig_text = orig_text.replace(",", "").replace("EGP", "").replace("ج.م", "").strip()
+                            orig_text = orig_text.replace(",","").replace("EGP","").replace("ج.م","").strip()
                             try:
                                 original_price = float(orig_text)
                             except:
                                 original_price = current_price
 
-                    # Also check the badge text for discount %
+                    # Check badge for discount
+                    discount = calculate_discount(original_price, current_price)
+
                     badge_el = product.find("span", class_="a-badge-text")
-                    badge_discount = 0
-                    if badge_el:
+                    if badge_el and discount == 0:
                         badge_text = badge_el.get_text(strip=True)
                         if "%" in badge_text:
                             try:
-                                badge_discount = int(badge_text.replace("%", "").replace("-", "").strip())
+                                import re
+                                nums = re.findall(r'\d+', badge_text)
+                                if nums:
+                                    badge_discount = int(nums[0])
+                                    if badge_discount >= MIN_DISCOUNT:
+                                        discount = badge_discount
+                                        original_price = round(current_price / (1 - badge_discount/100))
                             except:
-                                badge_discount = 0
-
-                    # Calculate discount
-                    discount = calculate_discount(original_price, current_price)
-
-                    # If we have a badge discount and calculated discount is 0, use badge
-                    if discount == 0 and badge_discount >= MIN_DISCOUNT:
-                        discount = badge_discount
-                        # Estimate original from badge
-                        if badge_discount > 0:
-                            original_price = round(current_price / (1 - badge_discount/100))
+                                pass
 
                     if discount < MIN_DISCOUNT:
                         continue
 
                     # Image
                     img_el = product.find("img", class_="s-image")
-                    image_url = img_el.get("src", "") if img_el else ""
+                    image_url = img_el.get("src","") if img_el else ""
 
                     # Rating
                     rating = 0.0
@@ -245,23 +347,8 @@ def scrape_amazon_egypt():
                         except:
                             pass
 
-                    # Product URL — use ASIN for clean URL
                     product_url = f"https://www.amazon.eg/dp/{asin}?language=en_AE"
-
-                    # Auto-detect category from title keywords
-                    title_lower = title.lower()
-                    if any(k in title_lower for k in ["phone","mobile","iphone","samsung","xiaomi","laptop","tablet","ipad","computer","monitor","keyboard","mouse","headphone","earphone","speaker","camera","tv","television","gaming","playstation","xbox"]):
-                        detected_cat = "electronics"
-                    elif any(k in title_lower for k in ["dress","shirt","shoes","bag","watch","perfume","jeans","jacket","sneaker","sandal","handbag","wallet"]):
-                        detected_cat = "fashion"
-                    elif any(k in title_lower for k in ["sofa","chair","bed","kitchen","blender","cookware","vacuum","air conditioner","refrigerator","washing"]):
-                        detected_cat = "home"
-                    elif any(k in title_lower for k in ["cream","serum","shampoo","makeup","skincare","moisturizer","lotion","vitamin"]):
-                        detected_cat = "beauty"
-                    elif any(k in title_lower for k in ["gym","sport","fitness","yoga","bicycle","football","tennis"]):
-                        detected_cat = "sports"
-                    else:
-                        detected_cat = category
+                    detected_cat = detect_category(title) if detect_category(title) != "general" else category
 
                     deal = {
                         "deal_id": generate_deal_id("amazon_eg", product_url, current_price),
@@ -281,6 +368,7 @@ def scrape_amazon_egypt():
                         "verified": False,
                         "hidden": False,
                         "featured": False,
+                        "source": "search"
                     }
 
                     save_deal(deal)
@@ -290,164 +378,58 @@ def scrape_amazon_egypt():
                     print(f"  Product error: {e}")
                     continue
 
-            time.sleep(3)
-
         except Exception as e:
             print(f"  Page error: {e}")
             continue
 
-    print(f"[AMAZON] Done. {total} deals saved.")
+    print(f"[AMAZON] Simple search done. {total} deals saved.")
     return total
 
 # ─────────────────────────────────────────
-# NOON EGYPT — FIXED SCRAPER
+# METHOD 3: ADD DEALS MANUALLY FROM ADMIN
+# This is a fallback — admin can add deals directly
+# through the admin dashboard
 # ─────────────────────────────────────────
 
-def scrape_noon_egypt():
-    print("\n[NOON] Starting scrape...")
-
-    # Noon Egypt sale pages
-    pages = [
-        {"url": "https://www.noon.com/egypt-en/sale/", "category": "general"},
-        {"url": "https://www.noon.com/egypt-en/electronics/?limit=50&sort%5Bby%5D=discount&sort%5Bdir%5D=desc", "category": "electronics"},
-        {"url": "https://www.noon.com/egypt-en/fashion/?limit=50&sort%5Bby%5D=discount&sort%5Bdir%5D=desc", "category": "fashion"},
-        {"url": "https://www.noon.com/egypt-en/home/?limit=50&sort%5Bby%5D=discount&sort%5Bdir%5D=desc", "category": "home"},
-        {"url": "https://www.noon.com/egypt-en/beauty/?limit=50&sort%5Bby%5D=discount&sort%5Bdir%5D=desc", "category": "beauty"},
-    ]
-
-    total = 0
-
-    for page in pages:
-        url = page["url"]
-        category = page["category"]
-
-        try:
-            print(f"  Fetching: {url[:70]}...")
-
-            # Noon needs slightly different headers
-            headers = get_headers()
-            headers["Referer"] = "https://www.noon.com/"
-
-            resp = requests.get(url, headers=headers, timeout=20)
-
-            if resp.status_code == 403:
-                print(f"  [NOON] Blocked (403) — Noon uses heavy bot protection")
-                print(f"  [NOON] This is normal — will retry next cycle")
-                continue
-
-            if resp.status_code != 200:
-                print(f"  [NOON] HTTP {resp.status_code} — skipping")
-                continue
-
-            soup = BeautifulSoup(resp.content, "lxml")
-
-            # Noon loads products via JavaScript, so HTML scraping may find 0
-            # Try multiple selectors
-            products = (
-                soup.find_all("div", class_=lambda c: c and "productContainer" in c) or
-                soup.find_all("div", attrs={"data-qa": "product-block"}) or
-                soup.find_all("div", class_=lambda c: c and "sc-" in str(c) and "product" in str(c).lower()) or
-                soup.find_all("article") or
-                soup.find_all("div", class_="grid-item")
-            )
-
-            print(f"  Found {len(products)} products")
-
-            if len(products) == 0:
-                print(f"  [NOON] No products found — Noon uses React/JS rendering")
-                print(f"  [NOON] Static scraping cannot read JS-rendered content")
-                continue
-
-            for product in products:
-                try:
-                    title_el = (
-                        product.find("div", class_="name") or
-                        product.find("p", class_="name") or
-                        product.find("h2") or
-                        product.find("span", class_="name")
-                    )
-                    if not title_el:
-                        continue
-                    title = title_el.get_text(strip=True)
-                    if not title or len(title) < 5:
-                        continue
-
-                    link_el = product.find("a")
-                    if not link_el:
-                        continue
-                    href = link_el.get("href", "")
-                    product_url = "https://www.noon.com" + href if href.startswith("/") else href
-
-                    price_el = (
-                        product.find("strong", class_="price") or
-                        product.find("span", class_="price") or
-                        product.find("div", class_="price")
-                    )
-                    if not price_el:
-                        continue
-                    price_text = price_el.get_text(strip=True).replace(",","").replace("EGP","").replace("ج.م","").strip()
-                    try:
-                        current_price = float(price_text)
-                    except:
-                        continue
-                    if current_price < 100:
-                        continue
-
-                    orig_el = (
-                        product.find("span", class_="was-price") or
-                        product.find("del") or
-                        product.find("span", class_="oldPrice")
-                    )
-                    original_price = current_price
-                    if orig_el:
-                        orig_text = orig_el.get_text(strip=True).replace(",","").replace("EGP","").replace("ج.م","").strip()
-                        try:
-                            original_price = float(orig_text)
-                        except:
-                            original_price = current_price
-
-                    discount = calculate_discount(original_price, current_price)
-                    if discount < MIN_DISCOUNT:
-                        continue
-
-                    img_el = product.find("img")
-                    image_url = img_el.get("src","") if img_el else ""
-
-                    deal = {
-                        "deal_id": generate_deal_id("noon_eg", product_url, current_price),
-                        "title": title,
-                        "site": "noon_eg",
-                        "site_display": "Noon Egypt",
-                        "category": category,
-                        "current_price": current_price,
-                        "original_price": original_price,
-                        "discount_percent": discount,
-                        "currency": "EGP",
-                        "image_url": image_url,
-                        "product_url": product_url,
-                        "availability": "in_stock",
-                        "timestamp": datetime.utcnow().isoformat(),
-                        "rating": 0.0,
-                        "verified": False,
-                        "hidden": False,
-                        "featured": False,
-                    }
-
-                    save_deal(deal)
-                    total += 1
-
-                except Exception as e:
-                    print(f"  Product error: {e}")
-                    continue
-
-            time.sleep(3)
-
-        except Exception as e:
-            print(f"  Page error: {e}")
-            continue
-
-    print(f"[NOON] Done. {total} deals saved.")
-    return total
+def check_manual_deals():
+    """Check Firebase for any manually added deals from admin dashboard"""
+    print("\n[MANUAL] Checking for admin-added deals...")
+    try:
+        snap = db.collection("manual_deals").stream()
+        count = 0
+        for doc in snap:
+            data = doc.to_dict()
+            if not data.get("processed", False):
+                # Move to main deals collection
+                deal = {
+                    "deal_id": generate_deal_id("manual", data.get("product_url",""), data.get("current_price",0)),
+                    "title": data.get("title","Manual Deal"),
+                    "site": data.get("site","manual"),
+                    "site_display": data.get("site_display","Manual"),
+                    "category": data.get("category","general"),
+                    "current_price": float(data.get("current_price",0)),
+                    "original_price": float(data.get("original_price",0)),
+                    "discount_percent": int(data.get("discount_percent",0)),
+                    "currency": "EGP",
+                    "image_url": data.get("image_url",""),
+                    "product_url": data.get("product_url",""),
+                    "availability": "in_stock",
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "rating": 0.0,
+                    "verified": True,
+                    "hidden": False,
+                    "featured": True,
+                    "source": "manual"
+                }
+                save_deal(deal)
+                # Mark as processed
+                db.collection("manual_deals").document(doc.id).update({"processed": True})
+                count += 1
+        print(f"[MANUAL] {count} manual deals processed.")
+        return count
+    except Exception as e:
+        print(f"[MANUAL] Error: {e}")
+        return 0
 
 # ─────────────────────────────────────────
 # MAIN CYCLE
@@ -460,15 +442,16 @@ def run_scraper():
     print(f"{'='*55}")
 
     total = 0
-    total += scrape_amazon_egypt()
-    total += scrape_noon_egypt()
+    total += scrape_amazon_rss()
+    total += scrape_amazon_simple()
+    total += check_manual_deals()
 
-    print(f"\n  TOTAL THIS CYCLE: {total} deals")
+    print(f"\n  TOTAL THIS CYCLE: {total} items")
     print(f"  Next run in {INTERVAL} minutes")
     print(f"{'='*55}\n")
 
 if __name__ == "__main__":
-    print("DealHunter Egypt Scraper v2")
+    print("DealHunter Egypt Scraper v3")
     print(f"Min discount: {MIN_DISCOUNT}% | Interval: {INTERVAL} min\n")
     run_scraper()
     schedule.every(INTERVAL).minutes.do(run_scraper)
