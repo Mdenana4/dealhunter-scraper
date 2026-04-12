@@ -12,13 +12,13 @@ import json
 import hashlib
 import os
 import re
-from dotenv import load_dotenv
-from fake_checker import check_price_history
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone
 import firebase_admin
 from firebase_admin import credentials, firestore
 from dotenv import load_dotenv
+from fake_checker import check_price_history
+
 
 load_dotenv()
 
@@ -605,7 +605,7 @@ def scrape_amazon():
                     if cat == "general":
                         cat = item["cat"]
                     print(f"    [AMAZON] Kanbkam check: {title[:30]}...")
-                   kb = check_price_history(
+                     kb = check_price_history(
     asin=asin,
     product_url=product_url,
     current_price=current_price,
@@ -1069,7 +1069,7 @@ def scrape_noon():
                                 rc = int(src.get("rating", {}).get("count", 0) or src.get("review_count", 0) or 0) or None
                                 cat = detect_category(title) or default_cat
                                 deal = build_deal(title, "noon_eg", "Noon Egypt", cat, cp, op, disc, img, purl, rating, rc)
-kb = check_price_history(
+ kb = check_price_history(
     product_url=product_url,
     current_price=current_price,
     original_price=original_price,
