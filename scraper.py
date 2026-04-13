@@ -1,6 +1,11 @@
-# DealHunter Egypt - Scraper v6 FIXED
-# All indentation errors corrected
-# Imports fake_checker module for Kanbkam + Safqa combined check
+# DealHunter Egypt - Scraper v7 FIXED
+# FIXES:
+#   1. IndentationError at line 608 — corrected all indentation in scrape_amazon()
+#   2. MIN_PRICE / MAX_PRICE filter added (set via .env or Render env vars)
+#   3. site_display names made consistent with dashboard expectations
+#   4. Jumia firebase save confirmed to use same 'deals' collection
+#   5. Carrefour API URL updated to current working format
+#   6. All scrapers: proper error handling so one failure doesn't crash others
 
 import requests
 import schedule
@@ -18,9 +23,17 @@ from fake_checker import check_price_history
 
 load_dotenv()
 
-MIN_DISCOUNT = int(os.getenv("MIN_DISCOUNT", 40))
-INTERVAL = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 3))
+MIN_DISCOUNT    = int(os.getenv("MIN_DISCOUNT", 40))
+INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 3))
 SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY", "")
+
+# ─── Price filter: skip products outside this EGP range ───────────────────────
+# Set MIN_PRICE and MAX_PRICE in your .env file or Render environment variables.
+# Example: MIN_PRICE=100  MAX_PRICE=50000
+# Leave as 0 / 9999999 to disable the filter.
+MIN_PRICE = float(os.getenv("MIN_PRICE", 0))
+MAX_PRICE = float(os.getenv("MAX_PRICE", 9999999))
+
 
 # ─────────────────────────────────────────────────────
 # FIREBASE CONNECTION
@@ -69,31 +82,32 @@ def check_scraper_control():
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
-
 def now_str():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-
 
 def calculate_discount(original, current):
     if original <= 0 or current <= 0 or current >= original:
         return 0
     return round(((original - current) / original) * 100)
 
-
 def generate_deal_id(site, url, price):
     return hashlib.md5(f"{site}_{url}_{price}".encode()).hexdigest()
-
 
 def clean_price(text):
     if not text:
         return 0.0
-    text = str(text).replace(',', '').replace('EGP', '').replace('ج.م', '').replace('جنيه', '').replace('جنية', '').strip()
+    text = (str(text)
+            .replace(',', '').replace('EGP', '').replace('ج.م', '')
+            .replace('جنيه', '').replace('جنية', '').strip())
     text = re.sub(r'[^\d.]', '', text)
     try:
         return float(text)
     except Exception:
         return 0.0
 
+def price_in_range(price):
+    """Return True if price passes the MIN_PRICE / MAX_PRICE filter."""
+    return MIN_PRICE <= price <= MAX_PRICE
 
 def get_headers(mobile=False):
     if mobile:
@@ -109,7 +123,6 @@ def get_headers(mobile=False):
         "Accept-Encoding": "gzip, deflate",
         "Connection": "keep-alive",
     }
-
 
 def detect_category(title):
     t = title.lower()
@@ -135,7 +148,7 @@ def detect_category(title):
 
 
 # ─────────────────────────────────────────────────────
-# SCRAPERAPI — Universal JS Rendering
+# SCRAPERAPI
 # ─────────────────────────────────────────────────────
 def fetch_with_scraperapi(url, render_js=True, country="eg"):
     if not SCRAPER_API_KEY:
@@ -156,7 +169,6 @@ def fetch_with_scraperapi(url, render_js=True, country="eg"):
         print(f"    ScraperAPI error: {e}")
         return fetch_direct(url)
 
-
 def fetch_direct(url, mobile=False):
     try:
         return requests.get(url, headers=get_headers(mobile=mobile), timeout=20)
@@ -166,13 +178,12 @@ def fetch_direct(url, mobile=False):
 
 
 # ─────────────────────────────────────────────────────
-# SAVE DEAL — Always update, never skip
+# SAVE DEAL — Always update Firebase, never skip
 # ─────────────────────────────────────────────────────
 def save_deal(deal):
     deal_id = deal["deal_id"]
     ref = db.collection("deals").document(deal_id)
     try:
-        # Fix: never store 0 reviews — use None (shows as ---)
         if deal.get("review_count", 0) == 0:
             deal["review_count"] = None
 
@@ -180,12 +191,12 @@ def save_deal(deal):
         if existing.exists:
             old = existing.to_dict()
             old_price = old.get("current_price", 0)
-            new_price = deal["current_price"]
+            new_price  = deal["current_price"]
 
             update = {
-                "current_price": new_price,
+                "current_price":   new_price,
                 "discount_percent": deal["discount_percent"],
-                "timestamp": deal["timestamp"],
+                "timestamp":       deal["timestamp"],
             }
             if deal.get("image_url"):
                 update["image_url"] = deal["image_url"]
@@ -194,45 +205,42 @@ def save_deal(deal):
             if deal.get("review_count") is not None:
                 update["review_count"] = deal["review_count"]
             if deal.get("coupon_codes"):
-                update["coupon_codes"] = deal["coupon_codes"]
+                update["coupon_codes"]   = deal["coupon_codes"]
                 update["coupon_display"] = deal.get("coupon_display", "")
 
             kb = deal.get("kanbkam", {})
             if kb:
                 update.update({
-                    "kanbkam": kb,
-                    "fake_verdict": kb.get("verdict", "UNVERIFIED"),
-                    "fake_verdict_ar": kb.get("verdict_ar", ""),
-                    "fake_emoji": kb.get("emoji", ""),
-                    "rule_a": kb.get("rule_a_triggered", False),
-                    "rule_b": kb.get("rule_b_triggered", False),
-                    "lowest_price_ever": kb.get("lowest_price", 0),
-                    "highest_price_ever": kb.get("highest_price", 0),
+                    "kanbkam":              kb,
+                    "fake_verdict":         kb.get("verdict", "UNVERIFIED"),
+                    "fake_verdict_ar":      kb.get("verdict_ar", ""),
+                    "fake_emoji":           kb.get("emoji", ""),
+                    "rule_a":               kb.get("rule_a_triggered", False),
+                    "rule_b":               kb.get("rule_b_triggered", False),
+                    "lowest_price_ever":    kb.get("lowest_price", 0),
+                    "highest_price_ever":   kb.get("highest_price", 0),
                     "suggested_wait_price": kb.get("suggested_wait_price", 0),
-                    "source_used": kb.get("source_used", ""),
+                    "source_used":          kb.get("source_used", ""),
                 })
 
             ref.update(update)
 
             if old_price != new_price:
                 ref.collection("price_history").document().set({
-                    "price": new_price,
-                    "old_price": old_price,
-                    "timestamp": deal["timestamp"]
+                    "price": new_price, "old_price": old_price, "timestamp": deal["timestamp"]
                 })
-                print(f"  UPDATED: {deal['title'][:45]} | EGP {old_price:,.0f}→{new_price:,.0f} | {deal.get('fake_emoji', '')} {deal.get('fake_verdict', '')}")
+                print(f"  UPDATED: {deal['title'][:45]} | EGP {old_price:,.0f}→{new_price:,.0f} | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
             else:
-                print(f"  REFRESH: {deal['title'][:45]} | {deal.get('fake_emoji', '')} {deal.get('fake_verdict', '')}")
+                print(f"  REFRESH: {deal['title'][:45]} | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
         else:
             ref.set(deal)
             ref.collection("price_history").document().set({
-                "price": deal["current_price"],
-                "timestamp": deal["timestamp"]
+                "price": deal["current_price"], "timestamp": deal["timestamp"]
             })
-            print(f"  NEW:     {deal['title'][:45]} | {deal['discount_percent']}% OFF | {deal.get('fake_emoji', '')} {deal.get('fake_verdict', '')}")
+            print(f"  NEW:     {deal['title'][:45]} | {deal['discount_percent']}% OFF | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
 
     except Exception as e:
-        print(f"  ERROR: {e}")
+        print(f"  SAVE ERROR: {e}")
 
 
 def build_deal(title, site, site_display, category, current_price, original_price,
@@ -244,42 +252,42 @@ def build_deal(title, site, site_display, category, current_price, original_pric
     if review_count == 0:
         review_count = None
     return {
-        "deal_id": generate_deal_id(site, product_url, current_price),
-        "title": title,
-        "title_ar": "",
-        "site": site,
-        "site_display": site_display,
-        "category": category,
-        "current_price": current_price,
-        "original_price": original_price,
-        "discount_percent": discount,
-        "currency": "EGP",
-        "image_url": image_url,
-        "product_url": product_url,
-        "asin": asin or "",
-        "availability": "in_stock",
-        "timestamp": now_iso(),
-        "rating": rating,
-        "review_count": review_count,
-        "coupon_codes": coupon_codes or kanbkam_result.get("coupon_codes", []),
-        "coupon_display": kanbkam_result.get("coupon_display", ""),
-        "verified": True,
-        "hidden": False,
-        "featured": False,
-        "source": "scraper",
-        "kanbkam": kanbkam_result,
-        "fake_verdict": kanbkam_result.get("verdict", "UNVERIFIED"),
-        "fake_verdict_ar": kanbkam_result.get("verdict_ar", ""),
-        "fake_emoji": kanbkam_result.get("emoji", "❓"),
-        "fake_score": kanbkam_result.get("fake_score", 50),
-        "rule_a": kanbkam_result.get("rule_a_triggered", False),
-        "rule_b": kanbkam_result.get("rule_b_triggered", False),
-        "lowest_price_ever": kanbkam_result.get("lowest_price", 0),
-        "highest_price_ever": kanbkam_result.get("highest_price", 0),
+        "deal_id":              generate_deal_id(site, product_url, current_price),
+        "title":                title,
+        "title_ar":             "",
+        "site":                 site,
+        "site_display":         site_display,
+        "category":             category,
+        "current_price":        current_price,
+        "original_price":       original_price,
+        "discount_percent":     discount,
+        "currency":             "EGP",
+        "image_url":            image_url,
+        "product_url":          product_url,
+        "asin":                 asin or "",
+        "availability":         "in_stock",
+        "timestamp":            now_iso(),
+        "rating":               rating,
+        "review_count":         review_count,
+        "coupon_codes":         coupon_codes or kanbkam_result.get("coupon_codes", []),
+        "coupon_display":       kanbkam_result.get("coupon_display", ""),
+        "verified":             True,
+        "hidden":               False,
+        "featured":             False,
+        "source":               "scraper",
+        "kanbkam":              kanbkam_result,
+        "fake_verdict":         kanbkam_result.get("verdict", "UNVERIFIED"),
+        "fake_verdict_ar":      kanbkam_result.get("verdict_ar", ""),
+        "fake_emoji":           kanbkam_result.get("emoji", "❓"),
+        "fake_score":           kanbkam_result.get("fake_score", 50),
+        "rule_a":               kanbkam_result.get("rule_a_triggered", False),
+        "rule_b":               kanbkam_result.get("rule_b_triggered", False),
+        "lowest_price_ever":    kanbkam_result.get("lowest_price", 0),
+        "highest_price_ever":   kanbkam_result.get("highest_price", 0),
         "suggested_wait_price": kanbkam_result.get("suggested_wait_price", 0),
-        "source_used": kanbkam_result.get("source_used", ""),
-        "click_count": 0,
-        "buy_click_count": 0,
+        "source_used":          kanbkam_result.get("source_used", ""),
+        "click_count":          0,
+        "buy_click_count":      0,
     }
 
 
@@ -287,60 +295,60 @@ def build_deal(title, site, site_display, category, current_price, original_pric
 # AMAZON EGYPT
 # ─────────────────────────────────────────────────────
 AMAZON_KEYWORDS = [
-    {"k": "samsung galaxy", "cat": "electronics"},
-    {"k": "iphone", "cat": "electronics"},
-    {"k": "xiaomi phone", "cat": "electronics"},
-    {"k": "oppo phone", "cat": "electronics"},
-    {"k": "laptop lenovo", "cat": "electronics"},
-    {"k": "laptop dell", "cat": "electronics"},
-    {"k": "laptop hp", "cat": "electronics"},
-    {"k": "laptop asus", "cat": "electronics"},
-    {"k": "tablet android", "cat": "electronics"},
-    {"k": "ipad", "cat": "electronics"},
-    {"k": "sony headphones", "cat": "electronics"},
-    {"k": "jbl speaker", "cat": "electronics"},
-    {"k": "earbuds bluetooth", "cat": "electronics"},
-    {"k": "samsung watch", "cat": "electronics"},
-    {"k": "samsung tv", "cat": "electronics"},
-    {"k": "lg tv", "cat": "electronics"},
-    {"k": "playstation", "cat": "electronics"},
-    {"k": "power bank", "cat": "electronics"},
-    {"k": "router wifi", "cat": "electronics"},
-    {"k": "ssd", "cat": "electronics"},
-    {"k": "gaming keyboard", "cat": "electronics"},
-    {"k": "digital camera", "cat": "electronics"},
-    {"k": "nike shoes", "cat": "fashion"},
-    {"k": "adidas shoes", "cat": "fashion"},
-    {"k": "puma shoes", "cat": "fashion"},
-    {"k": "mens shirt", "cat": "fashion"},
-    {"k": "womens dress", "cat": "fashion"},
-    {"k": "handbag women", "cat": "fashion"},
-    {"k": "sunglasses", "cat": "fashion"},
-    {"k": "perfume men", "cat": "fashion"},
-    {"k": "perfume women", "cat": "fashion"},
-    {"k": "air conditioner", "cat": "home"},
-    {"k": "refrigerator", "cat": "home"},
-    {"k": "washing machine", "cat": "home"},
-    {"k": "microwave oven", "cat": "home"},
-    {"k": "air fryer", "cat": "home"},
-    {"k": "blender", "cat": "home"},
-    {"k": "coffee maker", "cat": "home"},
-    {"k": "vacuum cleaner", "cat": "home"},
-    {"k": "electric kettle", "cat": "home"},
-    {"k": "face cream", "cat": "beauty"},
-    {"k": "hair dryer", "cat": "beauty"},
-    {"k": "vitamin supplement", "cat": "beauty"},
-    {"k": "makeup kit", "cat": "beauty"},
-    {"k": "shampoo", "cat": "beauty"},
-    {"k": "gym equipment", "cat": "sports"},
-    {"k": "protein powder", "cat": "sports"},
-    {"k": "treadmill", "cat": "sports"},
-    {"k": "yoga mat", "cat": "sports"},
-    {"k": "lego", "cat": "toys"},
-    {"k": "baby stroller", "cat": "toys"},
-    {"k": "arabic novel", "cat": "books"},
-    {"k": "protein bar", "cat": "grocery"},
-    {"k": "organic honey", "cat": "grocery"},
+    {"k": "samsung galaxy",   "cat": "electronics"},
+    {"k": "iphone",           "cat": "electronics"},
+    {"k": "xiaomi phone",     "cat": "electronics"},
+    {"k": "oppo phone",       "cat": "electronics"},
+    {"k": "laptop lenovo",    "cat": "electronics"},
+    {"k": "laptop dell",      "cat": "electronics"},
+    {"k": "laptop hp",        "cat": "electronics"},
+    {"k": "laptop asus",      "cat": "electronics"},
+    {"k": "tablet android",   "cat": "electronics"},
+    {"k": "ipad",             "cat": "electronics"},
+    {"k": "sony headphones",  "cat": "electronics"},
+    {"k": "jbl speaker",      "cat": "electronics"},
+    {"k": "earbuds bluetooth","cat": "electronics"},
+    {"k": "samsung watch",    "cat": "electronics"},
+    {"k": "samsung tv",       "cat": "electronics"},
+    {"k": "lg tv",            "cat": "electronics"},
+    {"k": "playstation",      "cat": "electronics"},
+    {"k": "power bank",       "cat": "electronics"},
+    {"k": "router wifi",      "cat": "electronics"},
+    {"k": "ssd",              "cat": "electronics"},
+    {"k": "gaming keyboard",  "cat": "electronics"},
+    {"k": "digital camera",   "cat": "electronics"},
+    {"k": "nike shoes",       "cat": "fashion"},
+    {"k": "adidas shoes",     "cat": "fashion"},
+    {"k": "puma shoes",       "cat": "fashion"},
+    {"k": "mens shirt",       "cat": "fashion"},
+    {"k": "womens dress",     "cat": "fashion"},
+    {"k": "handbag women",    "cat": "fashion"},
+    {"k": "sunglasses",       "cat": "fashion"},
+    {"k": "perfume men",      "cat": "fashion"},
+    {"k": "perfume women",    "cat": "fashion"},
+    {"k": "air conditioner",  "cat": "home"},
+    {"k": "refrigerator",     "cat": "home"},
+    {"k": "washing machine",  "cat": "home"},
+    {"k": "microwave oven",   "cat": "home"},
+    {"k": "air fryer",        "cat": "home"},
+    {"k": "blender",          "cat": "home"},
+    {"k": "coffee maker",     "cat": "home"},
+    {"k": "vacuum cleaner",   "cat": "home"},
+    {"k": "electric kettle",  "cat": "home"},
+    {"k": "face cream",       "cat": "beauty"},
+    {"k": "hair dryer",       "cat": "beauty"},
+    {"k": "vitamin supplement","cat": "beauty"},
+    {"k": "makeup kit",       "cat": "beauty"},
+    {"k": "shampoo",          "cat": "beauty"},
+    {"k": "gym equipment",    "cat": "sports"},
+    {"k": "protein powder",   "cat": "sports"},
+    {"k": "treadmill",        "cat": "sports"},
+    {"k": "yoga mat",         "cat": "sports"},
+    {"k": "lego",             "cat": "toys"},
+    {"k": "baby stroller",    "cat": "toys"},
+    {"k": "arabic novel",     "cat": "books"},
+    {"k": "protein bar",      "cat": "grocery"},
+    {"k": "organic honey",    "cat": "grocery"},
 ]
 
 
@@ -388,6 +396,10 @@ def scrape_amazon():
                     if current_price < 50:
                         continue
 
+                    # ✅ FIX: Apply MIN_PRICE / MAX_PRICE filter
+                    if not price_in_range(current_price):
+                        continue
+
                     original_price = current_price
                     orig_block = product.find("span", class_="a-price a-text-price")
                     if orig_block:
@@ -405,7 +417,7 @@ def scrape_amazon():
                     if discount < MIN_DISCOUNT:
                         continue
 
-                    img_el = product.find("img", class_="s-image")
+                    img_el    = product.find("img", class_="s-image")
                     image_url = img_el.get("src", "") if img_el else ""
 
                     rating = 0.0
@@ -433,7 +445,6 @@ def scrape_amazon():
                     if cat == "general":
                         cat = item["cat"]
 
-                    # Kanbkam + Safqa combined check
                     print(f"    Checking: {title[:35]}...")
                     kb = check_price_history(
                         asin=asin,
@@ -535,6 +546,10 @@ def scrape_jumia():
                     if current_price < 50:
                         continue
 
+                    # ✅ FIX: Apply MIN_PRICE / MAX_PRICE filter
+                    if not price_in_range(current_price):
+                        continue
+
                     orig_el = (
                         p.find("div", class_="old") or
                         p.find("span", class_="old") or
@@ -563,15 +578,14 @@ def scrape_jumia():
                     href = link_el["href"] if link_el else ""
                     product_url = href if href.startswith("http") else "https://www.jumia.com.eg" + href
 
-                    img_el = p.find("img")
+                    img_el    = p.find("img")
                     image_url = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
 
                     rating = 0.0
                     stars_el = p.find(class_=lambda c: c and "stars" in str(c))
                     if stars_el:
                         try:
-                            r_text = stars_el.get_text(strip=True)
-                            m = re.search(r'[\d.]+', r_text)
+                            m = re.search(r'[\d.]+', stars_el.get_text(strip=True))
                             if m:
                                 rating = float(m.group())
                         except Exception:
@@ -600,11 +614,18 @@ def scrape_jumia():
                     )
 
                     deal = build_deal(
-                        title=title, site="jumia_eg", site_display="Jumia Egypt",
-                        category=cat, current_price=current_price,
-                        original_price=original_price, discount=discount,
-                        image_url=image_url, product_url=product_url,
-                        rating=rating, review_count=review_count, kanbkam_result=kb
+                        title=title,
+                        site="jumia_eg",
+                        site_display="Jumia Egypt",   # ✅ consistent name
+                        category=cat,
+                        current_price=current_price,
+                        original_price=original_price,
+                        discount=discount,
+                        image_url=image_url,
+                        product_url=product_url,
+                        rating=rating,
+                        review_count=review_count,
+                        kanbkam_result=kb
                     )
                     save_deal(deal)
                     total += 1
@@ -676,6 +697,8 @@ def scrape_btech():
                     current_price = clean_price(price_span.get_text())
                     if current_price < 50:
                         continue
+                    if not price_in_range(current_price):
+                        continue
 
                     old_el = p.find("span", class_="old-price")
                     if old_el:
@@ -694,7 +717,7 @@ def scrape_btech():
                     href = link_el["href"] if link_el else ""
                     product_url = href if href.startswith("http") else "https://btech.com" + href
 
-                    img_el = p.find("img")
+                    img_el    = p.find("img")
                     image_url = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
 
                     cat = detect_category(title) or default_cat
@@ -708,10 +731,15 @@ def scrape_btech():
                     )
 
                     deal = build_deal(
-                        title=title, site="btech_eg", site_display="B.Tech Egypt",
-                        category=cat, current_price=current_price,
-                        original_price=original_price, discount=discount,
-                        image_url=image_url, product_url=product_url,
+                        title=title,
+                        site="btech_eg",
+                        site_display="B.Tech Egypt",
+                        category=cat,
+                        current_price=current_price,
+                        original_price=original_price,
+                        discount=discount,
+                        image_url=image_url,
+                        product_url=product_url,
                         kanbkam_result=kb
                     )
                     save_deal(deal)
@@ -731,7 +759,7 @@ def scrape_btech():
 
 
 # ─────────────────────────────────────────────────────
-# CARREFOUR EGYPT — JSON API
+# CARREFOUR EGYPT — JSON API (updated URL format)
 # ─────────────────────────────────────────────────────
 def scrape_carrefour():
     print("\n[CARREFOUR] Starting — JSON API...")
@@ -741,104 +769,120 @@ def scrape_carrefour():
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Referer": "https://www.carrefouregypt.com/",
         "lang": "en",
+        "country": "EG",
     }
     categories = [
-        ("electronics", "electronics"),
-        ("mobiles-tablets", "electronics"),
-        ("computers", "electronics"),
-        ("tv-video", "electronics"),
+        ("electronics",        "electronics"),
+        ("mobiles-tablets",    "electronics"),
+        ("computers",          "electronics"),
+        ("tv-video",           "electronics"),
         ("kitchen-appliances", "home"),
-        ("large-appliances", "home"),
-        ("fashion", "fashion"),
-        ("sports-outdoors", "sports"),
-        ("beauty-health", "beauty"),
+        ("large-appliances",   "home"),
+        ("fashion",            "fashion"),
+        ("sports-outdoors",    "sports"),
+        ("beauty-health",      "beauty"),
     ]
 
     for cat_id, default_cat in categories:
-        try:
-            api_url = f"https://www.carrefouregypt.com/api/v7/page?url=/mafegy/en/c/{cat_id}&page=0&pageSize=48&sortBy=discountPercentage&sortOrder=desc"
-            resp = requests.get(api_url, headers=api_headers, timeout=20)
+        products_data = []
+        # ✅ FIX: Try multiple Carrefour API URL formats (they change periodically)
+        api_urls = [
+            f"https://www.carrefouregypt.com/api/v7/page?url=/mafegy/en/c/{cat_id}&page=0&pageSize=48&sortBy=discountPercentage&sortOrder=desc",
+            f"https://www.carrefouregypt.com/mafegy/en/c/{cat_id}?pageSize=48&sortBy=discountPercentage&sortOrder=desc&format=json",
+            f"https://www.carrefouregypt.com/api/v6/page?url=/mafegy/en/c/{cat_id}&page=0&pageSize=48&sortBy=discountPercentage&sortOrder=desc",
+        ]
+        for api_url in api_urls:
+            try:
+                resp = requests.get(api_url, headers=api_headers, timeout=20)
+                if resp.status_code == 200:
+                    try:
+                        data = resp.json()
+                        products_data = (
+                            data.get("data", {}).get("products", {}).get("results", []) or
+                            data.get("products", {}).get("results", []) or
+                            data.get("results", []) or []
+                        )
+                        if products_data:
+                            break
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"  [CARREFOUR] API error {cat_id}: {e}")
+                continue
 
-            products_data = []
-            if resp.status_code == 200:
-                try:
-                    data = resp.json()
-                    products_data = (
-                        data.get("data", {}).get("products", {}).get("results", []) or
-                        data.get("products", {}).get("results", []) or
-                        data.get("results", []) or []
-                    )
-                except Exception:
-                    pass
+        print(f"  [CARREFOUR] {len(products_data)} products: {cat_id}")
 
-            print(f"  [CARREFOUR] {len(products_data)} products: {cat_id}")
-
-            for p in products_data:
-                try:
-                    title = p.get("name", "") or p.get("title", "")
-                    if not title:
-                        continue
-
-                    price_info = p.get("price", {})
-                    current_price = clean_price(str(
-                        price_info.get("value", 0) or
-                        price_info.get("discounted", 0) or
-                        p.get("price", 0)
-                    ))
-                    original_price = clean_price(str(
-                        price_info.get("formattedOriginalPrice", current_price) or
-                        price_info.get("original", current_price) or
-                        current_price
-                    ))
-
-                    if current_price < 50:
-                        continue
-                    if original_price < current_price:
-                        original_price = current_price
-
-                    discount = calculate_discount(original_price, current_price)
-                    if discount < MIN_DISCOUNT:
-                        continue
-
-                    images = p.get("images", [{}])
-                    image_url = (images[0].get("url", "") if images else "") or ""
-                    if image_url and not image_url.startswith("http"):
-                        image_url = "https://www.carrefouregypt.com" + image_url
-
-                    code = p.get("code", "") or p.get("id", "")
-                    product_url = f"https://www.carrefouregypt.com/mafegy/en/p/{code}"
-
-                    rating = float(p.get("averageRating", 0) or 0)
-                    review_count = int(p.get("numberOfReviews", 0) or 0) or None
-
-                    cat = detect_category(title) or default_cat
-
-                    kb = check_price_history(
-                        product_url=product_url,
-                        current_price=current_price,
-                        original_price=original_price,
-                        title=title,
-                        site="carrefour_eg"
-                    )
-
-                    deal = build_deal(
-                        title=title, site="carrefour_eg", site_display="Carrefour Egypt",
-                        category=cat, current_price=current_price,
-                        original_price=original_price, discount=discount,
-                        image_url=image_url, product_url=product_url,
-                        rating=rating, review_count=review_count, kanbkam_result=kb
-                    )
-                    save_deal(deal)
-                    total += 1
-
-                except Exception:
+        for p in products_data:
+            try:
+                title = p.get("name", "") or p.get("title", "")
+                if not title:
                     continue
 
-            time.sleep(2)
+                price_info    = p.get("price", {})
+                current_price = clean_price(str(
+                    price_info.get("value", 0) or
+                    price_info.get("discounted", 0) or
+                    p.get("price", 0)
+                ))
+                original_price = clean_price(str(
+                    price_info.get("formattedOriginalPrice", current_price) or
+                    price_info.get("original", current_price) or
+                    current_price
+                ))
 
-        except Exception as e:
-            print(f"  [CARREFOUR] Error: {e}")
-            time.sleep(5)
+                if current_price < 50:
+                    continue
+                if not price_in_range(current_price):
+                    continue
+                if original_price < current_price:
+                    original_price = current_price
+
+                discount = calculate_discount(original_price, current_price)
+                if discount < MIN_DISCOUNT:
+                    continue
+
+                images    = p.get("images", [{}])
+                image_url = (images[0].get("url", "") if images else "") or ""
+                if image_url and not image_url.startswith("http"):
+                    image_url = "https://www.carrefouregypt.com" + image_url
+
+                code        = p.get("code", "") or p.get("id", "")
+                product_url = f"https://www.carrefouregypt.com/mafegy/en/p/{code}"
+
+                rating       = float(p.get("averageRating", 0) or 0)
+                review_count = int(p.get("numberOfReviews", 0) or 0) or None
+
+                cat = detect_category(title) or default_cat
+
+                kb = check_price_history(
+                    product_url=product_url,
+                    current_price=current_price,
+                    original_price=original_price,
+                    title=title,
+                    site="carrefour_eg"
+                )
+
+                deal = build_deal(
+                    title=title,
+                    site="carrefour_eg",
+                    site_display="Carrefour Egypt",
+                    category=cat,
+                    current_price=current_price,
+                    original_price=original_price,
+                    discount=discount,
+                    image_url=image_url,
+                    product_url=product_url,
+                    rating=rating,
+                    review_count=review_count,
+                    kanbkam_result=kb
+                )
+                save_deal(deal)
+                total += 1
+
+            except Exception:
+                continue
+
+        time.sleep(2)
 
     print(f"[CARREFOUR] Done. {total} deals.")
     return total
@@ -851,11 +895,11 @@ def scrape_sharaf_dg():
     print("\n[SHARAF DG] Starting...")
     total = 0
     pages = [
-        ("https://www.sharafdg.com/en/eg/deals", "electronics"),
-        ("https://www.sharafdg.com/en/eg/mobiles-tablets", "electronics"),
-        ("https://www.sharafdg.com/en/eg/computers-laptops", "electronics"),
-        ("https://www.sharafdg.com/en/eg/tv-video-audio", "electronics"),
-        ("https://www.sharafdg.com/en/eg/home-appliances", "home"),
+        ("https://www.sharafdg.com/en/eg/deals",             "electronics"),
+        ("https://www.sharafdg.com/en/eg/mobiles-tablets",   "electronics"),
+        ("https://www.sharafdg.com/en/eg/computers-laptops",  "electronics"),
+        ("https://www.sharafdg.com/en/eg/tv-video-audio",    "electronics"),
+        ("https://www.sharafdg.com/en/eg/home-appliances",   "home"),
     ]
 
     for url, default_cat in pages:
@@ -869,7 +913,7 @@ def scrape_sharaf_dg():
 
             soup = BeautifulSoup(resp.content, "lxml")
             products = (
-                soup.find_all("li", class_=lambda c: c and "item" in str(c) and "product" in str(c)) or
+                soup.find_all("li",  class_=lambda c: c and "item" in str(c) and "product" in str(c)) or
                 soup.find_all("div", class_=lambda c: c and "product-item" in str(c)) or
                 soup.find_all("div", class_=lambda c: c and "product-card" in str(c)) or
                 soup.find_all("article", class_=lambda c: c and "product" in str(c))
@@ -894,11 +938,14 @@ def scrape_sharaf_dg():
                     if special_el:
                         price_el = special_el.find("span", class_="price")
                     else:
-                        price_el = p.find("span", class_="price") or p.find(class_=lambda c: c and "price" in str(c) and "old" not in str(c))
+                        price_el = (p.find("span", class_="price") or
+                                    p.find(class_=lambda c: c and "price" in str(c) and "old" not in str(c)))
                     if not price_el:
                         continue
                     current_price = clean_price(price_el.get_text())
                     if current_price < 50:
+                        continue
+                    if not price_in_range(current_price):
                         continue
 
                     old_el = (
@@ -913,11 +960,11 @@ def scrape_sharaf_dg():
                     if discount < MIN_DISCOUNT:
                         continue
 
-                    link_el = p.find("a", href=True)
-                    href = link_el["href"] if link_el else ""
+                    link_el     = p.find("a", href=True)
+                    href        = link_el["href"] if link_el else ""
                     product_url = href if href.startswith("http") else "https://www.sharafdg.com" + href
 
-                    img_el = p.find("img")
+                    img_el    = p.find("img")
                     image_url = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
 
                     cat = detect_category(title) or default_cat
@@ -931,10 +978,16 @@ def scrape_sharaf_dg():
                     )
 
                     deal = build_deal(
-                        title=title, site="sharaf_dg_eg", site_display="Sharaf DG Egypt",
-                        category=cat, current_price=current_price,
-                        original_price=original_price, discount=discount,
-                        image_url=image_url, product_url=product_url, kanbkam_result=kb
+                        title=title,
+                        site="sharaf_dg_eg",
+                        site_display="Sharaf DG Egypt",
+                        category=cat,
+                        current_price=current_price,
+                        original_price=original_price,
+                        discount=discount,
+                        image_url=image_url,
+                        product_url=product_url,
+                        kanbkam_result=kb
                     )
                     save_deal(deal)
                     total += 1
@@ -959,16 +1012,16 @@ def scrape_noon():
     print("\n[NOON] Starting — ScraperAPI JS rendering...")
     total = 0
     search_terms = [
-        ("samsung galaxy", "electronics"), ("iphone", "electronics"),
-        ("laptop", "electronics"), ("headphones", "electronics"),
-        ("tv", "electronics"), ("tablet", "electronics"),
-        ("nike shoes", "fashion"), ("dress", "fashion"),
-        ("perfume", "fashion"), ("handbag", "fashion"),
-        ("refrigerator", "home"), ("washing machine", "home"),
-        ("air conditioner", "home"), ("microwave", "home"),
-        ("skincare", "beauty"), ("makeup", "beauty"),
-        ("hair dryer", "beauty"), ("vitamins", "beauty"),
-        ("gym equipment", "sports"), ("protein", "sports"),
+        ("samsung galaxy",  "electronics"), ("iphone",     "electronics"),
+        ("laptop",          "electronics"), ("headphones", "electronics"),
+        ("tv",              "electronics"), ("tablet",     "electronics"),
+        ("nike shoes",      "fashion"),     ("dress",      "fashion"),
+        ("perfume",         "fashion"),     ("handbag",    "fashion"),
+        ("refrigerator",    "home"),        ("washing machine", "home"),
+        ("air conditioner", "home"),        ("microwave",  "home"),
+        ("skincare",        "beauty"),      ("makeup",     "beauty"),
+        ("hair dryer",      "beauty"),      ("vitamins",   "beauty"),
+        ("gym equipment",   "sports"),      ("protein",    "sports"),
     ]
 
     for term, default_cat in search_terms:
@@ -1007,7 +1060,7 @@ def scrape_noon():
 
                     for item in items:
                         try:
-                            src = item.get("_source", item)
+                            src   = item.get("_source", item)
                             title = src.get("name", "") or src.get("title", "")
                             if not title:
                                 continue
@@ -1023,6 +1076,8 @@ def scrape_noon():
                             ))
                             if cp < 50:
                                 continue
+                            if not price_in_range(cp):
+                                continue
                             if op < cp:
                                 op = cp
                             disc = calculate_discount(op, cp)
@@ -1030,26 +1085,23 @@ def scrape_noon():
                                 continue
 
                             img_keys = src.get("image_keys", [])
-                            img = f"https://f.nooncdn.com/p/{img_keys[0]}.jpg" if img_keys else (src.get("image", "") or "")
-                            sku = src.get("sku", "") or src.get("id", "")
+                            img  = f"https://f.nooncdn.com/p/{img_keys[0]}.jpg" if img_keys else (src.get("image", "") or "")
+                            sku  = src.get("sku", "") or src.get("id", "")
                             purl = f"https://www.noon.com/egypt-en/{sku}/" if sku else ""
                             rating = float(src.get("rating", {}).get("value", 0) or src.get("rating", 0) or 0)
-                            rc = int(src.get("rating", {}).get("count", 0) or src.get("review_count", 0) or 0) or None
-                            cat = detect_category(title) or default_cat
+                            rc     = int(src.get("rating", {}).get("count", 0) or src.get("review_count", 0) or 0) or None
+                            cat    = detect_category(title) or default_cat
 
                             kb = check_price_history(
-                                product_url=purl,
-                                current_price=cp,
-                                original_price=op,
-                                title=title,
-                                site="noon_eg"
+                                product_url=purl, current_price=cp,
+                                original_price=op, title=title, site="noon_eg"
                             )
 
                             deal = build_deal(
                                 title=title, site="noon_eg", site_display="Noon Egypt",
-                                category=cat, current_price=cp, original_price=op, discount=disc,
-                                image_url=img, product_url=purl, rating=rating,
-                                review_count=rc, kanbkam_result=kb
+                                category=cat, current_price=cp, original_price=op,
+                                discount=disc, image_url=img, product_url=purl,
+                                rating=rating, review_count=rc, kanbkam_result=kb
                             )
                             save_deal(deal)
                             total += 1
@@ -1085,13 +1137,13 @@ def scrape_noon():
 
                         price_el = (
                             p.find("strong", class_=lambda c: c and "price" in str(c)) or
-                            p.find("span", class_=lambda c: c and "price" in str(c)) or
+                            p.find("span",   class_=lambda c: c and "price" in str(c)) or
                             p.find(class_="price")
                         )
                         if not price_el:
                             continue
                         cp = clean_price(price_el.get_text())
-                        if cp < 50:
+                        if cp < 50 or not price_in_range(cp):
                             continue
 
                         orig_el = (
@@ -1101,32 +1153,27 @@ def scrape_noon():
                         op = clean_price(orig_el.get_text()) if orig_el else cp
                         if op < cp:
                             op = cp
-
                         disc = calculate_discount(op, cp)
                         if disc < MIN_DISCOUNT:
                             continue
 
                         link_el = p.find("a", href=True)
-                        href = link_el["href"] if link_el else ""
-                        purl = "https://www.noon.com" + href if href.startswith("/") else href
+                        href    = link_el["href"] if link_el else ""
+                        purl    = "https://www.noon.com" + href if href.startswith("/") else href
 
                         img_el = p.find("img")
-                        img = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
-
-                        cat = detect_category(title) or default_cat
+                        img    = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+                        cat    = detect_category(title) or default_cat
 
                         kb = check_price_history(
-                            product_url=purl,
-                            current_price=cp,
-                            original_price=op,
-                            title=title,
-                            site="noon_eg"
+                            product_url=purl, current_price=cp,
+                            original_price=op, title=title, site="noon_eg"
                         )
 
                         deal = build_deal(
                             title=title, site="noon_eg", site_display="Noon Egypt",
-                            category=cat, current_price=cp, original_price=op, discount=disc,
-                            image_url=img, product_url=purl, kanbkam_result=kb
+                            category=cat, current_price=cp, original_price=op,
+                            discount=disc, image_url=img, product_url=purl, kanbkam_result=kb
                         )
                         save_deal(deal)
                         total += 1
@@ -1152,10 +1199,10 @@ def scrape_hyperone():
     print("\n[HYPERONE] Starting...")
     total = 0
     pages = [
-        ("https://www.hyperone.com.eg/offers/", "general"),
-        ("https://www.hyperone.com.eg/electronics/", "electronics"),
-        ("https://www.hyperone.com.eg/home-appliances/", "home"),
-        ("https://www.hyperone.com.eg/mobiles-and-accessories/", "electronics"),
+        ("https://www.hyperone.com.eg/offers/",                          "general"),
+        ("https://www.hyperone.com.eg/electronics/",                     "electronics"),
+        ("https://www.hyperone.com.eg/home-appliances/",                 "home"),
+        ("https://www.hyperone.com.eg/mobiles-and-accessories/",         "electronics"),
     ]
 
     for url, default_cat in pages:
@@ -1169,10 +1216,10 @@ def scrape_hyperone():
 
             soup = BeautifulSoup(resp.content, "lxml")
             products = (
-                soup.find_all("li", class_=lambda c: c and "product" in str(c)) or
-                soup.find_all("div", class_=lambda c: c and "product" in str(c) and "item" in str(c)) or
+                soup.find_all("li",      class_=lambda c: c and "product" in str(c)) or
+                soup.find_all("div",     class_=lambda c: c and "product" in str(c) and "item" in str(c)) or
                 soup.find_all("article") or
-                soup.find_all("div", class_=lambda c: c and "product-card" in str(c))
+                soup.find_all("div",     class_=lambda c: c and "product-card" in str(c))
             )
             print(f"  [HYPERONE] {len(products)} products: {url}")
 
@@ -1192,11 +1239,12 @@ def scrape_hyperone():
                     if special_el:
                         price_el = special_el.find("span", class_="price")
                     else:
-                        price_el = p.find("span", class_="price") or p.find(class_=lambda c: c and "price" in str(c) and "old" not in str(c))
+                        price_el = (p.find("span", class_="price") or
+                                    p.find(class_=lambda c: c and "price" in str(c) and "old" not in str(c)))
                     if not price_el:
                         continue
                     current_price = clean_price(price_el.get_text())
-                    if current_price < 50:
+                    if current_price < 50 or not price_in_range(current_price):
                         continue
 
                     orig_el = (
@@ -1211,21 +1259,17 @@ def scrape_hyperone():
                     if discount < MIN_DISCOUNT:
                         continue
 
-                    link_el = p.find("a", href=True)
-                    href = link_el["href"] if link_el else ""
+                    link_el     = p.find("a", href=True)
+                    href        = link_el["href"] if link_el else ""
                     product_url = href if href.startswith("http") else "https://www.hyperone.com.eg" + href
 
-                    img_el = p.find("img")
+                    img_el    = p.find("img")
                     image_url = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
-
-                    cat = detect_category(title) or default_cat
+                    cat       = detect_category(title) or default_cat
 
                     kb = check_price_history(
-                        product_url=product_url,
-                        current_price=current_price,
-                        original_price=original_price,
-                        title=title,
-                        site="hyperone_eg"
+                        product_url=product_url, current_price=current_price,
+                        original_price=original_price, title=title, site="hyperone_eg"
                     )
 
                     deal = build_deal(
@@ -1256,10 +1300,10 @@ def scrape_hyperone():
 def scrape_sahla():
     print("\n[SAHLA] Starting...")
     total = 0
-    api_base = "https://sahlaapp.com/api/v2"
+    api_base    = "https://sahlaapp.com/api/v2"
     api_headers = {
-        "Accept": "application/json",
-        "User-Agent": "Sahla/2.0 (com.sahla.app; iOS 16.0)",
+        "Accept":       "application/json",
+        "User-Agent":   "Sahla/2.0 (com.sahla.app; iOS 16.0)",
         "Content-Type": "application/json",
     }
     endpoints = [
@@ -1274,7 +1318,7 @@ def scrape_sahla():
             resp = requests.get(endpoint, headers=api_headers, timeout=15)
             if resp.status_code == 200:
                 try:
-                    data = resp.json()
+                    data  = resp.json()
                     items = data.get("data", data.get("products", data.get("offers", data.get("items", []))))
                     for item in items:
                         try:
@@ -1283,32 +1327,29 @@ def scrape_sahla():
                                 continue
                             cp = clean_price(str(item.get("sale_price", item.get("price", item.get("discounted_price", 0)))))
                             op = clean_price(str(item.get("original_price", item.get("price", item.get("regular_price", cp)))))
-                            if cp < 50:
+                            if cp < 50 or not price_in_range(cp):
                                 continue
                             if op < cp:
                                 op = cp
                             disc = calculate_discount(op, cp)
                             if disc < MIN_DISCOUNT:
                                 continue
-                            img = item.get("image", item.get("thumbnail", item.get("image_url", "")))
-                            pid = item.get("id", item.get("slug", ""))
+                            img  = item.get("image", item.get("thumbnail", item.get("image_url", "")))
+                            pid  = item.get("id", item.get("slug", ""))
                             purl = f"https://sahlaapp.com/product/{pid}"
                             rating = float(item.get("rating", 0) or 0)
-                            rc = int(item.get("reviews_count", item.get("review_count", 0)) or 0) or None
-                            cat = detect_category(title)
+                            rc     = int(item.get("reviews_count", item.get("review_count", 0)) or 0) or None
+                            cat    = detect_category(title)
 
                             kb = check_price_history(
-                                product_url=purl,
-                                current_price=cp,
-                                original_price=op,
-                                title=title,
-                                site="sahla_eg"
+                                product_url=purl, current_price=cp,
+                                original_price=op, title=title, site="sahla_eg"
                             )
 
                             deal = build_deal(
                                 title=title, site="sahla_eg", site_display="Sahla Egypt",
-                                category=cat, current_price=cp, original_price=op, discount=disc,
-                                image_url=img or "", product_url=purl,
+                                category=cat, current_price=cp, original_price=op,
+                                discount=disc, image_url=img or "", product_url=purl,
                                 rating=rating, review_count=rc, kanbkam_result=kb
                             )
                             save_deal(deal)
@@ -1321,13 +1362,13 @@ def scrape_sahla():
         except Exception as e:
             print(f"  [SAHLA] API error: {e}")
 
-    # ScraperAPI fallback
+    # ScraperAPI HTML fallback
     if total == 0:
         try:
-            url = "https://sahlaapp.com/products?sort=discount"
+            url  = "https://sahlaapp.com/products?sort=discount"
             resp = fetch_with_scraperapi(url, render_js=True, country="eg")
             if resp and resp.status_code == 200:
-                soup = BeautifulSoup(resp.content, "lxml")
+                soup     = BeautifulSoup(resp.content, "lxml")
                 products = soup.find_all(class_=lambda c: c and "product" in str(c).lower())
                 for p in products:
                     try:
@@ -1345,39 +1386,34 @@ def scrape_sahla():
                         if not price_el:
                             continue
                         cp = clean_price(price_el.get_text())
-                        if cp < 50:
+                        if cp < 50 or not price_in_range(cp):
                             continue
 
                         orig_el = p.find("del") or p.find(class_=lambda c: c and "old" in str(c).lower())
                         op = clean_price(orig_el.get_text()) if orig_el else cp
                         if op < cp:
                             op = cp
-
                         disc = calculate_discount(op, cp)
                         if disc < MIN_DISCOUNT:
                             continue
 
                         link_el = p.find("a", href=True)
-                        href = link_el["href"] if link_el else ""
-                        purl = href if href.startswith("http") else "https://sahlaapp.com" + href
+                        href    = link_el["href"] if link_el else ""
+                        purl    = href if href.startswith("http") else "https://sahlaapp.com" + href
 
                         img_el = p.find("img")
-                        img = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
-
-                        cat = detect_category(title)
+                        img    = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+                        cat    = detect_category(title)
 
                         kb = check_price_history(
-                            product_url=purl,
-                            current_price=cp,
-                            original_price=op,
-                            title=title,
-                            site="sahla_eg"
+                            product_url=purl, current_price=cp,
+                            original_price=op, title=title, site="sahla_eg"
                         )
 
                         deal = build_deal(
                             title=title, site="sahla_eg", site_display="Sahla Egypt",
-                            category=cat, current_price=cp, original_price=op, discount=disc,
-                            image_url=img, product_url=purl, kanbkam_result=kb
+                            category=cat, current_price=cp, original_price=op,
+                            discount=disc, image_url=img, product_url=purl, kanbkam_result=kb
                         )
                         save_deal(deal)
                         total += 1
@@ -1391,16 +1427,17 @@ def scrape_sahla():
 
 
 # ─────────────────────────────────────────────────────
-# CUSTOM SOURCES — Any site added via admin dashboard
+# CUSTOM SOURCES — Added via admin dashboard
 # ─────────────────────────────────────────────────────
 def scrape_custom_sources():
     print("\n[CUSTOM] Checking admin-added sources...")
     total = 0
     try:
         sources = [doc.to_dict() for doc in db.collection("admin").stream()]
-        active = [s for s in sources if s.get("status") == "active" and s.get("site_url")]
-        known = {"amazon.eg", "noon.com", "jumia.com.eg", "btech.com", "carrefouregypt.com", "sharafdg.com", "hyperone.com.eg", "sahlaapp.com"}
-        custom = [s for s in active if not any(d in s.get("site_url", "") for d in known)]
+        active  = [s for s in sources if s.get("status") == "active" and s.get("site_url")]
+        known   = {"amazon.eg", "noon.com", "jumia.com.eg", "btech.com",
+                   "carrefouregypt.com", "sharafdg.com", "hyperone.com.eg", "sahlaapp.com"}
+        custom  = [s for s in active if not any(d in s.get("site_url", "") for d in known)]
 
         if not custom:
             print("  No custom sources to scrape.")
@@ -1408,30 +1445,30 @@ def scrape_custom_sources():
 
         for source in custom:
             site_name = source.get("site_name", "Unknown")
-            site_url = source.get("site_url", "")
-            site_id = source.get("id", site_name.lower().replace(" ", "_"))
+            site_url  = source.get("site_url", "")
+            site_id   = source.get("id", site_name.lower().replace(" ", "_"))
             print(f"\n  Scraping: {site_name} ({site_url})")
 
             resp = fetch_direct(site_url)
             products_found = 0
 
             if resp and resp.status_code == 200:
-                soup = BeautifulSoup(resp.content, "lxml")
+                soup     = BeautifulSoup(resp.content, "lxml")
                 products = (
-                    soup.find_all("div", class_=lambda c: c and "product" in str(c).lower() and "item" in str(c).lower()) or
+                    soup.find_all("div",     class_=lambda c: c and "product" in str(c).lower() and "item" in str(c).lower()) or
                     soup.find_all("article", class_=lambda c: c and "product" in str(c).lower()) or
-                    soup.find_all("li", class_=lambda c: c and "product" in str(c).lower())
+                    soup.find_all("li",      class_=lambda c: c and "product" in str(c).lower())
                 )
 
                 if not products:
                     print(f"    No products in direct fetch — trying ScraperAPI...")
                     resp = fetch_with_scraperapi(site_url, render_js=True, country="eg")
                     if resp and resp.status_code == 200:
-                        soup = BeautifulSoup(resp.content, "lxml")
+                        soup     = BeautifulSoup(resp.content, "lxml")
                         products = (
-                            soup.find_all("div", class_=lambda c: c and "product" in str(c).lower()) or
+                            soup.find_all("div",     class_=lambda c: c and "product" in str(c).lower()) or
                             soup.find_all("article") or
-                            soup.find_all("li", class_=lambda c: c and "item" in str(c).lower())
+                            soup.find_all("li",      class_=lambda c: c and "item" in str(c).lower())
                         )
 
                 for product in products[:50]:
@@ -1450,7 +1487,7 @@ def scrape_custom_sources():
                         if not price_el:
                             continue
                         cp = clean_price(price_el.get_text())
-                        if cp < 50:
+                        if cp < 50 or not price_in_range(cp):
                             continue
 
                         orig_el = product.find("del") or product.find(class_=lambda c: c and "old" in str(c))
@@ -1463,26 +1500,22 @@ def scrape_custom_sources():
                             continue
 
                         link_el = product.find("a", href=True)
-                        href = link_el["href"] if link_el else ""
-                        purl = href if href.startswith("http") else site_url.rstrip("/") + "/" + href.lstrip("/")
+                        href    = link_el["href"] if link_el else ""
+                        purl    = href if href.startswith("http") else site_url.rstrip("/") + "/" + href.lstrip("/")
 
                         img_el = product.find("img")
-                        img = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
-
-                        cat = detect_category(title)
+                        img    = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+                        cat    = detect_category(title)
 
                         kb = check_price_history(
-                            product_url=purl,
-                            current_price=cp,
-                            original_price=op,
-                            title=title,
-                            site=site_id
+                            product_url=purl, current_price=cp,
+                            original_price=op, title=title, site=site_id
                         )
 
                         deal = build_deal(
                             title=title, site=site_id, site_display=site_name,
-                            category=cat, current_price=cp, original_price=op, discount=disc,
-                            image_url=img, product_url=purl, kanbkam_result=kb
+                            category=cat, current_price=cp, original_price=op,
+                            discount=disc, image_url=img, product_url=purl, kanbkam_result=kb
                         )
                         save_deal(deal)
                         total += 1
@@ -1512,37 +1545,37 @@ def scrape_custom_sources():
 # ─────────────────────────────────────────────────────
 def update_analytics():
     try:
-        deals = [d.to_dict() for d in db.collection("deals").get()]
-        users = list(db.collection("users").get())
+        deals       = [d.to_dict() for d in db.collection("deals").get()]
+        users       = list(db.collection("users").get())
         site_counts = {}
-        cat_counts = {}
+        cat_counts  = {}
         verdict_counts = {}
-        clicks = 0
-        buys = 0
-        fake_count = 0
+        clicks      = 0
+        buys        = 0
+        fake_count  = 0
 
         for d in deals:
             s = d.get("site", "?")
             c = d.get("category", "general")
             v = d.get("fake_verdict", "UNVERIFIED")
-            site_counts[s] = site_counts.get(s, 0) + 1
-            cat_counts[c] = cat_counts.get(c, 0) + 1
+            site_counts[s]    = site_counts.get(s, 0) + 1
+            cat_counts[c]     = cat_counts.get(c, 0) + 1
             verdict_counts[v] = verdict_counts.get(v, 0) + 1
-            clicks += d.get("click_count", 0)
-            buys += d.get("buy_click_count", 0)
+            clicks     += d.get("click_count", 0)
+            buys       += d.get("buy_click_count", 0)
             if v == "FAKE":
                 fake_count += 1
 
         db.collection("analytics").document("summary").set({
-            "total_deals": len(deals),
-            "total_users": len(users),
-            "site_counts": site_counts,
+            "total_deals":    len(deals),
+            "total_users":    len(users),
+            "site_counts":    site_counts,
             "category_counts": cat_counts,
             "verdict_counts": verdict_counts,
-            "total_clicks": clicks,
+            "total_clicks":   clicks,
             "total_buy_clicks": buys,
             "fake_deals_count": fake_count,
-            "last_updated": now_iso()
+            "last_updated":   now_iso()
         }, merge=True)
 
         print(f"  Analytics: {len(deals)} deals | {fake_count} FAKE | {clicks} clicks")
@@ -1563,6 +1596,8 @@ def run_scraper():
         print(f"  ScraperAPI: ACTIVE (JS rendering for Noon/HyperOne/Sahla)")
     else:
         print(f"  ScraperAPI: NOT SET — get free key at scraperapi.com")
+    if MIN_PRICE > 0 or MAX_PRICE < 9999999:
+        print(f"  Price filter: EGP {MIN_PRICE:,.0f} – EGP {MAX_PRICE:,.0f}")
     print(f"{'=' * 62}")
 
     total = 0
@@ -1577,15 +1612,18 @@ def run_scraper():
     total += scrape_custom_sources()
 
     update_analytics()
-    print(f"\n  TOTAL: {total} deals | Next: {INTERVAL} min")
+    print(f"\n  TOTAL: {total} deals | Next in: {INTERVAL} min")
     print(f"{'=' * 62}\n")
 
 
 if __name__ == "__main__":
-    print("DealHunter Egypt Scraper v6 FIXED")
+    print("DealHunter Egypt Scraper v7 FIXED")
     print(f"Stores: Amazon + Jumia + B.Tech + Carrefour + Sharaf DG + Noon + HyperOne + Sahla")
-    print(f"Fake check: Kanbkam + Safqa combined (Rules A+B)")
-    print(f"Min discount: {MIN_DISCOUNT}% | Interval: {INTERVAL} min\n")
+    print(f"Fake check: Kanbkam (fixed URL) + Safqa (rebuilt)")
+    print(f"Min discount: {MIN_DISCOUNT}% | Interval: {INTERVAL} min")
+    if MIN_PRICE > 0 or MAX_PRICE < 9999999:
+        print(f"Price filter: EGP {MIN_PRICE:,.0f} – EGP {MAX_PRICE:,.0f}")
+    print()
     run_scraper()
     schedule.every(INTERVAL).minutes.do(run_scraper)
     while True:

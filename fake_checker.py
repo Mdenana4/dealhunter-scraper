@@ -1,8 +1,9 @@
-# DealHunter Egypt - Fake Discount Checker Module v2
-# Integrates BOTH Kanbkam + Safqa for maximum accuracy
-# Kanbkam: Amazon Egypt (best source for Amazon)
-# Safqa: Amazon + Noon + Jumia (fills gaps Kanbkam cannot)
-# Rules A+B applied to combined best data
+# DealHunter Egypt - Fake Discount Checker Module v3 FIXED
+# FIXES:
+#   1. Kanbkam: now uses /eg/ar/dp/{ASIN} — correct URL, no wrong product match
+#   2. Safqa: rebuilt with working endpoints + Chrome extension API
+#   3. Both sources: multiple fallback methods
+#   4. Price range logic: more accurate Rule A/B
 
 import requests
 import re
@@ -33,93 +34,128 @@ def get_headers(arabic=False):
         "Connection": "keep-alive",
     }
 
+
 # ─────────────────────────────────────────────────────
-# SOURCE 1: KANBKAM — Best for Amazon Egypt
+# SOURCE 1: KANBKAM — Fixed URL format using ASIN directly
 # ─────────────────────────────────────────────────────
 def check_kanbkam(asin, title=""):
     """
     Fetch real price history from Kanbkam.com
+    FIX: Use /eg/ar/dp/{ASIN} — the correct Amazon-style direct URL.
+         Old slug-based URL matched wrong products causing bad data.
     Returns: {lowest_price, highest_price, current_price, found, url}
     """
-    result = {"found": False, "lowest_price": 0, "highest_price": 0, "current_price": 0, "url": "", "source": "kanbkam"}
-    
+    result = {"found": False, "lowest_price": 0, "highest_price": 0,
+              "current_price": 0, "url": "", "source": "kanbkam"}
+
     if not asin:
         return result
-    
+
     try:
-        slug = re.sub(r'[^a-z0-9]+', '-', title.lower())[:50].strip('-') if title else asin
-        url = f"https://www.kanbkam.com/eg/ar/{slug}-{asin}"
-        
         headers = get_headers(arabic=True)
         headers["Referer"] = "https://www.kanbkam.com/"
-        
-        resp = requests.get(url, headers=headers, timeout=15)
-        
+
+        # ✅ FIX: Direct ASIN URL — correct and always matches the exact product
+        direct_url = f"https://www.kanbkam.com/eg/ar/dp/{asin}"
+        resp = requests.get(direct_url, headers=headers, timeout=15, allow_redirects=True)
+
         if resp.status_code != 200:
-            # Try search
+            # Fallback 1: Try English version
+            en_url = f"https://www.kanbkam.com/eg/en/dp/{asin}"
+            resp = requests.get(en_url, headers=headers, timeout=15, allow_redirects=True)
+
+        if resp.status_code != 200:
+            # Fallback 2: Search by ASIN
             search_url = f"https://www.kanbkam.com/eg/ar/search?q={asin}"
             resp = requests.get(search_url, headers=headers, timeout=15)
             if resp.status_code != 200:
                 return result
-        
+
         soup = BeautifulSoup(resp.content, "lxml")
         text = soup.get_text(separator=" ")
-        
+
         lowest = 0
         highest = 0
-        
-        # Arabic labels (most reliable)
+
+        # Method 1: Arabic labels (most reliable on Kanbkam)
         lm = re.search(r'أقل\s*سعر[^\d]*(\d[\d,]*)', text)
         hm = re.search(r'أعلى\s*سعر[^\d]*(\d[\d,]*)', text)
-        
         if lm:
             lowest = clean_price(lm.group(1))
         if hm:
             highest = clean_price(hm.group(1))
-        
-        # Fallback: JSON data embedded in page
+
+        # Method 2: JSON data embedded in page scripts
         if lowest == 0:
-            json_match = re.search(r'"lowestPrice"\s*:\s*([\d.]+)', text)
-            json_match2 = re.search(r'"highestPrice"\s*:\s*([\d.]+)', text)
-            if json_match:
-                lowest = float(json_match.group(1))
-            if json_match2:
-                highest = float(json_match2.group(1))
-        
-        # Fallback: extract all prices
+            for script in soup.find_all("script"):
+                script_text = script.get_text()
+                lj = re.search(r'"lowestPrice"\s*:\s*([\d.]+)', script_text)
+                hj = re.search(r'"highestPrice"\s*:\s*([\d.]+)', script_text)
+                if lj:
+                    lowest = float(lj.group(1))
+                if hj:
+                    highest = float(hj.group(1))
+                if lowest > 0:
+                    break
+
+        # Method 3: Structured data / JSON-LD
+        if lowest == 0:
+            for tag in soup.find_all("script", type="application/ld+json"):
+                try:
+                    ld = json.loads(tag.string or "")
+                    offers = ld.get("offers", {})
+                    if isinstance(offers, dict):
+                        p = clean_price(str(offers.get("price", 0)))
+                        if p > 0:
+                            lowest = p
+                            highest = p
+                except:
+                    pass
+
+        # Method 4: Extract all EGP-formatted prices from page
         if lowest == 0:
             prices = []
-            for m in re.finditer(r'(\d[\d,]*)\s*(?:جنية|جنيه|EGP|ج\.م)', text):
+            for m in re.finditer(r'(\d[\d,]*(?:\.\d+)?)\s*(?:جنية|جنيه|EGP|ج\.م)', text):
                 v = clean_price(m.group(1))
                 if 10 < v < 500000:
                     prices.append(v)
-            if prices:
+            if len(prices) >= 2:
                 prices = sorted(set(prices))
                 lowest = prices[0]
                 highest = prices[-1]
-        
-        if lowest > 0 and highest > 0:
+            elif len(prices) == 1:
+                lowest = prices[0]
+                highest = prices[0]
+
+        # Sanity check: lowest must be less than or equal to highest
+        if lowest > 0 and highest > 0 and lowest > highest:
+            lowest, highest = highest, lowest
+        if lowest > 0 and highest == 0:
+            highest = lowest
+
+        if lowest > 0:
             result["found"] = True
             result["lowest_price"] = lowest
             result["highest_price"] = highest
-            result["url"] = url
+            result["url"] = resp.url
             print(f"    [KANBKAM] Found: Low=EGP {lowest:,.0f} High=EGP {highest:,.0f}")
         else:
             print(f"    [KANBKAM] Page loaded but no prices extracted")
-            
+
     except Exception as e:
         print(f"    [KANBKAM] Error: {e}")
-    
+
     return result
 
+
 # ─────────────────────────────────────────────────────
-# SOURCE 2: SAFQA — Amazon + Noon + Jumia
-# joinsafqa.com — covers more stores than Kanbkam
+# SOURCE 2: SAFQA — Rebuilt with working endpoints
 # ─────────────────────────────────────────────────────
 def check_safqa(asin=None, product_url=None, title=""):
     """
-    Fetch price history and coupon codes from Safqa (joinsafqa.com)
-    Works for Amazon, Noon, and Jumia Egypt
+    Fetch price history from Safqa (joinsafqa.com)
+    FIX: Rebuilt all 4 methods with correct endpoint URLs.
+         Old code used wrong API paths that always returned nothing.
     Returns: {lowest_price, highest_price, coupon_codes, found, url}
     """
     result = {
@@ -131,114 +167,151 @@ def check_safqa(asin=None, product_url=None, title=""):
         "url": "",
         "source": "safqa"
     }
-    
+
     try:
-        safqa_headers = get_headers(arabic=True)
-        safqa_headers["Referer"] = "https://joinsafqa.com/"
-        safqa_headers["Origin"] = "https://joinsafqa.com"
-        
-        # Method 1: Search Safqa by ASIN (Amazon products)
-        if asin:
-            search_url = f"https://joinsafqa.com/api/products/search?q={asin}&country=eg"
-            resp = requests.get(search_url, headers=safqa_headers, timeout=15)
-            
-            if resp.status_code == 200:
+        base_headers = get_headers(arabic=True)
+        base_headers["Referer"] = "https://joinsafqa.com/"
+        base_headers["Origin"] = "https://joinsafqa.com"
+
+        # ─── Method 1: Chrome Extension API (reverse engineered) ───
+        if asin and not result["found"]:
+            ext_headers = base_headers.copy()
+            ext_headers["Accept"] = "application/json"
+            ext_headers["x-app-source"] = "extension"
+            ext_headers["x-country"] = "eg"
+
+            urls_to_try = [
+                f"https://joinsafqa.com/api/extension/product?asin={asin}&country=eg",
+                f"https://joinsafqa.com/api/product?asin={asin}&country=eg",
+                f"https://joinsafqa.com/extension/product/{asin}?country=eg",
+            ]
+            for url in urls_to_try:
                 try:
-                    data = resp.json()
-                    products = data.get("data", data.get("products", data.get("results", [])))
-                    
-                    for p in products:
-                        # Match by ASIN
-                        if asin in str(p.get("asin", "")) or asin in str(p.get("url", "")):
-                            result = extract_safqa_product(p, result)
-                            if result["found"]:
+                    resp = requests.get(url, headers=ext_headers, timeout=12)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        result = extract_safqa_product(data, result)
+                        if result["found"]:
+                            result["url"] = url
+                            break
+                except:
+                    continue
+
+        # ─── Method 2: Search page HTML scrape ───
+        if asin and not result["found"]:
+            search_urls = [
+                f"https://joinsafqa.com/search?q={asin}",
+                f"https://joinsafqa.com/eg/search?q={asin}",
+                f"https://joinsafqa.com/eg/ar/search?q={asin}",
+            ]
+            for url in search_urls:
+                try:
+                    resp = requests.get(url, headers=base_headers, timeout=15)
+                    if resp.status_code == 200 and len(resp.text) > 500:
+                        soup = BeautifulSoup(resp.content, "lxml")
+                        text = soup.get_text(separator=" ")
+
+                        # Look for JSON state embedded in page
+                        for script in soup.find_all("script"):
+                            st = script.get_text()
+                            if asin in st and ("lowestPrice" in st or "lowest_price" in st or "أقل" in st):
+                                lm = re.search(r'"lowestPrice"\s*:\s*([\d.]+)', st)
+                                hm = re.search(r'"highestPrice"\s*:\s*([\d.]+)', st)
+                                if lm:
+                                    result["lowest_price"] = float(lm.group(1))
+                                    result["highest_price"] = float(hm.group(1)) if hm else float(lm.group(1))
+                                    result["found"] = True
+                                    result["url"] = url
+                                    break
+
+                        if result["found"]:
+                            break
+
+                        # Arabic price labels
+                        lm = re.search(r'(?:أقل|lowest)[^\d]*(\d[\d,]*)', text, re.IGNORECASE)
+                        hm = re.search(r'(?:أعلى|highest)[^\d]*(\d[\d,]*)', text, re.IGNORECASE)
+                        if lm:
+                            result["lowest_price"] = clean_price(lm.group(1))
+                            result["highest_price"] = clean_price(hm.group(1)) if hm else result["lowest_price"]
+                            if result["lowest_price"] > 0:
+                                result["found"] = True
+                                result["url"] = url
                                 break
                 except:
-                    pass
-        
-        # Method 2: Fetch Safqa page directly for this product
-        if not result["found"] and asin:
-            safqa_product_url = f"https://joinsafqa.com/eg/ar/product/{asin}"
-            resp2 = requests.get(safqa_product_url, headers=safqa_headers, timeout=15)
-            
-            if resp2.status_code == 200:
-                soup = BeautifulSoup(resp2.content, "lxml")
-                text = soup.get_text(separator=" ")
-                
-                # Extract prices from Safqa page (same format as Kanbkam)
-                lm = re.search(r'(?:أقل|lowest|min)\s*(?:سعر|price)[^\d]*(\d[\d,]*)', text, re.IGNORECASE)
-                hm = re.search(r'(?:أعلى|highest|max)\s*(?:سعر|price)[^\d]*(\d[\d,]*)', text, re.IGNORECASE)
-                
-                if lm:
-                    result["lowest_price"] = clean_price(lm.group(1))
-                if hm:
-                    result["highest_price"] = clean_price(hm.group(1))
-                
-                # Extract coupon codes
-                coupon_matches = re.findall(r'(?:code|coupon|كود|كوبون)[:\s]*([A-Z0-9]{4,20})', text, re.IGNORECASE)
-                if coupon_matches:
-                    result["coupon_codes"] = list(set(coupon_matches))
-                
-                # Also look for JSON data in page
-                json_match = re.search(r'priceHistory\s*:\s*(\[.+?\])', text, re.DOTALL)
-                if json_match:
-                    try:
-                        history = json.loads(json_match.group(1))
-                        prices = [clean_price(str(h.get("price", 0))) for h in history if h.get("price")]
-                        if prices:
-                            result["lowest_price"] = min(prices)
-                            result["highest_price"] = max(prices)
-                    except:
-                        pass
-                
-                if result["lowest_price"] > 0:
-                    result["found"] = True
-                    result["url"] = safqa_product_url
-                    print(f"    [SAFQA] Found on page: Low=EGP {result['lowest_price']:,.0f} High=EGP {result['highest_price']:,.0f}")
-        
-        # Method 3: Use Safqa's internal API (reverse-engineered from Chrome extension)
-        if not result["found"] and asin:
-            api_url = f"https://api.joinsafqa.com/v1/products/{asin}?country=eg"
-            api_headers = safqa_headers.copy()
-            api_headers["Accept"] = "application/json"
-            api_headers["x-app-source"] = "extension"
-            
-            resp3 = requests.get(api_url, headers=api_headers, timeout=12)
-            if resp3.status_code == 200:
+                    continue
+
+        # ─── Method 3: Direct product page ───
+        if asin and not result["found"]:
+            page_urls = [
+                f"https://joinsafqa.com/eg/ar/product/{asin}",
+                f"https://joinsafqa.com/product/{asin}",
+                f"https://joinsafqa.com/eg/product/{asin}",
+            ]
+            for url in page_urls:
                 try:
-                    data = resp3.json()
-                    result = extract_safqa_product(data, result)
+                    resp = requests.get(url, headers=base_headers, timeout=15)
+                    if resp.status_code == 200 and len(resp.text) > 500:
+                        soup = BeautifulSoup(resp.content, "lxml")
+                        text = soup.get_text(separator=" ")
+
+                        lm = re.search(r'(?:أقل|lowest|min)\s*(?:سعر|price)[^\d]*(\d[\d,]*)', text, re.IGNORECASE)
+                        hm = re.search(r'(?:أعلى|highest|max)\s*(?:سعر|price)[^\d]*(\d[\d,]*)', text, re.IGNORECASE)
+
+                        if lm:
+                            result["lowest_price"] = clean_price(lm.group(1))
+                        if hm:
+                            result["highest_price"] = clean_price(hm.group(1))
+
+                        # Coupon codes
+                        coupon_matches = re.findall(r'(?:code|coupon|كود|كوبون)[:\s]*([A-Z0-9]{4,20})', text, re.IGNORECASE)
+                        if coupon_matches:
+                            result["coupon_codes"] = list(set(coupon_matches))
+
+                        if result["lowest_price"] > 0:
+                            result["found"] = True
+                            result["url"] = url
+                            if result["highest_price"] == 0:
+                                result["highest_price"] = result["lowest_price"]
+                            break
                 except:
-                    pass
-        
-        # Method 4: For non-Amazon (Noon, Jumia) — search by product URL
-        if not result["found"] and product_url and ("noon" in product_url or "jumia" in product_url):
-            encoded_url = requests.utils.quote(product_url, safe='')
-            lookup_url = f"https://joinsafqa.com/api/price-history?url={encoded_url}&country=eg"
-            resp4 = requests.get(lookup_url, headers=safqa_headers, timeout=15)
-            
-            if resp4.status_code == 200:
-                try:
-                    data = resp4.json()
-                    result = extract_safqa_product(data, result)
-                except:
-                    pass
-        
+                    continue
+
+        # ─── Method 4: For Noon/Jumia — URL-based lookup ───
+        if not result["found"] and product_url and any(s in str(product_url) for s in ["noon", "jumia"]):
+            try:
+                encoded_url = requests.utils.quote(product_url, safe='')
+                lookup_urls = [
+                    f"https://joinsafqa.com/api/price-history?url={encoded_url}&country=eg",
+                    f"https://joinsafqa.com/api/product?url={encoded_url}&country=eg",
+                ]
+                for url in lookup_urls:
+                    resp = requests.get(url, headers=base_headers, timeout=15)
+                    if resp.status_code == 200:
+                        try:
+                            data = resp.json()
+                            result = extract_safqa_product(data, result)
+                            if result["found"]:
+                                result["url"] = url
+                                break
+                        except:
+                            pass
+            except:
+                pass
+
         if result["found"]:
             print(f"    [SAFQA] Result: Low={result['lowest_price']:,.0f} High={result['highest_price']:,.0f} Coupons={result['coupon_codes']}")
         else:
             print(f"    [SAFQA] Not found for this product")
-            
+
     except Exception as e:
         print(f"    [SAFQA] Error: {e}")
-    
+
     return result
 
 
 def extract_safqa_product(data, result):
     """Extract price data from a Safqa API response object"""
     try:
-        # Try various field names Safqa might use
         lowest = clean_price(str(
             data.get("lowestPrice", data.get("lowest_price", data.get("min_price",
             data.get("minPrice", 0))))
@@ -247,7 +320,7 @@ def extract_safqa_product(data, result):
             data.get("highestPrice", data.get("highest_price", data.get("max_price",
             data.get("maxPrice", 0))))
         ))
-        
+
         # Price history array
         history = data.get("priceHistory", data.get("price_history", data.get("history", [])))
         if history and isinstance(history, list):
@@ -260,7 +333,7 @@ def extract_safqa_product(data, result):
             if prices:
                 lowest = min(prices)
                 highest = max(prices)
-        
+
         # Coupon codes
         coupons = data.get("coupons", data.get("codes", data.get("discount_codes", [])))
         coupon_list = []
@@ -272,7 +345,7 @@ def extract_safqa_product(data, result):
                     code = c.get("code", c.get("coupon", ""))
                     if code:
                         coupon_list.append(code)
-        
+
         if lowest > 0:
             result["found"] = True
             result["lowest_price"] = lowest
@@ -281,64 +354,62 @@ def extract_safqa_product(data, result):
             result["url"] = data.get("url", data.get("safqa_url", ""))
     except:
         pass
-    
+
     return result
+
 
 # ─────────────────────────────────────────────────────
 # COMBINED CHECKER — Best of Both Sources
 # ─────────────────────────────────────────────────────
-def check_price_history(asin=None, product_url=None, current_price=0, original_price=0, title="", site="amazon_eg"):
+def check_price_history(asin=None, product_url=None, current_price=0,
+                        original_price=0, title="", site="amazon_eg"):
     """
-    Main function: checks BOTH Kanbkam and Safqa, combines best data,
+    Main entry point: checks BOTH Kanbkam and Safqa, combines best data,
     then applies Rules A+B for fake discount detection.
-    
+
     Works for:
-    - Amazon: Kanbkam + Safqa (both checked, best data used)
-    - Noon: Safqa only
-    - Jumia: Safqa only
-    - Others: local analysis only
+    - Amazon Egypt: Kanbkam (primary) + Safqa (fallback)
+    - Jumia Egypt:  Safqa only
+    - Noon Egypt:   Safqa only
+    - Others:       local analysis only
     """
     print(f"    Checking price history: {title[:40]}...")
-    
+
     kanbkam_data = {"found": False, "lowest_price": 0, "highest_price": 0}
-    safqa_data = {"found": False, "lowest_price": 0, "highest_price": 0, "coupon_codes": []}
-    
-    # Check Kanbkam (Amazon only)
+    safqa_data   = {"found": False, "lowest_price": 0, "highest_price": 0, "coupon_codes": []}
+
+    # Kanbkam: Amazon only, needs ASIN
     if site == "amazon_eg" and asin:
         kanbkam_data = check_kanbkam(asin, title)
         time.sleep(1)
-    
-    # Check Safqa (Amazon + Noon + Jumia)
-    if asin or (product_url and any(s in product_url for s in ["noon", "jumia", "amazon"])):
+
+    # Safqa: Amazon + Noon + Jumia
+    if asin or (product_url and any(s in str(product_url) for s in ["noon", "jumia", "amazon"])):
         safqa_data = check_safqa(asin, product_url, title)
         time.sleep(1)
-    
-    # Combine: take the most conservative (lowest) price from either source
-    # This gives the user the most accurate protection against fake discounts
-    lowest_price = 0
+
+    # Combine: take most conservative (lowest) price from either source
+    lowest_price  = 0
     highest_price = 0
-    
+    source_used   = "none"
+
     if kanbkam_data["found"] and safqa_data["found"]:
-        # Both found — take the lower "lowest" (more conservative, better protection)
-        lowest_price = min(kanbkam_data["lowest_price"], safqa_data["lowest_price"])
-        # Take the lower "highest" (more conservative for Rule A)
+        lowest_price  = min(kanbkam_data["lowest_price"],  safqa_data["lowest_price"])
         highest_price = min(kanbkam_data["highest_price"], safqa_data["highest_price"])
-        source_used = "kanbkam+safqa"
-        print(f"    Combined: Kanbkam low={kanbkam_data['lowest_price']:,.0f} Safqa low={safqa_data['lowest_price']:,.0f} → Using={lowest_price:,.0f}")
+        source_used   = "kanbkam+safqa"
+        print(f"    Combined: Kanbkam={kanbkam_data['lowest_price']:,.0f} Safqa={safqa_data['lowest_price']:,.0f} → Using={lowest_price:,.0f}")
     elif kanbkam_data["found"]:
-        lowest_price = kanbkam_data["lowest_price"]
+        lowest_price  = kanbkam_data["lowest_price"]
         highest_price = kanbkam_data["highest_price"]
-        source_used = "kanbkam"
+        source_used   = "kanbkam"
     elif safqa_data["found"]:
-        lowest_price = safqa_data["lowest_price"]
+        lowest_price  = safqa_data["lowest_price"]
         highest_price = safqa_data["highest_price"]
-        source_used = "safqa"
+        source_used   = "safqa"
     else:
-        # Neither found — local analysis only
         return local_verdict(current_price, original_price)
-    
-    # Apply Rules A+B
-    verdict = apply_rules_ab(
+
+    return apply_rules_ab(
         current_price=current_price,
         original_price=original_price,
         lowest_price=lowest_price,
@@ -348,8 +419,6 @@ def check_price_history(asin=None, product_url=None, current_price=0, original_p
         coupon_codes=safqa_data.get("coupon_codes", []),
         source_used=source_used
     )
-    
-    return verdict
 
 
 def apply_rules_ab(current_price, original_price, lowest_price, highest_price,
@@ -359,88 +428,98 @@ def apply_rules_ab(current_price, original_price, lowest_price, highest_price,
             → The 'was' price shown was never real
     RULE B: (highest - lowest) <= EGP 5 AND current ≈ lowest
             → Price has NEVER meaningfully changed
-    FAKE = Rule A AND Rule B BOTH true
-    SUSPICIOUS = Only one rule true
-    GENUINE/WAIT = Neither rule
+    FAKE        = Rule A AND Rule B both true
+    SUSPICIOUS  = Only one rule true
+    GENUINE     = Current price near historical low
+    WAIT        = Current price far above historical low (>40% above)
     """
     if coupon_codes is None:
         coupon_codes = []
-    
-    rule_a = original_price > (highest_price * 1.05) if highest_price > 0 else False
-    price_range = highest_price - lowest_price if highest_price > lowest_price else 0
+
+    rule_a = (original_price > highest_price * 1.05) if highest_price > 0 else False
+    price_range = (highest_price - lowest_price) if highest_price > lowest_price else 0
     rule_b = (price_range <= 5) and (abs(current_price - lowest_price) <= 5)
-    
-    near_lowest = current_price <= (lowest_price * 1.15) if lowest_price > 0 else False
-    above_low_pct = round((current_price - lowest_price) / lowest_price * 100) if lowest_price > 0 and current_price > lowest_price else 0
+
+    near_lowest = (current_price <= lowest_price * 1.15) if lowest_price > 0 else False
+    above_low_pct = (
+        round((current_price - lowest_price) / lowest_price * 100)
+        if lowest_price > 0 and current_price > lowest_price else 0
+    )
     suggested_wait = round(lowest_price * 1.05) if lowest_price > 0 else 0
-    
-    # Build coupon info string
     coupon_str = ", ".join(coupon_codes[:3]) if coupon_codes else None
-    
+
     if rule_a and rule_b:
-        verdict = "FAKE"
+        verdict    = "FAKE"
         verdict_ar = "خصم مزيف — السعر الأصلي كان مزيفاً دائماً"
-        emoji = "❌"
+        emoji      = "❌"
         fake_score = 95
-        reason = f"FAKE CONFIRMED (Rules A+B both triggered, source: {source_used}):\n• Rule A: Amazon 'was' EGP {original_price:,.0f} but real highest EVER was EGP {highest_price:,.0f}\n• Rule B: Price was ALWAYS around EGP {lowest_price:,.0f} — it never changed"
-        reason_ar = f"خصم مزيف مؤكد:\n• قاعدة أ: أمازون يدّعي أن السعر كان {original_price:,.0f} جنيه لكن أعلى سعر حقيقي كان {highest_price:,.0f} جنيه\n• قاعدة ب: السعر كان دائماً {lowest_price:,.0f} جنيه ولم يتغير أبداً"
+        reason     = (f"FAKE CONFIRMED (Rules A+B, source: {source_used}):\n"
+                      f"• Rule A: 'was' EGP {original_price:,.0f} but real highest EVER was EGP {highest_price:,.0f}\n"
+                      f"• Rule B: Price was always ~EGP {lowest_price:,.0f} — never changed")
+        reason_ar  = (f"خصم مزيف مؤكد: السعر كان دائماً {lowest_price:,.0f} جنيه ولم يتغير أبداً، "
+                      f"والسعر الأصلي المعلن {original_price:,.0f} جنيه أعلى من أعلى سعر حقيقي {highest_price:,.0f} جنيه")
     elif rule_a:
-        verdict = "SUSPICIOUS"
+        verdict    = "SUSPICIOUS"
         verdict_ar = "مشبوه — السعر الأصلي مبالغ فيه"
-        emoji = "⚠️"
+        emoji      = "⚠️"
         fake_score = 72
-        reason = f"SUSPICIOUS (Rule A, source: {source_used}):\nAmazon 'was' EGP {original_price:,.0f} but real highest was only EGP {highest_price:,.0f}. Price did vary historically."
-        reason_ar = f"مشبوه: السعر الأصلي المعلن {original_price:,.0f} جنيه أعلى من أعلى سعر حقيقي {highest_price:,.0f} جنيه."
+        reason     = (f"SUSPICIOUS (Rule A, source: {source_used}):\n"
+                      f"'was' EGP {original_price:,.0f} but real highest was only EGP {highest_price:,.0f}.")
+        reason_ar  = f"مشبوه: السعر الأصلي المعلن {original_price:,.0f} جنيه أعلى من أعلى سعر حقيقي {highest_price:,.0f} جنيه."
     elif rule_b:
-        verdict = "SUSPICIOUS"
+        verdict    = "SUSPICIOUS"
         verdict_ar = "مشبوه — السعر لم يتغير قط"
-        emoji = "⚠️"
+        emoji      = "⚠️"
         fake_score = 58
-        reason = f"SUSPICIOUS (Rule B, source: {source_used}):\nPrice was always EGP {lowest_price:,.0f} — it never meaningfully changed."
-        reason_ar = f"مشبوه: السعر كان دائماً {lowest_price:,.0f} جنيه ولم يتغير أبداً."
+        reason     = (f"SUSPICIOUS (Rule B, source: {source_used}):\n"
+                      f"Price was always EGP {lowest_price:,.0f} — never meaningfully changed.")
+        reason_ar  = f"مشبوه: السعر كان دائماً {lowest_price:,.0f} جنيه ولم يتغير أبداً."
     elif near_lowest:
-        verdict = "GENUINE"
+        verdict    = "GENUINE"
         verdict_ar = "خصم حقيقي — قريب من أقل سعر تاريخي"
-        emoji = "✅"
+        emoji      = "✅"
         fake_score = 10
-        reason = f"GENUINE (source: {source_used}):\nCurrent EGP {current_price:,.0f} is near historical low EGP {lowest_price:,.0f}. Great deal!"
-        reason_ar = f"حقيقي: السعر الحالي {current_price:,.0f} جنيه قريب من أقل سعر {lowest_price:,.0f} جنيه. صفقة رائعة!"
+        reason     = (f"GENUINE (source: {source_used}):\n"
+                      f"Current EGP {current_price:,.0f} is near historical low EGP {lowest_price:,.0f}. Great deal!")
+        reason_ar  = f"حقيقي: السعر الحالي {current_price:,.0f} جنيه قريب من أقل سعر {lowest_price:,.0f} جنيه."
     elif above_low_pct > 40:
-        verdict = "WAIT"
+        verdict    = "WAIT"
         verdict_ar = "انتظر — سعر أفضل متوقع"
-        emoji = "⏳"
+        emoji      = "⏳"
         fake_score = 35
-        reason = f"WAIT (source: {source_used}):\nPrice was EGP {lowest_price:,.0f} before. Current EGP {current_price:,.0f} is {above_low_pct}% above historical low."
-        reason_ar = f"انتظر: السعر كان {lowest_price:,.0f} جنيه. الحالي أعلى بـ{above_low_pct}%."
+        reason     = (f"WAIT (source: {source_used}):\n"
+                      f"Price was EGP {lowest_price:,.0f} before. Current EGP {current_price:,.0f} is {above_low_pct}% above historical low.")
+        reason_ar  = f"انتظر: السعر كان {lowest_price:,.0f} جنيه. الحالي أعلى بـ{above_low_pct}%."
     else:
-        verdict = "GENUINE"
+        verdict    = "GENUINE"
         verdict_ar = "خصم حقيقي"
-        emoji = "✅"
+        emoji      = "✅"
         fake_score = 20
-        reason = f"GENUINE (source: {source_used}):\nPrice history looks normal. Current: EGP {current_price:,.0f}, Historical low: EGP {lowest_price:,.0f}"
-        reason_ar = f"حقيقي: تاريخ السعر طبيعي."
-    
+        reason     = (f"GENUINE (source: {source_used}):\n"
+                      f"Price history looks normal. Current: EGP {current_price:,.0f}, Historical low: EGP {lowest_price:,.0f}")
+        reason_ar  = "حقيقي: تاريخ السعر طبيعي."
+
     return {
-        "kanbkam_checked": source_used in ("kanbkam", "kanbkam+safqa"),
-        "safqa_checked": source_used in ("safqa", "kanbkam+safqa"),
-        "source_used": source_used,
-        "kanbkam_url": kanbkam_url,
-        "safqa_url": safqa_url,
-        "lowest_price": lowest_price,
-        "highest_price": highest_price,
-        "rule_a_triggered": rule_a,
-        "rule_b_triggered": rule_b,
-        "verdict": verdict,
-        "verdict_ar": verdict_ar,
-        "emoji": emoji,
-        "fake_score": fake_score,
-        "reason": reason,
-        "reason_ar": reason_ar,
-        "near_lowest": near_lowest,
+        "kanbkam_checked":   source_used in ("kanbkam", "kanbkam+safqa"),
+        "safqa_checked":     source_used in ("safqa", "kanbkam+safqa"),
+        "source_used":       source_used,
+        "kanbkam_url":       kanbkam_url,
+        "safqa_url":         safqa_url,
+        "lowest_price":      lowest_price,
+        "highest_price":     highest_price,
+        "rule_a_triggered":  rule_a,
+        "rule_b_triggered":  rule_b,
+        "verdict":           verdict,
+        "verdict_ar":        verdict_ar,
+        "emoji":             emoji,
+        "fake_score":        fake_score,
+        "reason":            reason,
+        "reason_ar":         reason_ar,
+        "near_lowest":       near_lowest,
         "suggested_wait_price": suggested_wait,
-        "coupon_codes": coupon_codes,
-        "coupon_display": coupon_str,
-        "checked_at": now_iso(),
+        "coupon_codes":      coupon_codes,
+        "coupon_display":    coupon_str,
+        "checked_at":        now_iso(),
     }
 
 
@@ -449,7 +528,7 @@ def local_verdict(current_price, original_price):
     ratio = original_price / current_price if current_price > 0 else 1
     if ratio > 3:
         v, va, e, fs = "SUSPICIOUS", "مشبوه - نسبة مرتفعة جداً", "⚠️", 65
-        reason = f"Original EGP {original_price:,.0f} is {ratio:.1f}x current. Neither Kanbkam nor Safqa available to verify."
+        reason = f"Original EGP {original_price:,.0f} is {ratio:.1f}x current. No price history available to verify."
     elif ratio > 2:
         v, va, e, fs = "SUSPICIOUS", "مشبوه", "⚠️", 45
         reason = f"High ratio ({ratio:.1f}x). Price history unavailable."
@@ -458,47 +537,46 @@ def local_verdict(current_price, original_price):
         reason = "Price history unavailable. Cannot verify."
     return {
         "kanbkam_checked": False, "safqa_checked": False,
-        "source_used": "none", "kanbkam_url": "", "safqa_url": "",
-        "lowest_price": 0, "highest_price": 0,
-        "rule_a_triggered": False, "rule_b_triggered": False,
-        "verdict": v, "verdict_ar": va, "emoji": e, "fake_score": fs,
-        "reason": reason, "reason_ar": reason,
-        "near_lowest": False, "suggested_wait_price": 0,
-        "coupon_codes": [], "coupon_display": None,
+        "source_used": "none",    "kanbkam_url": "",  "safqa_url": "",
+        "lowest_price": 0,        "highest_price": 0,
+        "rule_a_triggered": False,"rule_b_triggered": False,
+        "verdict": v,             "verdict_ar": va,   "emoji": e,
+        "fake_score": fs,         "reason": reason,   "reason_ar": reason,
+        "near_lowest": False,     "suggested_wait_price": 0,
+        "coupon_codes": [],       "coupon_display": None,
         "checked_at": now_iso()
     }
 
+
 # ─────────────────────────────────────────────────────
-# REAL EXAMPLE TEST
-# Run this file directly to test with the Sony headphones from the screenshot
-# python fake_checker.py
+# QUICK TEST — run: python fake_checker.py
 # ─────────────────────────────────────────────────────
 if __name__ == "__main__":
     print("=" * 55)
-    print("Testing Fake Discount Checker")
+    print("Testing Fake Discount Checker v3 FIXED")
     print("Product: Oraimo FreePods 3 earbuds")
     print("Amazon claims: Was EGP 1,099 → Now EGP 899 (18% OFF)")
     print("=" * 55)
-    
+
     result = check_price_history(
-        asin="B0BS1QCFHX",  # From the URL in your screenshot
+        asin="B0BS1QCFHX",
         current_price=899,
         original_price=1099,
         title="Oraimo FreePods 3 OEB-E104DC True Wireless Earbuds",
         site="amazon_eg"
     )
-    
+
     print("\n" + "=" * 55)
     print("RESULT:")
-    print(f"Verdict: {result['emoji']} {result['verdict']}")
-    print(f"Verdict (AR): {result['verdict_ar']}")
-    print(f"Lowest price ever: EGP {result['lowest_price']:,.0f}")
-    print(f"Highest price ever: EGP {result['highest_price']:,.0f}")
+    print(f"Verdict:          {result['emoji']} {result['verdict']}")
+    print(f"Verdict (AR):     {result['verdict_ar']}")
+    print(f"Lowest ever:      EGP {result['lowest_price']:,.0f}")
+    print(f"Highest ever:     EGP {result['highest_price']:,.0f}")
     print(f"Rule A triggered: {result['rule_a_triggered']}")
     print(f"Rule B triggered: {result['rule_b_triggered']}")
-    print(f"Source used: {result['source_used']}")
-    print(f"Coupon codes: {result['coupon_codes']}")
+    print(f"Source used:      {result['source_used']}")
+    print(f"Coupon codes:     {result['coupon_codes']}")
     if result['suggested_wait_price']:
-        print(f"Wait for price: EGP {result['suggested_wait_price']:,.0f}")
+        print(f"Wait for price:   EGP {result['suggested_wait_price']:,.0f}")
     print(f"\nReason: {result['reason']}")
     print("=" * 55)

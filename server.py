@@ -1,5 +1,5 @@
 # DealHunter Egypt - Web Server Wrapper
-# Keeps Render alive + runs scraper in background
+# Keeps Render alive + runs scraper in background thread
 
 import threading
 import os
@@ -28,7 +28,7 @@ class SimpleHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"OK")
 
     def log_message(self, format, *args):
-        pass
+        pass  # silence access logs
 
 
 def run_web_server():
