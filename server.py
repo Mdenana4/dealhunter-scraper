@@ -19,13 +19,25 @@ app.config['JSON_SORT_KEYS'] = False
 
 # Initialize Firebase Admin SDK
 try:
-    # Initialize with default credentials (set GOOGLE_APPLICATION_CREDENTIALS env var)
+    # Initialize with default credentials
     if not firebase_admin.get_app():
-        firebase_admin.initialize_app(
-            credentials.Certificate(os.environ.get('FIREBASE_CREDENTIALS_PATH', './firebase-credentials.json'))
-            if os.path.exists('./firebase-credentials.json') or os.environ.get('FIREBASE_CREDENTIALS_PATH')
-            else credentials.ApplicationDefault()
-        )
+        # Try environment variable with JSON content first
+        firebase_json = os.environ.get('FIREBASE_CREDENTIALS_JSON')
+        if firebase_json:
+            try:
+                cred_dict = json.loads(firebase_json)
+                firebase_admin.initialize_app(credentials.Certificate(cred_dict))
+            except Exception as e:
+                print(f"  Failed to parse FIREBASE_CREDENTIALS_JSON: {e}")
+                raise
+        # Try file path
+        elif os.path.exists('./firebase-credentials.json') or os.environ.get('FIREBASE_CREDENTIALS_PATH'):
+            firebase_admin.initialize_app(
+                credentials.Certificate(os.environ.get('FIREBASE_CREDENTIALS_PATH', './firebase-credentials.json'))
+            )
+        else:
+            firebase_admin.initialize_app(credentials.ApplicationDefault())
+
     db = firestore.client()
     print("✓ Firebase Admin SDK initialized")
 except Exception as e:
