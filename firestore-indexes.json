@@ -1,0 +1,43 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "users",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "stripe_customer_id", "order": "ASCENDING"},
+        {"fieldPath": "referral_code", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "subscriptions",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "user_id", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "subscriptions",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "stripe_subscription_id", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "referrals",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "referrer_id", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "user_groups",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "owner_id", "order": "ASCENDING"},
+        {"fieldPath": "created_at", "order": "DESCENDING"}
+      ]
+    }
+  ]
+}
