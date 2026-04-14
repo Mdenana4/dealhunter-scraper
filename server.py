@@ -1096,14 +1096,25 @@ def stripe_webhook():
         payload = request.get_data(as_text=True)
         sig_header = request.headers.get('stripe-signature')
 
+        print(f"[Webhook] Received POST request")
+        print(f"[Webhook] Signature header: {sig_header[:20] if sig_header else 'MISSING'}...")
+        print(f"[Webhook] STRIPE_WEBHOOK_SECRET configured: {bool(STRIPE_WEBHOOK_SECRET)}")
+
         if not STRIPE_WEBHOOK_SECRET:
+            print(f"[Webhook] ERROR: Webhook secret not configured!")
             return jsonify({'error': 'Webhook secret not configured'}), 500
 
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, STRIPE_WEBHOOK_SECRET
-        )
+        try:
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, STRIPE_WEBHOOK_SECRET
+            )
+            print(f"[Webhook] ✓ Signature verified")
+        except stripe.error.SignatureVerificationError as e:
+            print(f"[Webhook] ✗ Signature verification failed: {e}")
+            return jsonify({'error': 'Invalid signature'}), 400
 
         event_type = event['type']
+        print(f"[Webhook] Event type: {event_type}")
 
         if event_type == 'customer.created':
             handle_customer_created(event['data']['object'])
@@ -1123,13 +1134,16 @@ def stripe_webhook():
         elif event_type == 'charge.failed':
             handle_charge_failed(event['data']['object'])
 
+        print(f"[Webhook] Logging event...")
         # Log webhook
         log_webhook(event['id'], event_type, 'success', 200, event)
+        print(f"[Webhook] ✓ Event logged successfully")
 
         return jsonify({'success': True}), 200
-    except stripe.error.SignatureVerificationError:
-        return jsonify({'error': 'Invalid signature'}), 400
     except Exception as e:
+        print(f"[Webhook] ✗ ERROR: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         log_webhook(None, event_type if 'event_type' in locals() else 'unknown', 'failed', 500, str(e))
         return jsonify({'error': str(e)}), 500
 
