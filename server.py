@@ -25,21 +25,31 @@ try:
         firebase_json = os.environ.get('FIREBASE_CREDENTIALS_JSON')
         if firebase_json:
             try:
+                print(f"  Loading Firebase credentials from FIREBASE_CREDENTIALS_JSON environment variable...")
                 cred_dict = json.loads(firebase_json)
                 firebase_admin.initialize_app(credentials.Certificate(cred_dict))
+                print(f"  ✓ Initialized with FIREBASE_CREDENTIALS_JSON")
+            except json.JSONDecodeError as e:
+                print(f"  ✗ Failed to parse JSON from FIREBASE_CREDENTIALS_JSON: {e}")
+                print(f"  First 100 chars: {firebase_json[:100]}")
+                raise
             except Exception as e:
-                print(f"  Failed to parse FIREBASE_CREDENTIALS_JSON: {e}")
+                print(f"  ✗ Failed to initialize with FIREBASE_CREDENTIALS_JSON: {e}")
                 raise
         # Try file path
         elif os.path.exists('./firebase-credentials.json') or os.environ.get('FIREBASE_CREDENTIALS_PATH'):
+            print(f"  Loading Firebase credentials from file...")
             firebase_admin.initialize_app(
                 credentials.Certificate(os.environ.get('FIREBASE_CREDENTIALS_PATH', './firebase-credentials.json'))
             )
+            print(f"  ✓ Initialized with FIREBASE_CREDENTIALS_PATH")
         else:
+            print(f"  Loading Firebase credentials using ApplicationDefault...")
             firebase_admin.initialize_app(credentials.ApplicationDefault())
+            print(f"  ✓ Initialized with ApplicationDefault")
 
     db = firestore.client()
-    print("✓ Firebase Admin SDK initialized")
+    print("✓ Firebase Admin SDK initialized successfully")
 except Exception as e:
     print(f"⚠ Firebase Admin SDK initialization failed: {e}")
     db = None
@@ -1239,6 +1249,10 @@ def handle_charge_failed(charge):
 
 def log_webhook(event_id, event_type, status, response_code, payload):
     """Log webhook event for auditing"""
+    if not db:
+        print(f"Warning: Firebase not initialized, cannot log webhook event: {event_type}")
+        return
+
     try:
         log_id = db.collection('webhooks_log').document().id
         db.collection('webhooks_log').document(log_id).set({
@@ -1248,6 +1262,7 @@ def log_webhook(event_id, event_type, status, response_code, payload):
             'response_code': response_code,
             'created_at': datetime.datetime.now(datetime.timezone.utc)
         })
+        print(f"✓ Webhook logged: {event_type}")
     except Exception as e:
         print(f"Error logging webhook: {e}")
 
