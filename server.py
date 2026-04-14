@@ -18,38 +18,55 @@ app = Flask(__name__)
 app.config['JSON_SORT_KEYS'] = False
 
 # Initialize Firebase Admin SDK
+db = None
 try:
-    # Initialize with default credentials
-    if not firebase_admin.get_app():
+    # Check if app already initialized
+    try:
+        firebase_admin.get_app()
+        db = firestore.client()
+        print("✓ Firebase Admin SDK already initialized")
+    except ValueError:
+        # App not initialized yet, initialize it
+        print("  Initializing Firebase Admin SDK...")
+
         # Try environment variable with JSON content first
         firebase_json = os.environ.get('FIREBASE_CREDENTIALS_JSON')
         if firebase_json:
+            print(f"  Found FIREBASE_CREDENTIALS_JSON environment variable")
             try:
-                print(f"  Loading Firebase credentials from FIREBASE_CREDENTIALS_JSON environment variable...")
                 cred_dict = json.loads(firebase_json)
+                print(f"  ✓ Successfully parsed JSON credentials")
                 firebase_admin.initialize_app(credentials.Certificate(cred_dict))
-                print(f"  ✓ Initialized with FIREBASE_CREDENTIALS_JSON")
+                db = firestore.client()
+                print(f"✓ Firebase Admin SDK initialized with FIREBASE_CREDENTIALS_JSON")
             except json.JSONDecodeError as e:
-                print(f"  ✗ Failed to parse JSON from FIREBASE_CREDENTIALS_JSON: {e}")
-                print(f"  First 100 chars: {firebase_json[:100]}")
+                print(f"  ✗ Failed to parse JSON: {e}")
                 raise
             except Exception as e:
-                print(f"  ✗ Failed to initialize with FIREBASE_CREDENTIALS_JSON: {e}")
+                print(f"  ✗ Failed to initialize: {e}")
                 raise
         # Try file path
-        elif os.path.exists('./firebase-credentials.json') or os.environ.get('FIREBASE_CREDENTIALS_PATH'):
-            print(f"  Loading Firebase credentials from file...")
+        elif os.path.exists('./firebase-credentials.json'):
+            print(f"  Found firebase-credentials.json file")
             firebase_admin.initialize_app(
-                credentials.Certificate(os.environ.get('FIREBASE_CREDENTIALS_PATH', './firebase-credentials.json'))
+                credentials.Certificate('./firebase-credentials.json')
             )
-            print(f"  ✓ Initialized with FIREBASE_CREDENTIALS_PATH")
+            db = firestore.client()
+            print(f"✓ Firebase Admin SDK initialized with file")
+        # Try FIREBASE_CREDENTIALS_PATH env var
+        elif os.environ.get('FIREBASE_CREDENTIALS_PATH'):
+            print(f"  Found FIREBASE_CREDENTIALS_PATH environment variable")
+            firebase_admin.initialize_app(
+                credentials.Certificate(os.environ.get('FIREBASE_CREDENTIALS_PATH'))
+            )
+            db = firestore.client()
+            print(f"✓ Firebase Admin SDK initialized with FIREBASE_CREDENTIALS_PATH")
         else:
-            print(f"  Loading Firebase credentials using ApplicationDefault...")
+            print(f"  Trying ApplicationDefault credentials...")
             firebase_admin.initialize_app(credentials.ApplicationDefault())
-            print(f"  ✓ Initialized with ApplicationDefault")
+            db = firestore.client()
+            print(f"✓ Firebase Admin SDK initialized with ApplicationDefault")
 
-    db = firestore.client()
-    print("✓ Firebase Admin SDK initialized successfully")
 except Exception as e:
     print(f"⚠ Firebase Admin SDK initialization failed: {e}")
     db = None
