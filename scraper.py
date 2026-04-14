@@ -53,11 +53,31 @@ elif os.path.exists("firebase-key.json"):
     cred = credentials.Certificate("firebase-key.json")
     print("Firebase key loaded from file.")
 else:
-    raise Exception("No Firebase key found.")
+    # Firebase will be initialized by server.py
+    cred = None
 
-firebase_admin.initialize_app(cred)
-db = firestore.client()
-print("Connected to Firebase successfully!")
+# Don't initialize Firebase here - server.py handles it globally
+# Just get the Firestore client from the already-initialized app
+try:
+    if cred:
+        # If we loaded credentials, initialize only if not already initialized
+        try:
+            firebase_admin.get_app()
+            # App already initialized, just get client
+            db = firestore.client()
+            print("Using already-initialized Firebase app")
+        except ValueError:
+            # App not initialized, initialize it
+            firebase_admin.initialize_app(cred)
+            db = firestore.client()
+            print("Connected to Firebase successfully!")
+    else:
+        # Server.py initialized Firebase, just get the client
+        db = firestore.client()
+        print("Connected to Firebase (initialized by server.py)")
+except Exception as e:
+    print(f"Firebase initialization/connection failed: {e}")
+    db = None
 
 
 # ─────────────────────────────────────────────────────
@@ -150,6 +170,17 @@ def detect_category(title):
 # ─────────────────────────────────────────────────────
 # SCRAPERAPI
 # ─────────────────────────────────────────────────────
+def extract_next_data(html_text):
+    """Extract __NEXT_DATA__ JSON embedded in Next.js pages."""
+    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>\s*({.+?})\s*</script>', html_text, re.DOTALL)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except Exception:
+            pass
+    return {}
+
+
 def fetch_with_scraperapi(url, render_js=True, country="eg"):
     if not SCRAPER_API_KEY:
         return fetch_direct(url)
@@ -651,6 +682,7 @@ def scrape_btech():
     total = 0
     pages = [
         ("https://btech.com/en/promotions.html?pageSize=48", "electronics"),
+        ("https://btech.com/en/sale.html?pageSize=48&product_list_order=discount_percent&product_list_dir=desc", "electronics"),
         ("https://btech.com/en/mobiles-and-tablets.html?pageSize=48&product_list_order=discount_percent&product_list_dir=desc", "electronics"),
         ("https://btech.com/en/laptops-and-computers.html?pageSize=48&product_list_order=discount_percent&product_list_dir=desc", "electronics"),
         ("https://btech.com/en/tv-and-audio.html?pageSize=48&product_list_order=discount_percent&product_list_dir=desc", "electronics"),
@@ -661,16 +693,23 @@ def scrape_btech():
         try:
             headers = get_headers()
             headers["Referer"] = "https://btech.com/"
-            resp = requests.get(url, headers=headers, timeout=20)
+            headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+            headers["Cache-Control"] = "no-cache"
+            resp = requests.get(url, headers=headers, timeout=25)
+            if resp.status_code == 403:
+                # Try mobile UA on 403
+                resp = requests.get(url, headers=get_headers(mobile=True), timeout=25)
             if resp.status_code != 200:
                 time.sleep(2)
                 continue
 
             soup = BeautifulSoup(resp.content, "lxml")
             products = (
-                soup.find_all("li", class_=lambda c: c and "product-item" in str(c)) or
+                soup.find_all("li",  class_=lambda c: c and "product-item" in str(c)) or
                 soup.find_all("div", class_="item product product-item") or
-                soup.find_all("div", class_=lambda c: c and "product-item" in str(c))
+                soup.find_all("div", class_=lambda c: c and "product-item" in str(c)) or
+                soup.find_all("div", class_=lambda c: c and "product-card" in str(c)) or
+                soup.find_all("article", class_=lambda c: c and "product" in str(c))
             )
             print(f"  [B.TECH] {len(products)} products: {url[:55]}...")
 
@@ -785,11 +824,13 @@ def scrape_carrefour():
 
     for cat_id, default_cat in categories:
         products_data = []
-        # ✅ FIX: Try multiple Carrefour API URL formats (they change periodically)
+        # Try multiple Carrefour API URL formats — they update the version periodically
         api_urls = [
+            f"https://www.carrefouregypt.com/api/v9/page?url=/mafegy/en/c/{cat_id}&page=0&pageSize=48&sortBy=discountPercentage&sortOrder=desc",
+            f"https://www.carrefouregypt.com/api/v8/page?url=/mafegy/en/c/{cat_id}&page=0&pageSize=48&sortBy=discountPercentage&sortOrder=desc",
             f"https://www.carrefouregypt.com/api/v7/page?url=/mafegy/en/c/{cat_id}&page=0&pageSize=48&sortBy=discountPercentage&sortOrder=desc",
-            f"https://www.carrefouregypt.com/mafegy/en/c/{cat_id}?pageSize=48&sortBy=discountPercentage&sortOrder=desc&format=json",
             f"https://www.carrefouregypt.com/api/v6/page?url=/mafegy/en/c/{cat_id}&page=0&pageSize=48&sortBy=discountPercentage&sortOrder=desc",
+            f"https://www.carrefouregypt.com/mafegy/en/c/{cat_id}?pageSize=48&sortBy=discountPercentage&sortOrder=desc&format=json",
         ]
         for api_url in api_urls:
             try:
@@ -809,6 +850,22 @@ def scrape_carrefour():
             except Exception as e:
                 print(f"  [CARREFOUR] API error {cat_id}: {e}")
                 continue
+
+        # HTML fallback: scrape category page directly if all APIs returned nothing
+        if not products_data:
+            try:
+                page_url = f"https://www.carrefouregypt.com/mafegy/en/c/{cat_id}?pageSize=48&sortBy=discountPercentage&sortOrder=desc"
+                resp = requests.get(page_url, headers=api_headers, timeout=20)
+                if resp.status_code == 200:
+                    nd = extract_next_data(resp.text)
+                    nd_str = json.dumps(nd)
+                    if nd_str and len(nd_str) > 100:
+                        products_data = (
+                            nd.get("props", {}).get("pageProps", {}).get("catalog", {}).get("products", {}).get("results", []) or
+                            nd.get("props", {}).get("pageProps", {}).get("products", {}).get("results", []) or []
+                        )
+            except Exception as e:
+                print(f"  [CARREFOUR] HTML fallback error {cat_id}: {e}")
 
         print(f"  [CARREFOUR] {len(products_data)} products: {cat_id}")
 
@@ -894,31 +951,84 @@ def scrape_carrefour():
 def scrape_sharaf_dg():
     print("\n[SHARAF DG] Starting...")
     total = 0
+    # Try both URL formats — Sharaf DG occasionally restructures their paths
     pages = [
-        ("https://www.sharafdg.com/en/eg/deals",             "electronics"),
-        ("https://www.sharafdg.com/en/eg/mobiles-tablets",   "electronics"),
-        ("https://www.sharafdg.com/en/eg/computers-laptops",  "electronics"),
-        ("https://www.sharafdg.com/en/eg/tv-video-audio",    "electronics"),
-        ("https://www.sharafdg.com/en/eg/home-appliances",   "home"),
+        ("https://www.sharafdg.com/en/eg/deals",                                     "electronics"),
+        ("https://www.sharafdg.com/en/eg/sale",                                      "electronics"),
+        ("https://www.sharafdg.com/en/eg/mobiles-tablets",                           "electronics"),
+        ("https://www.sharafdg.com/en/eg/smartphones",                               "electronics"),
+        ("https://www.sharafdg.com/en/eg/computers-laptops",                         "electronics"),
+        ("https://www.sharafdg.com/en/eg/tv-video-audio",                            "electronics"),
+        ("https://www.sharafdg.com/en/eg/home-appliances",                           "home"),
     ]
 
     for url, default_cat in pages:
         try:
             headers = get_headers()
             headers["Referer"] = "https://www.sharafdg.com/"
-            resp = requests.get(url, headers=headers, timeout=20)
+            headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            resp = requests.get(url, headers=headers, timeout=25)
+            if resp.status_code == 404:
+                continue  # Skip wrong URL variant silently
             if resp.status_code != 200:
                 time.sleep(2)
                 continue
 
             soup = BeautifulSoup(resp.content, "lxml")
+
+            # Try __NEXT_DATA__ first (if they moved to Next.js)
+            nd_products = []
+            nd = extract_next_data(resp.text)
+            if nd:
+                nd_str = json.dumps(nd)
+                if "price" in nd_str.lower():
+                    # Products might be nested — just try known paths
+                    nd_products = (
+                        nd.get("props", {}).get("pageProps", {}).get("products", []) or
+                        nd.get("props", {}).get("pageProps", {}).get("items", []) or []
+                    )
+
             products = (
                 soup.find_all("li",  class_=lambda c: c and "item" in str(c) and "product" in str(c)) or
                 soup.find_all("div", class_=lambda c: c and "product-item" in str(c)) or
                 soup.find_all("div", class_=lambda c: c and "product-card" in str(c)) or
-                soup.find_all("article", class_=lambda c: c and "product" in str(c))
+                soup.find_all("article", class_=lambda c: c and "product" in str(c)) or
+                soup.find_all("div", class_=lambda c: c and "item-product" in str(c))
             )
-            print(f"  [SHARAF] {len(products)} products: {url[:55]}...")
+
+            # Process Next.js products if found
+            if nd_products and not products:
+                for item in nd_products:
+                    try:
+                        title = item.get("name", item.get("title", ""))
+                        if not title:
+                            continue
+                        cp = clean_price(str(item.get("salePrice", item.get("price", item.get("currentPrice", 0)))))
+                        op = clean_price(str(item.get("originalPrice", item.get("regularPrice", cp))))
+                        if cp < 50 or not price_in_range(cp):
+                            continue
+                        if op < cp:
+                            op = cp
+                        disc = calculate_discount(op, cp)
+                        if disc < MIN_DISCOUNT:
+                            continue
+                        purl = item.get("url", item.get("productUrl", ""))
+                        if purl and not purl.startswith("http"):
+                            purl = "https://www.sharafdg.com" + purl
+                        img = item.get("image", item.get("imageUrl", ""))
+                        cat = detect_category(title) or default_cat
+                        kb = check_price_history(product_url=purl, current_price=cp,
+                                                 original_price=op, title=title, site="sharaf_dg_eg")
+                        deal = build_deal(title=title, site="sharaf_dg_eg",
+                                          site_display="Sharaf DG Egypt", category=cat,
+                                          current_price=cp, original_price=op, discount=disc,
+                                          image_url=img, product_url=purl, kanbkam_result=kb)
+                        save_deal(deal)
+                        total += 1
+                    except Exception:
+                        continue
+
+            print(f"  [SHARAF] {len(products)} HTML products: {url[:55]}...")
 
             for p in products:
                 try:
@@ -1008,8 +1118,38 @@ def scrape_sharaf_dg():
 # ─────────────────────────────────────────────────────
 # NOON EGYPT — ScraperAPI + JSON extraction
 # ─────────────────────────────────────────────────────
+def _process_noon_item(src, default_cat):
+    """Parse a single Noon product dict. Returns (deal_dict, kb_dict) or None."""
+    title = src.get("name", "") or src.get("title", "")
+    if not title:
+        return None
+    cp = clean_price(str(
+        src.get("price", {}).get("value", 0) if isinstance(src.get("price"), dict) else
+        src.get("sale_price", 0) or src.get("price", 0)
+    ))
+    op = clean_price(str(
+        src.get("price", {}).get("was", cp) if isinstance(src.get("price"), dict) else
+        src.get("was_price", cp) or src.get("original_price", cp) or cp
+    ))
+    if cp < 50 or not price_in_range(cp):
+        return None
+    if op < cp:
+        op = cp
+    disc = calculate_discount(op, cp)
+    if disc < MIN_DISCOUNT:
+        return None
+    img_keys = src.get("image_keys", [])
+    img  = f"https://f.nooncdn.com/p/{img_keys[0]}.jpg" if img_keys else (src.get("image", "") or "")
+    sku  = src.get("sku", "") or src.get("id", "")
+    purl = f"https://www.noon.com/egypt-en/{sku}/" if sku else ""
+    rating = float(src.get("rating", {}).get("value", 0) if isinstance(src.get("rating"), dict) else src.get("rating", 0) or 0)
+    rc     = int(src.get("rating", {}).get("count", 0) if isinstance(src.get("rating"), dict) else src.get("review_count", 0) or 0) or None
+    cat    = detect_category(title) or default_cat
+    return title, cp, op, disc, img, purl, rating, rc, cat
+
+
 def scrape_noon():
-    print("\n[NOON] Starting — ScraperAPI JS rendering...")
+    print("\n[NOON] Starting...")
     total = 0
     search_terms = [
         ("samsung galaxy",  "electronics"), ("iphone",     "electronics"),
@@ -1035,86 +1175,96 @@ def scrape_noon():
             content = resp.text
             products_found = 0
 
-            # Try JSON extraction first
+            # Method 0: __NEXT_DATA__ (Noon uses Next.js — most reliable without JS rendering)
+            nd = extract_next_data(content)
+            if nd:
+                def _walk_for_noon_hits(obj, depth=0):
+                    if depth > 8 or not isinstance(obj, (dict, list)):
+                        return []
+                    if isinstance(obj, list):
+                        results = []
+                        for x in obj:
+                            results.extend(_walk_for_noon_hits(x, depth + 1))
+                        return results
+                    # A Noon product has 'sku' and 'name'
+                    if "sku" in obj and ("name" in obj or "title" in obj):
+                        return [obj]
+                    results = []
+                    for v in obj.values():
+                        results.extend(_walk_for_noon_hits(v, depth + 1))
+                    return results
+
+                hits = (
+                    nd.get("props", {}).get("pageProps", {}).get("catalog", {}).get("hits", []) or
+                    nd.get("props", {}).get("pageProps", {}).get("hits", []) or
+                    _walk_for_noon_hits(nd)
+                )
+                for item in hits:
+                    try:
+                        parsed = _process_noon_item(item.get("_source", item), default_cat)
+                        if not parsed:
+                            continue
+                        title, cp, op, disc, img, purl, rating, rc, cat = parsed
+                        kb = check_price_history(product_url=purl, current_price=cp,
+                                                 original_price=op, title=title, site="noon_eg")
+                        deal = build_deal(title=title, site="noon_eg", site_display="Noon Egypt",
+                                          category=cat, current_price=cp, original_price=op,
+                                          discount=disc, image_url=img, product_url=purl,
+                                          rating=rating, review_count=rc, kanbkam_result=kb)
+                        save_deal(deal)
+                        total += 1
+                        products_found += 1
+                    except Exception:
+                        continue
+
+            # Method 1: regex JSON patterns
             json_patterns = [
                 r'window\.__INITIAL_STATE__\s*=\s*({.+?});\s*(?:window|</script>)',
                 r'"products"\s*:\s*(\[.+?\])',
                 r'"hits"\s*:\s*\{"hits"\s*:\s*(\[.+?\])',
             ]
 
-            for pattern in json_patterns:
-                match = re.search(pattern, content, re.DOTALL)
-                if not match:
-                    continue
-                try:
-                    raw = match.group(1)
-                    if raw.startswith('{'):
-                        data = json.loads(raw)
-                        items = (
-                            data.get("catalog", {}).get("hits", []) or
-                            data.get("hits", {}).get("hits", []) or
-                            data.get("products", []) or []
-                        )
-                    else:
-                        items = json.loads(raw)
-
-                    for item in items:
-                        try:
-                            src   = item.get("_source", item)
-                            title = src.get("name", "") or src.get("title", "")
-                            if not title:
-                                continue
-                            cp = clean_price(str(
-                                src.get("price", {}).get("value", 0) or
-                                src.get("sale_price", 0) or
-                                src.get("price", 0)
-                            ))
-                            op = clean_price(str(
-                                src.get("price", {}).get("was", cp) or
-                                src.get("was_price", cp) or
-                                src.get("original_price", cp) or cp
-                            ))
-                            if cp < 50:
-                                continue
-                            if not price_in_range(cp):
-                                continue
-                            if op < cp:
-                                op = cp
-                            disc = calculate_discount(op, cp)
-                            if disc < MIN_DISCOUNT:
-                                continue
-
-                            img_keys = src.get("image_keys", [])
-                            img  = f"https://f.nooncdn.com/p/{img_keys[0]}.jpg" if img_keys else (src.get("image", "") or "")
-                            sku  = src.get("sku", "") or src.get("id", "")
-                            purl = f"https://www.noon.com/egypt-en/{sku}/" if sku else ""
-                            rating = float(src.get("rating", {}).get("value", 0) or src.get("rating", 0) or 0)
-                            rc     = int(src.get("rating", {}).get("count", 0) or src.get("review_count", 0) or 0) or None
-                            cat    = detect_category(title) or default_cat
-
-                            kb = check_price_history(
-                                product_url=purl, current_price=cp,
-                                original_price=op, title=title, site="noon_eg"
+            if products_found == 0:
+                for pattern in json_patterns:
+                    match = re.search(pattern, content, re.DOTALL)
+                    if not match:
+                        continue
+                    try:
+                        raw = match.group(1)
+                        if raw.startswith('{'):
+                            data = json.loads(raw)
+                            items = (
+                                data.get("catalog", {}).get("hits", []) or
+                                data.get("hits", {}).get("hits", []) or
+                                data.get("products", []) or []
                             )
+                        else:
+                            items = json.loads(raw)
 
-                            deal = build_deal(
-                                title=title, site="noon_eg", site_display="Noon Egypt",
-                                category=cat, current_price=cp, original_price=op,
-                                discount=disc, image_url=img, product_url=purl,
-                                rating=rating, review_count=rc, kanbkam_result=kb
-                            )
-                            save_deal(deal)
-                            total += 1
-                            products_found += 1
-                        except Exception:
-                            continue
+                        for item in items:
+                            try:
+                                parsed = _process_noon_item(item.get("_source", item), default_cat)
+                                if not parsed:
+                                    continue
+                                title, cp, op, disc, img, purl, rating, rc, cat = parsed
+                                kb = check_price_history(product_url=purl, current_price=cp,
+                                                         original_price=op, title=title, site="noon_eg")
+                                deal = build_deal(title=title, site="noon_eg", site_display="Noon Egypt",
+                                                  category=cat, current_price=cp, original_price=op,
+                                                  discount=disc, image_url=img, product_url=purl,
+                                                  rating=rating, review_count=rc, kanbkam_result=kb)
+                                save_deal(deal)
+                                total += 1
+                                products_found += 1
+                            except Exception:
+                                continue
 
-                    if products_found > 0:
-                        break
-                except Exception:
-                    continue
+                        if products_found > 0:
+                            break
+                    except Exception:
+                        continue
 
-            # HTML fallback
+            # Method 2: HTML fallback
             if products_found == 0:
                 soup = BeautifulSoup(content, "lxml")
                 product_blocks = (
@@ -1200,26 +1350,43 @@ def scrape_hyperone():
     total = 0
     pages = [
         ("https://www.hyperone.com.eg/offers/",                          "general"),
+        ("https://www.hyperone.com.eg/specials/",                        "general"),
+        ("https://www.hyperone.com.eg/sale/",                            "general"),
         ("https://www.hyperone.com.eg/electronics/",                     "electronics"),
         ("https://www.hyperone.com.eg/home-appliances/",                 "home"),
         ("https://www.hyperone.com.eg/mobiles-and-accessories/",         "electronics"),
+        ("https://www.hyperone.com.eg/phones/",                          "electronics"),
     ]
+
+    hyperone_headers = get_headers()
+    hyperone_headers["Referer"] = "https://www.hyperone.com.eg/"
+    hyperone_headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
 
     for url, default_cat in pages:
         try:
-            resp = fetch_with_scraperapi(url, render_js=True, country="eg")
+            resp = None
+            # Try direct first (HyperOne is a simpler Magento site, often no JS needed)
+            try:
+                resp = requests.get(url, headers=hyperone_headers, timeout=20)
+                if resp.status_code == 404:
+                    continue  # URL doesn't exist, skip silently
+            except Exception:
+                pass
+
             if not resp or resp.status_code != 200:
-                resp = fetch_direct(url)
+                resp = fetch_with_scraperapi(url, render_js=True, country="eg")
             if not resp or resp.status_code != 200:
                 time.sleep(2)
                 continue
 
             soup = BeautifulSoup(resp.content, "lxml")
             products = (
+                soup.find_all("li",      class_=lambda c: c and "product-item" in str(c)) or
                 soup.find_all("li",      class_=lambda c: c and "product" in str(c)) or
+                soup.find_all("div",     class_=lambda c: c and "product-item" in str(c)) or
                 soup.find_all("div",     class_=lambda c: c and "product" in str(c) and "item" in str(c)) or
-                soup.find_all("article") or
-                soup.find_all("div",     class_=lambda c: c and "product-card" in str(c))
+                soup.find_all("div",     class_=lambda c: c and "product-card" in str(c)) or
+                soup.find_all("article")
             )
             print(f"  [HYPERONE] {len(products)} products: {url}")
 
@@ -1300,74 +1467,93 @@ def scrape_hyperone():
 def scrape_sahla():
     print("\n[SAHLA] Starting...")
     total = 0
-    api_base    = "https://sahlaapp.com/api/v2"
     api_headers = {
         "Accept":       "application/json",
-        "User-Agent":   "Sahla/2.0 (com.sahla.app; iOS 16.0)",
+        "User-Agent":   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Content-Type": "application/json",
     }
-    endpoints = [
-        f"{api_base}/products?page=1&per_page=50&sort_by=discount&sort_order=desc",
-        f"{api_base}/categories/electronics/products?page=1&per_page=50&sort_by=discount",
-        f"{api_base}/categories/fashion/products?page=1&per_page=50&sort_by=discount",
-        f"{api_base}/offers?page=1&per_page=50",
+    # Try multiple possible API base URLs for Sahla
+    api_bases = [
+        "https://sahlaapp.com/api/v2",
+        "https://sahlaapp.com/api/v1",
+        "https://api.sahlaapp.com/v1",
+        "https://sahlaapp.com/api",
+    ]
+    endpoints_templates = [
+        "/products?page=1&per_page=50&sort_by=discount&sort_order=desc",
+        "/offers?page=1&per_page=50",
+        "/deals?page=1&per_page=50",
     ]
 
-    for endpoint in endpoints:
-        try:
-            resp = requests.get(endpoint, headers=api_headers, timeout=15)
-            if resp.status_code == 200:
-                try:
-                    data  = resp.json()
-                    items = data.get("data", data.get("products", data.get("offers", data.get("items", []))))
-                    for item in items:
-                        try:
-                            title = item.get("name", "") or item.get("title", "")
-                            if not title:
-                                continue
-                            cp = clean_price(str(item.get("sale_price", item.get("price", item.get("discounted_price", 0)))))
-                            op = clean_price(str(item.get("original_price", item.get("price", item.get("regular_price", cp)))))
-                            if cp < 50 or not price_in_range(cp):
-                                continue
-                            if op < cp:
-                                op = cp
-                            disc = calculate_discount(op, cp)
-                            if disc < MIN_DISCOUNT:
-                                continue
-                            img  = item.get("image", item.get("thumbnail", item.get("image_url", "")))
-                            pid  = item.get("id", item.get("slug", ""))
-                            purl = f"https://sahlaapp.com/product/{pid}"
-                            rating = float(item.get("rating", 0) or 0)
-                            rc     = int(item.get("reviews_count", item.get("review_count", 0)) or 0) or None
-                            cat    = detect_category(title)
-
-                            kb = check_price_history(
-                                product_url=purl, current_price=cp,
-                                original_price=op, title=title, site="sahla_eg"
-                            )
-
-                            deal = build_deal(
-                                title=title, site="sahla_eg", site_display="Sahla Egypt",
-                                category=cat, current_price=cp, original_price=op,
-                                discount=disc, image_url=img or "", product_url=purl,
-                                rating=rating, review_count=rc, kanbkam_result=kb
-                            )
-                            save_deal(deal)
-                            total += 1
-                        except Exception:
+    for base in api_bases:
+        if total > 0:
+            break
+        for tmpl in endpoints_templates:
+            endpoint = base + tmpl
+            try:
+                resp = requests.get(endpoint, headers=api_headers, timeout=12)
+                if resp.status_code == 200:
+                    try:
+                        data  = resp.json()
+                        items = data.get("data", data.get("products", data.get("offers", data.get("items", data.get("deals", [])))))
+                        if not isinstance(items, list):
                             continue
-                    continue
-                except Exception:
-                    pass
-        except Exception as e:
-            print(f"  [SAHLA] API error: {e}")
+                        for item in items:
+                            try:
+                                title = item.get("name", "") or item.get("title", "")
+                                if not title:
+                                    continue
+                                cp = clean_price(str(item.get("sale_price", item.get("price", item.get("discounted_price", 0)))))
+                                op = clean_price(str(item.get("original_price", item.get("price", item.get("regular_price", cp)))))
+                                if cp < 50 or not price_in_range(cp):
+                                    continue
+                                if op < cp:
+                                    op = cp
+                                disc = calculate_discount(op, cp)
+                                if disc < MIN_DISCOUNT:
+                                    continue
+                                img  = item.get("image", item.get("thumbnail", item.get("image_url", "")))
+                                pid  = item.get("id", item.get("slug", ""))
+                                purl = f"{base.split('/api')[0]}/product/{pid}"
+                                rating = float(item.get("rating", 0) or 0)
+                                rc     = int(item.get("reviews_count", item.get("review_count", 0)) or 0) or None
+                                cat    = detect_category(title)
 
-    # ScraperAPI HTML fallback
+                                kb = check_price_history(
+                                    product_url=purl, current_price=cp,
+                                    original_price=op, title=title, site="sahla_eg"
+                                )
+
+                                deal = build_deal(
+                                    title=title, site="sahla_eg", site_display="Sahla Egypt",
+                                    category=cat, current_price=cp, original_price=op,
+                                    discount=disc, image_url=img or "", product_url=purl,
+                                    rating=rating, review_count=rc, kanbkam_result=kb
+                                )
+                                save_deal(deal)
+                                total += 1
+                            except Exception:
+                                continue
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"  [SAHLA] API error {endpoint}: {e}")
+
+    # HTML fallback — try direct web page scraping
     if total == 0:
-        try:
-            url  = "https://sahlaapp.com/products?sort=discount"
-            resp = fetch_with_scraperapi(url, render_js=True, country="eg")
-            if resp and resp.status_code == 200:
+        sahla_pages = [
+            "https://sahlaapp.com/offers",
+            "https://sahlaapp.com/deals",
+            "https://sahlaapp.com/products?sort=discount",
+        ]
+        for url in sahla_pages:
+            try:
+                resp = fetch_with_scraperapi(url, render_js=True, country="eg")
+                if not resp or resp.status_code != 200:
+                    resp = fetch_direct(url)
+                if not resp or resp.status_code != 200:
+                    continue
+
                 soup     = BeautifulSoup(resp.content, "lxml")
                 products = soup.find_all(class_=lambda c: c and "product" in str(c).lower())
                 for p in products:
@@ -1419,8 +1605,11 @@ def scrape_sahla():
                         total += 1
                     except Exception:
                         continue
-        except Exception as e:
-            print(f"  [SAHLA] ScraperAPI error: {e}")
+
+                if total > 0:
+                    break  # Got results from this page, no need to try others
+            except Exception as e:
+                print(f"  [SAHLA] HTML error {url}: {e}")
 
     print(f"[SAHLA] Done. {total} deals.")
     return total
