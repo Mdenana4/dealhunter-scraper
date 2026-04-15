@@ -303,9 +303,8 @@ tr:hover td{background:#fafafa;}
     <div class="fg"><label>Full Name</label><input type="text" id="nu-name" placeholder="Full name..."/></div>
     <div class="fg-row">
       <div class="fg"><label>User Tier</label>
-        <select id="nu-tier">
-          <option value="registered_free">Free / مجاني</option>
-          <option value="trial">Trial / تجريبي</option>
+        <select id="nu-tier" onchange="updateDailyLimit()">
+          <option value="free">Free / مجاني</option>
           <option value="premium">Premium / مميز</option>
           <option value="vip">VIP</option>
         </select>
@@ -1868,6 +1867,12 @@ async function changeUserTier(userId,newTier,oldTier){
     loadUsers();
   }catch(e){toast('❌ Error: '+e.message);}
 }
+function updateDailyLimit() {
+  const tier = document.getElementById('nu-tier').value;
+  const limits = { free: 50, premium: 500, vip: 99999 };
+  document.getElementById('nu-limit').value = limits[tier] || 50;
+}
+
 async function saveUser(){
   const email=document.getElementById('nu-email').value.trim();
   const phone=document.getElementById('nu-phone').value.trim();
@@ -1875,21 +1880,47 @@ async function saveUser(){
   const tier=document.getElementById('nu-tier').value;
   const limit=parseInt(document.getElementById('nu-limit').value);
   const notes=document.getElementById('nu-notes').value.trim();
+
   if(!email&&!phone){toast('Please enter email or phone');return;}
-  const limits={registered_free:50,trial:100,premium:500,vip:99999};
-  const delays={registered_free:30,trial:15,premium:5,vip:0};
-  const userId='manual_'+Date.now();
-  await db.collection('users').doc(userId).set({
-    id:userId,email,phone,name,tier,
-    daily_deal_limit:limits[tier]||50,
-    delay_minutes:delays[tier]||30,
-    notes,created_at:new Date().toISOString(),
-    last_login:null,previous_tier:null,tier_upgraded_at:null,
-    added_by:'admin_manual'
-  });
-  document.getElementById('user-modal').classList.remove('show');
-  toast('User added: '+(name||email||phone));
-  loadUsers();
+  if(!email){toast('Email is required for user account');return;}
+
+  try {
+    const limits={free:50,premium:500,vip:99999};
+
+    // Use email as document ID (like in server.py)
+    const userData = {
+      id: email,
+      email: email,
+      phone: phone || '',
+      name: name || '',
+      tier: tier,
+      daily_deal_limit: limits[tier] || 50,
+      subscription_active: false,
+      referral_code: 'DEAL' + Math.random().toString(36).substr(2, 8).toUpperCase(),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      notes: notes || '',
+      added_by: currentAdmin?.email || 'admin',
+      status: 'active'
+    };
+
+    await db.collection('users').doc(email).set(userData);
+
+    console.log('User added:', email);
+    document.getElementById('user-modal').classList.remove('show');
+
+    // Clear form
+    ['nu-email','nu-phone','nu-name','nu-tier','nu-limit','nu-notes'].forEach(id => {
+      const el = document.getElementById(id);
+      if(el) el.value = '';
+    });
+
+    toast('✓ User added: '+(name||email));
+    loadUsers();
+  } catch(e) {
+    console.error('Error adding user:', e);
+    toast('Error: '+e.message);
+  }
 }
 
 // ── NOTIFICATIONS ──────────────────────────────
@@ -1969,30 +2000,42 @@ async function saveNotif(){
     await db.collection('notifications').add(notifData);
 
     // Send notification via API
-    const idToken = await auth.currentUser.getIdToken();
-    const response = await fetch('https://dealhunter-scraper.onrender.com/api/v1/notifications/send', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${idToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        title, title_ar: titleAr, message: msg, message_ar: msgAr,
-        target, group_id: groupId, specific_user: user, channel
-      })
-    });
+    if (auth.currentUser) {
+      try {
+        const idToken = await auth.currentUser.getIdToken();
+        const apiUrl = '/api/v1/notifications/send'; // Use relative URL
 
-    if (response.ok) {
-      document.getElementById('notif-modal').classList.remove('show');
-      ['nt-title','nt-title-ar','nt-msg','nt-msg-ar','nt-user','nt-target','nt-group-id'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.value = '';
-      });
-      toast('✓ Notification sent successfully!');
-      loadNotifs();
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${idToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            title, title_ar: titleAr, message: msg, message_ar: msgAr,
+            target, group_id: groupId, specific_user: user, channel
+          })
+        });
+
+        const responseData = await response.json();
+
+        if (response.ok) {
+          document.getElementById('notif-modal').classList.remove('show');
+          ['nt-title','nt-title-ar','nt-msg','nt-msg-ar','nt-user','nt-target','nt-group-id'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+          });
+          toast(`✓ ${responseData.message || 'Notification sent!'}`);
+          loadNotifs();
+        } else {
+          toast(`Error: ${responseData.error || 'Failed to send notification'}`);
+        }
+      } catch(apiError) {
+        console.error('API call error:', apiError);
+        toast(`Connection error: ${apiError.message}`);
+      }
     } else {
-      const error = await response.json().catch(() => ({}));
-      toast(`Error: ${error.error || 'Failed to send notification'}`);
+      toast('Error: Not authenticated');
     }
   } catch(e) {
     console.error('Notification error:', e);
