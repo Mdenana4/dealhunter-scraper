@@ -706,7 +706,23 @@
                 </div>
             </div>
 
-            <button class="btn btn-primary" onclick="alert('Edit profile coming soon!')">Edit Profile</button>
+            <button class="btn btn-primary" onclick="editMode()">Edit Profile</button>
+        </div>
+
+        <div id="edit-mode" style="display: none;">
+            <h3 style="margin-top: 30px; margin-bottom: 20px;">Edit Your Profile</h3>
+            <div class="form-section">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="edit-name-input" placeholder="Your Name">
+                </div>
+                <div class="form-group">
+                    <label>Phone</label>
+                    <input type="tel" id="edit-phone-input" placeholder="+201234567890">
+                </div>
+                <button class="btn btn-primary" onclick="saveProfile()" style="margin-right: 10px;">Save Changes</button>
+                <button class="btn btn-secondary" onclick="editMode()">Cancel</button>
+            </div>
         </div>
     </div>
 
@@ -733,7 +749,7 @@
                 <p>✓ Create up to 5 groups</p>
                 <p>✓ Gift deals to contacts</p>
                 <p>✓ Price history</p>
-                <button class="btn-small" onclick="alert('Coming soon: Stripe integration')">Upgrade</button>
+                <button class="btn-small" onclick="upgradeTier('premium')">Upgrade Now</button>
             </div>
             <div class="feature-box" style="border-left-color: #f39c12;">
                 <h4>💎 VIP - $10/month</h4>
@@ -741,7 +757,7 @@
                 <p>✓ Unlimited groups</p>
                 <p>✓ Priority support</p>
                 <p>✓ Advanced analytics</p>
-                <button class="btn-small" onclick="alert('Coming soon: Stripe integration')">Upgrade</button>
+                <button class="btn-small" onclick="upgradeTier('vip')">Upgrade Now</button>
             </div>
         </div>
     </div>
@@ -803,16 +819,16 @@
             <h3>Preferences</h3>
             <div style="margin: 15px 0;">
                 <label>Language</label>
-                <select style="padding: 10px; border: 1px solid #ddd; border-radius: 5px; width: 100%;">
-                    <option>English</option>
-                    <option>العربية</option>
+                <select id="language-select" style="padding: 10px; border: 1px solid #ddd; border-radius: 5px; width: 100%;" onchange="changeLanguage()">
+                    <option value="en">English</option>
+                    <option value="ar">العربية (Arabic)</option>
                 </select>
             </div>
         </div>
 
         <div class="form-section">
             <h3>Privacy & Security</h3>
-            <button class="btn btn-primary" onclick="alert('Change password feature coming soon')">Change Password</button>
+            <button class="btn btn-primary" onclick="changePassword()">Change Password</button>
         </div>
     </div>
 </div>
@@ -1197,6 +1213,93 @@ function updateDealClickCount() {
             dailyLimitEl.textContent = current - 1;
         }
     }
+}
+
+// EDIT PROFILE
+function editMode() {
+    const editMode = document.getElementById('edit-mode');
+    const profileInfo = document.querySelector('.form-section');
+
+    if (editMode.style.display === 'none') {
+        // Show edit mode
+        document.getElementById('edit-name-input').value = userData.name || '';
+        document.getElementById('edit-phone-input').value = userData.phone || '';
+        editMode.style.display = 'block';
+        profileInfo.style.display = 'none';
+    } else {
+        // Hide edit mode
+        editMode.style.display = 'none';
+        profileInfo.style.display = 'block';
+    }
+}
+
+async function saveProfile() {
+    const name = document.getElementById('edit-name-input').value;
+    const phone = document.getElementById('edit-phone-input').value;
+
+    if (!name || !phone) {
+        showToast('Please fill in all fields');
+        return;
+    }
+
+    try {
+        const idToken = await currentUser.getIdToken();
+        const response = await fetch(`${API_BASE_URL}/users/${currentUser.uid}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${idToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name, phone })
+        });
+
+        if (response.ok) {
+            userData.name = name;
+            userData.phone = phone;
+            updateUI();
+            editMode();
+            showToast('Profile updated successfully!');
+        } else {
+            showToast('Failed to update profile');
+        }
+    } catch (error) {
+        console.error('Error saving profile:', error);
+        showToast('Error updating profile');
+    }
+}
+
+// CHANGE PASSWORD
+function changePassword() {
+    const newPassword = prompt('Enter your new password:');
+    if (!newPassword) return;
+
+    auth.currentUser.updatePassword(newPassword)
+        .then(() => {
+            showToast('Password changed successfully!');
+        })
+        .catch(error => {
+            showToast(`Error: ${error.message}`);
+        });
+}
+
+// CHANGE LANGUAGE
+function changeLanguage() {
+    const language = document.getElementById('language-select').value;
+    localStorage.setItem('language', language);
+    showToast(`Language changed to ${language === 'en' ? 'English' : 'العربية'}`);
+    // In a real app, you would reload translations here
+}
+
+// UPGRADE TIER
+function upgradeTier(tier) {
+    if (!currentUser) {
+        showToast('Please sign in first');
+        return;
+    }
+
+    showToast('Stripe integration coming soon! Contact support to upgrade.');
+    // TODO: Integrate with Stripe checkout
+    // window.location.href = `${API_BASE_URL}/subscriptions/checkout?tier=${tier}`;
 }
 
 function copyReferralCode() {
