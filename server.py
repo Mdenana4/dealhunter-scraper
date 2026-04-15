@@ -171,6 +171,18 @@ def check_permission(required_permission):
     return decorator
 
 
+# ============ STATIC FILES ============
+
+@app.route('/user')
+def user_dashboard():
+    """Serve user dashboard"""
+    try:
+        with open('./user-dashboard.html', 'r', encoding='utf-8') as f:
+            return f.read(), 200, {'Content-Type': 'text/html'}
+    except FileNotFoundError:
+        return jsonify({'error': 'User dashboard not found'}), 404
+
+
 # ============ AUTHENTICATION ENDPOINTS ============
 
 @app.route('/auth/login', methods=['POST'])
