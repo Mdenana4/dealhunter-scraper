@@ -1988,6 +1988,8 @@ async function updateDailyLimit(userId,newLimit){
 
   try{
     const idToken = await auth.currentUser.getIdToken();
+    console.log('🔑 Token obtained, calling API...');  // DEBUG
+
     const response = await fetch('/api/v1/users/' + userId + '/daily-limit', {
       method: 'PUT',
       headers: {
@@ -1999,9 +2001,12 @@ async function updateDailyLimit(userId,newLimit){
       })
     });
 
+    console.log('📡 API Response received:', response.status);  // DEBUG
     const data = await response.json();
     console.log('✅ API Response Status:', response.status, 'Data:', data);  // DEBUG
+
     if (response.ok) {
+      console.log('✓ Success! Reloading users...');  // DEBUG
       toast('✓ Daily limit updated to ' + newLimit);
       setTimeout(() => loadUsers(), 500);  // Refresh table after slight delay
     } else {
@@ -2554,19 +2559,28 @@ async function saveCheckerResult(){
 async function loadTierPricing(){
   try{
     const tiers = ['free', 'trial', 'premium', 'vip'];
-    const tierInfo = {
+    const defaults = {
       free: { daily_limit: 50, price: 0, features: ['View Deals'] },
       trial: { daily_limit: 100, price: 0, features: ['View Deals', 'Price History', 'Groups'] },
-      premium: { daily_limit: 500, price: 5, currency: 'USD/mo', features: ['View Deals', 'Price History', 'Groups', 'Gift Deals', 'Email Alerts', 'Export CSV'] },
-      vip: { daily_limit: 99999, price: 10, currency: 'USD/mo', features: ['All Premium Features', 'Priority Support', 'Custom Features'] }
+      premium: { daily_limit: 500, price: 5, features: ['View Deals', 'Price History', 'Groups', 'Gift Deals'] },
+      vip: { daily_limit: 99999, price: 10, features: ['All Premium Features', 'Priority Support'] }
     };
+
+    // Load tier data from Firestore
+    const tierInfo = {};
+    for(const tier of tiers) {
+      const doc = await db.collection('tier_config').doc(tier).get();
+      tierInfo[tier] = doc.exists ? doc.data() : defaults[tier];
+    }
+
+    console.log('📊 Loaded tier pricing:', tierInfo);  // DEBUG
 
     // Render tier cards
     const cardsHTML = tiers.map(t => `
       <div style="background:#f8f8f8;border-radius:9px;padding:15px;border:0.5px solid #e8e8e8;">
         <div style="font-weight:600;margin-bottom:8px;text-transform:uppercase;color:#222;">${t}</div>
         <div style="font-size:13px;color:#666;margin-bottom:8px;">
-          ${tierInfo[t].price ? `$${tierInfo[t].price}/${tierInfo[t].currency}` : 'Free'}
+          ${tierInfo[t].price ? `$${tierInfo[t].price}/mo` : 'Free'}
         </div>
         <div style="font-size:10px;color:#888;">
           ✓ ${tierInfo[t].daily_limit} deals/day
@@ -2592,25 +2606,53 @@ async function loadTierPricing(){
       </tr>
     `).join('');
   }catch(e){
-    console.error('Error loading tiers:', e);
+    console.error('❌ Error loading tiers:', e);
     toast('Error loading tiers');
   }
 }
 
+let editingTierName = null;
+
 function openTierModal(){
+  editingTierName = null;
+  document.getElementById('tm-tier-name').disabled = false;  // Enable name input
+  document.getElementById('tm-tier-name').style.opacity = '1';
   document.getElementById('tm-tier-name').value = '';
   document.getElementById('tm-daily-limit').value = '';
   document.getElementById('tm-price').value = '';
   document.getElementById('tm-features').value = '';
-  document.getElementById('tier-modal-title').textContent = 'Add Custom Tier';
+  document.getElementById('tier-modal-title').textContent = '+ Add Custom Tier';
   document.getElementById('tier-modal').classList.add('show');
 }
 
 function openTierEditModal(tier){
-  document.getElementById('tm-tier-name').value = tier;
+  editingTierName = tier;
+  const nameInput = document.getElementById('tm-tier-name');
+  nameInput.value = tier;
+  nameInput.disabled = true;  // Disable name field (can't change existing tier name)
+  nameInput.style.opacity = '0.5';
+
   document.getElementById('tier-modal-title').textContent = 'Edit ' + tier.toUpperCase() + ' Tier';
-  document.getElementById('tier-modal').classList.add('show');
-  // Load current tier data (optional)
+
+  // Load tier data from Firestore
+  db.collection('tier_config').doc(tier).get().then(doc => {
+    if(doc.exists) {
+      const t = doc.data();
+      document.getElementById('tm-daily-limit').value = t.daily_limit || 50;
+      document.getElementById('tm-price').value = t.price || 0;
+      document.getElementById('tm-features').value = (t.features || []).join(', ');
+    } else {
+      // No custom config, show defaults
+      const defaults = {free: 50, trial: 100, premium: 500, vip: 99999};
+      document.getElementById('tm-daily-limit').value = defaults[tier] || 50;
+      document.getElementById('tm-price').value = 0;
+      document.getElementById('tm-features').value = '';
+    }
+    document.getElementById('tier-modal').classList.add('show');
+  }).catch(e => {
+    console.error('Error loading tier:', e);
+    toast('Error loading tier data');
+  });
 }
 
 function closeTierModal(){
@@ -2618,7 +2660,7 @@ function closeTierModal(){
 }
 
 async function saveTier(){
-  const tierName = document.getElementById('tm-tier-name').value.trim();
+  const tierName = document.getElementById('tm-tier-name').value.trim().toLowerCase();
   const dailyLimit = parseInt(document.getElementById('tm-daily-limit').value);
   const price = parseFloat(document.getElementById('tm-price').value);
   const features = document.getElementById('tm-features').value.split(',').map(f => f.trim()).filter(f => f);
@@ -2629,30 +2671,26 @@ async function saveTier(){
   }
 
   try{
-    const idToken = await auth.currentUser.getIdToken();
-    const response = await fetch('/api/v1/tiers/' + tierName, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${idToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        daily_limit: dailyLimit,
-        price: price,
-        features: features
-      })
-    });
+    const tierData = {
+      tier: tierName,
+      daily_limit: dailyLimit,
+      price: price,
+      currency: 'USD',
+      features: features,
+      updated_at: new Date().toISOString()
+    };
 
-    const data = await response.json();
-    if(response.ok){
-      toast('✓ Tier saved: ' + tierName);
-      closeTierModal();
-      loadTierPricing();
-    }else{
-      toast('Error: ' + (data.error || 'Failed to save tier'));
-    }
+    console.log('💾 Saving tier to Firestore:', tierName, tierData);  // DEBUG
+
+    // Save directly to Firestore (admin users can do this)
+    await db.collection('tier_config').doc(tierName).set(tierData, { merge: true });
+
+    console.log('✓ Tier saved successfully');  // DEBUG
+    toast('✓ Tier saved: ' + tierName);
+    closeTierModal();
+    loadTierPricing();
   }catch(e){
-    console.error('Error:', e);
+    console.error('❌ Error saving tier:', e);
     toast('Error saving tier: ' + e.message);
   }
 }
