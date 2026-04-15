@@ -201,6 +201,9 @@ tr:hover td{background:#fafafa;}
     <button class="nb" onclick="showPage('checker',this)">Fake Checker</button>
     <button class="nb" onclick="showPage('competitors',this)">Competitors</button>
     <button class="nb" onclick="showPage('team',this)">👥 Team</button>
+    <button class="nb" onclick="showPage('pricing',this)">💰 Pricing</button>
+    <button class="nb" onclick="showPage('groups',this)">👨‍👩‍👧‍👦 Groups</button>
+    <button class="nb" onclick="showPage('offers',this)">🎁 Offers</button>
   </div>
   <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
     <a href="https://dealhunter-scraper.onrender.com/" target="_blank"
@@ -838,6 +841,57 @@ tr:hover td{background:#fafafa;}
   </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- PAGE: PRICING & TIERS -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="page" id="page-pricing">
+  <div class="card">
+    <div class="ch"><div class="ct">💰 Tier Pricing & Features / أسعار المستويات والميزات</div></div>
+    <div class="cb">
+      <div class="sg sg-auto" id="tier-cards" style="margin-bottom:20px;"></div>
+      <button class="btn btn-p" onclick="openTierModal()">+ Add Custom Tier</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="ch"><div class="ct">Feature Permissions by Tier</div></div>
+    <div class="cb" style="padding:0;">
+      <table id="tier-features-table"><thead><tr><th>Tier</th><th>Daily Limit</th><th>Groups</th><th>Gifts</th><th>Price/Month</th><th>Actions</th></tr></thead><tbody id="tier-tb"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- PAGE: USER GROUPS -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="page" id="page-groups">
+  <div class="card">
+    <div class="ch">
+      <div class="ct">👨‍👩‍👧‍👦 User Groups / مجموعات المستخدمين</div>
+      <button class="btn btn-p btn-sm" onclick="openGroupModal()">+ Create Group</button>
+    </div>
+    <div class="cb" style="padding:0;">
+      <table><thead><tr><th>Group Name</th><th>Admin / Owner</th><th>Members</th><th>Shared Tier</th><th>Daily Limit</th><th>Created</th><th>Actions</th></tr></thead>
+      <tbody id="groups-tb"><tr><td colspan="7" class="loading">Loading groups...</td></tr></tbody></table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- PAGE: SPECIAL OFFERS & DISCOUNTS -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="page" id="page-offers">
+  <div class="card">
+    <div class="ch">
+      <div class="ct">🎁 Special Offers & Discounts / العروض الخاصة والخصومات</div>
+      <button class="btn btn-p btn-sm" onclick="openOfferModal()">+ Create Offer</button>
+    </div>
+    <div class="cb" style="padding:0;">
+      <table><thead><tr><th>Offer Name</th><th>Type</th><th>Value</th><th>Target</th><th>Valid Until</th><th>Status</th><th>Used</th><th>Actions</th></tr></thead>
+      <tbody id="offers-tb"><tr><td colspan="8" class="loading">Loading offers...</td></tr></tbody></table>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════════════════════════════════════════════ -->
 <!-- TEAM MEMBER MODAL -->
 <!-- ══════════════════════════════════════════════════ -->
@@ -1360,7 +1414,10 @@ const PAGE_PERMISSIONS = {
   'add-deal': 'deals',
   checker: 'checker',
   competitors: 'competitors',
-  team: 'owner'  // Only owners can manage team
+  team: 'owner',  // Only owners can manage team
+  pricing: 'owner',  // Only owners can manage pricing
+  groups: 'users',  // Users permission includes group management
+  offers: 'owner'  // Only owners can manage offers
 };
 
 function canAccessPage(pageName) {
@@ -1801,7 +1858,10 @@ async function loadUsers(){
         <td style="font-size:10px;">${u.email||u.phone||'—'}</td>
         <td>${tb(u.tier)}</td>
         <td>${u.previous_tier?tb(u.previous_tier):'—'}</td>
-        <td style="font-size:10px;">${u.daily_deal_limit||'—'}</td>
+        <td>
+          <input type="number" id="limit-${u.id}" value="${u.daily_deal_limit||50}" style="width:60px;padding:3px;font-size:10px;" min="1" max="99999"/>
+          <button class="btn btn-sm" onclick="updateDailyLimit('${u.id}',document.getElementById('limit-${u.id}').value)" style="margin-left:3px;">Set</button>
+        </td>
         <td style="font-size:10px;">${ft(u.created_at)}</td>
         <td style="font-size:10px;">${ft(u.last_login)}</td>
         <td style="font-size:10px;">${ft(u.tier_upgraded_at)}</td>
@@ -1834,6 +1894,25 @@ async function loadUsers(){
     }
   }catch(e){toast('Users error: '+e.message);}
 }
+// Update custom daily limit for user
+async function updateDailyLimit(userId,newLimit){
+  if(!newLimit || newLimit < 1){
+    toast('Daily limit must be at least 1');
+    return;
+  }
+
+  try{
+    await db.collection('users').doc(userId).update({
+      daily_deal_limit: parseInt(newLimit),
+      custom_daily_limit: true,  // Mark that this was manually set
+      updated_at: new Date().toISOString()
+    });
+    toast('✓ Daily limit updated to ' + newLimit);
+  }catch(e){
+    toast('Error updating daily limit: ' + e.message);
+  }
+}
+
 async function changeUserTier(userId,newTier,oldTier){
   if(!newTier)return;
   if(newTier===oldTier){toast('User is already on this tier');return;}
@@ -1847,7 +1926,8 @@ async function changeUserTier(userId,newTier,oldTier){
       daily_deal_limit:limits[newTier]||50,
       delay_minutes:delays[newTier]||30,
       tier_upgraded_at:new Date().toISOString(),
-      updated_at:new Date().toISOString()
+      updated_at:new Date().toISOString(),
+      custom_daily_limit: false  // Reset custom limit when changing tier
     };
 
     // If changing TO free tier, cancel any Stripe subscriptions
@@ -2334,9 +2414,149 @@ async function saveCheckerResult(){
   toast('Analysis saved to database');
 }
 
+// ═══════════════════════════════════════════════════════════
+// PRICING & TIER MANAGEMENT
+// ═══════════════════════════════════════════════════════════
+
+async function loadTierPricing(){
+  try{
+    const tiers = ['free', 'trial', 'premium', 'vip'];
+    const tierInfo = {
+      free: { daily_limit: 50, price: 0, features: ['View Deals'] },
+      trial: { daily_limit: 100, price: 0, features: ['View Deals', 'Price History', 'Groups'] },
+      premium: { daily_limit: 500, price: 5, currency: 'USD/mo', features: ['View Deals', 'Price History', 'Groups', 'Gift Deals', 'Email Alerts', 'Export CSV'] },
+      vip: { daily_limit: 99999, price: 10, currency: 'USD/mo', features: ['All Premium Features', 'Priority Support', 'Custom Features'] }
+    };
+
+    // Render tier cards
+    const cardsHTML = tiers.map(t => `
+      <div style="background:#f8f8f8;border-radius:9px;padding:15px;border:0.5px solid #e8e8e8;">
+        <div style="font-weight:600;margin-bottom:8px;text-transform:uppercase;color:#222;">${t}</div>
+        <div style="font-size:13px;color:#666;margin-bottom:8px;">
+          ${tierInfo[t].price ? `$${tierInfo[t].price}/${tierInfo[t].currency}` : 'Free'}
+        </div>
+        <div style="font-size:10px;color:#888;">
+          ✓ ${tierInfo[t].daily_limit} deals/day
+        </div>
+        <button class="btn btn-sm" onclick="openTierEditModal('${t}')" style="margin-top:8px;width:100%;">Edit</button>
+      </div>
+    `).join('');
+
+    document.getElementById('tier-cards').innerHTML = cardsHTML;
+
+    // Render tier table
+    document.getElementById('tier-tb').innerHTML = tiers.map(t => `
+      <tr>
+        <td style="text-transform:uppercase;font-weight:500;">${t}</td>
+        <td>${tierInfo[t].daily_limit}</td>
+        <td>${t !== 'free' ? '✓' : '—'}</td>
+        <td>${t === 'premium' || t === 'vip' ? '✓' : '—'}</td>
+        <td>${tierInfo[t].price ? '$' + tierInfo[t].price : 'Free'}</td>
+        <td>
+          <button class="btn btn-sm" onclick="openTierEditModal('${t}')">Edit</button>
+          <button class="btn btn-sm btn-d" onclick="deleteTier('${t}')">Delete</button>
+        </td>
+      </tr>
+    `).join('');
+  }catch(e){
+    console.error('Error loading tiers:', e);
+    toast('Error loading tiers');
+  }
+}
+
+function openTierModal(){ toast('Tier creation coming soon'); }
+function openTierEditModal(tier){ toast('Edit tier "' + tier + '" coming soon'); }
+function deleteTier(tier){ if(confirm('Delete ' + tier + ' tier?')) toast('Tier deletion coming soon'); }
+
+// ═══════════════════════════════════════════════════════════
+// GROUP MANAGEMENT
+// ═══════════════════════════════════════════════════════════
+
+async function loadGroups(){
+  try{
+    const snap = await db.collection('user_groups').get();
+    const groups = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    document.getElementById('groups-tb').innerHTML = groups.length ? groups.map(g => `
+      <tr>
+        <td style="font-weight:500;">${g.group_name || '—'}</td>
+        <td style="font-size:10px;">${g.admin_email || g.owner_id || '—'}</td>
+        <td style="text-align:center;">${(g.members || []).length}</td>
+        <td>${g.tier ? `<span class="badge bpu">${g.tier.toUpperCase()}</span>` : '—'}</td>
+        <td>${g.daily_budget || '—'}</td>
+        <td style="font-size:10px;">${g.created_at ? new Date(g.created_at).toLocaleDateString() : '—'}</td>
+        <td>
+          <button class="btn btn-sm" onclick="editGroup('${g.id}')">Edit</button>
+          <button class="btn btn-sm btn-d" onclick="deleteGroup('${g.id}')">Delete</button>
+        </td>
+      </tr>
+    `).join('') : '<tr><td colspan="7" class="empty"><div class="et">No groups yet</div></td></tr>';
+  }catch(e){
+    console.error('Error loading groups:', e);
+    toast('Error loading groups');
+  }
+}
+
+function openGroupModal(){ toast('Group creation coming soon'); }
+function editGroup(id){ toast('Edit group coming soon'); }
+async function deleteGroup(id){
+  if(confirm('Delete this group?')) {
+    try{
+      await db.collection('user_groups').doc(id).delete();
+      toast('Group deleted');
+      loadGroups();
+    }catch(e){ toast('Error deleting group'); }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SPECIAL OFFERS & DISCOUNTS
+// ═══════════════════════════════════════════════════════════
+
+async function loadOffers(){
+  try{
+    const snap = await db.collection('special_offers').get();
+    const offers = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    document.getElementById('offers-tb').innerHTML = offers.length ? offers.map(o => `
+      <tr>
+        <td style="font-weight:500;">${o.name || '—'}</td>
+        <td><span class="badge bo">${o.type || 'discount'}</span></td>
+        <td>${o.type === 'discount' ? o.discount_percent + '%' : o.type === 'free_days' ? o.days + ' days' : '$' + o.amount}</td>
+        <td>${o.target_tier ? o.target_tier : o.target_group ? 'Group: ' + o.target_group : 'All Users'}</td>
+        <td style="font-size:10px;">${o.valid_until ? new Date(o.valid_until).toLocaleDateString() : 'Never'}</td>
+        <td><span class="badge ${o.is_active ? 'bg' : 'bgr'}">${o.is_active ? 'Active' : 'Inactive'}</span></td>
+        <td>${o.used_count || 0}</td>
+        <td>
+          <button class="btn btn-sm" onclick="editOffer('${o.id}')">Edit</button>
+          <button class="btn btn-sm btn-d" onclick="deleteOffer('${o.id}')">Delete</button>
+        </td>
+      </tr>
+    `).join('') : '<tr><td colspan="8" class="empty"><div class="et">No offers yet</div></td></tr>';
+  }catch(e){
+    console.error('Error loading offers:', e);
+    toast('Error loading offers');
+  }
+}
+
+function openOfferModal(){ toast('Offer creation coming soon'); }
+function editOffer(id){ toast('Edit offer coming soon'); }
+async function deleteOffer(id){
+  if(confirm('Delete this offer?')) {
+    try{
+      await db.collection('special_offers').doc(id).delete();
+      toast('Offer deleted');
+      loadOffers();
+    }catch(e){ toast('Error deleting offer'); }
+  }
+}
+
 // ── AUTO REFRESH ───────────────────────────────
 setInterval(()=>{if(document.getElementById('page-monitor').classList.contains('active'))loadMonitor();},60000);
 loadMonitor();
+loadTierPricing();
+loadGroups();
+loadOffers();
 </script>
 </body>
 </html>
