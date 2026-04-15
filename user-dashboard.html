@@ -225,63 +225,148 @@
         }
 
         .deal-card {
-            background: #f9f9f9;
-            border: 1px solid #eee;
-            border-radius: 8px;
-            padding: 20px;
-            transition: all 0.3s;
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            transition: all 0.3s ease;
             cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         }
 
         .deal-card:hover {
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.2);
-            transform: translateY(-5px);
+            box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
+            transform: translateY(-8px);
+        }
+
+        .deal-image {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            background: #f0f0f0;
+        }
+
+        .deal-content {
+            padding: 15px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .deal-badges {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .deal-discount {
+            display: inline-block;
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .deal-verdict {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .deal-verdict.genuine {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .deal-verdict.suspicious {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .deal-verdict.fake {
+            background: #f8d7da;
+            color: #721c24;
         }
 
         .deal-title {
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 600;
             color: #333;
+            margin-bottom: 8px;
+            line-height: 1.4;
+            flex-grow: 1;
+        }
+
+        .deal-source {
+            font-size: 12px;
+            color: #999;
             margin-bottom: 10px;
+        }
+
+        .deal-price-section {
+            margin-bottom: 12px;
+        }
+
+        .deal-price-original {
+            font-size: 13px;
+            color: #999;
+            text-decoration: line-through;
+            margin-bottom: 4px;
         }
 
         .deal-price {
             font-size: 24px;
             color: #e74c3c;
             font-weight: 700;
-            margin-bottom: 10px;
         }
 
-        .deal-discount {
-            display: inline-block;
-            background: #27ae60;
-            color: white;
-            padding: 5px 10px;
-            border-radius: 5px;
+        .deal-rating {
             font-size: 12px;
-            font-weight: 600;
-            margin-bottom: 10px;
+            color: #f39c12;
+            margin-bottom: 12px;
         }
 
-        .deal-source {
-            font-size: 12px;
-            color: #999;
-            margin-bottom: 15px;
+        .deal-actions {
+            display: flex;
+            gap: 8px;
         }
 
         .btn-small {
-            padding: 8px 15px;
+            flex: 1;
+            padding: 10px;
             font-size: 12px;
             background: #667eea;
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 6px;
             cursor: pointer;
-            margin-right: 5px;
+            font-weight: 600;
+            transition: all 0.2s;
         }
 
         .btn-small:hover {
             background: #764ba2;
+            transform: translateY(-2px);
+        }
+
+        .btn-small.secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .btn-small.secondary:hover {
+            background: #e0e0e0;
         }
 
         /* MEMBERSHIP PAGE */
@@ -577,31 +662,19 @@
     <div id="page-home" class="page active">
         <h2>🎯 Today's Best Deals</h2>
         <p style="color: #666; margin-bottom: 20px;">Your daily deal limit: <strong id="daily-limit">50</strong> deals</p>
-        <div class="deals-grid" id="deals-grid">
-            <div class="deal-card">
-                <div class="deal-discount">-40%</div>
-                <div class="deal-title">iPhone 15 Pro</div>
-                <div class="deal-source">Amazon Egypt</div>
-                <div class="deal-price">28,999 EGP</div>
-                <button class="btn-small">View Deal</button>
-                <button class="btn-small">Share</button>
-            </div>
-            <div class="deal-card">
-                <div class="deal-discount">-25%</div>
-                <div class="deal-title">Samsung Galaxy S24</div>
-                <div class="deal-source">Jumia Egypt</div>
-                <div class="deal-price">18,999 EGP</div>
-                <button class="btn-small">View Deal</button>
-                <button class="btn-small">Share</button>
-            </div>
-            <div class="deal-card">
-                <div class="deal-discount">-50%</div>
-                <div class="deal-title">Sony WH-1000XM5 Headphones</div>
-                <div class="deal-source">Noon Egypt</div>
-                <div class="deal-price">3,499 EGP</div>
-                <button class="btn-small">View Deal</button>
-                <button class="btn-small">Share</button>
-            </div>
+
+        <!-- Loading Spinner -->
+        <div id="deals-loading" style="text-align: center; padding: 40px;">
+            <div class="loading"></div>
+            <p style="color: #999; margin-top: 20px;">Loading deals...</p>
+        </div>
+
+        <!-- Deals Grid -->
+        <div class="deals-grid" id="deals-grid" style="display: none;"></div>
+
+        <!-- No Deals Message -->
+        <div id="no-deals" style="text-align: center; padding: 40px; display: none;">
+            <p style="color: #999; font-size: 18px;">No deals available right now</p>
         </div>
     </div>
 
@@ -780,6 +853,7 @@ window.addEventListener('DOMContentLoaded', () => {
             currentUser = user;
             await loadUserData();
             showDashboard();
+            loadDeals();
         } else {
             showLoginPage();
         }
@@ -938,6 +1012,155 @@ function showLoginPage() {
 function showDashboard() {
     document.getElementById('login-container').style.display = 'none';
     document.getElementById('dashboard').style.display = 'block';
+}
+
+// LOAD DEALS FROM FIRESTORE
+async function loadDeals() {
+    try {
+        const dealsGrid = document.getElementById('deals-grid');
+        const loadingEl = document.getElementById('deals-loading');
+        const noDealsEl = document.getElementById('no-deals');
+
+        // Show loading
+        dealsGrid.style.display = 'none';
+        noDealsEl.style.display = 'none';
+        loadingEl.style.display = 'block';
+
+        // Fetch deals from Firestore
+        const snapshot = await db.collection('deals')
+            .where('hidden', '==', false)
+            .where('verified', '==', true)
+            .orderBy('featured', 'desc')
+            .orderBy('timestamp', 'desc')
+            .limit(50)
+            .get();
+
+        const deals = [];
+        snapshot.forEach(doc => {
+            deals.push({
+                id: doc.id,
+                ...doc.data()
+            });
+        });
+
+        // Hide loading
+        loadingEl.style.display = 'none';
+
+        // Check if deals exist
+        if (deals.length === 0) {
+            noDealsEl.style.display = 'block';
+            return;
+        }
+
+        // Render deals
+        dealsGrid.innerHTML = '';
+        deals.forEach(deal => {
+            const dealCard = renderDealCard(deal);
+            dealsGrid.appendChild(dealCard);
+        });
+
+        dealsGrid.style.display = 'grid';
+    } catch (error) {
+        console.error('Error loading deals:', error);
+        document.getElementById('deals-loading').innerHTML = `
+            <p style="color: #e74c3c;">Error loading deals: ${error.message}</p>
+            <button class="btn-small" onclick="loadDeals()" style="margin-top: 10px;">Retry</button>
+        `;
+    }
+}
+
+// RENDER INDIVIDUAL DEAL CARD
+function renderDealCard(deal) {
+    const card = document.createElement('div');
+    card.className = 'deal-card';
+
+    const imageUrl = deal.image_url || 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200"%3E%3Crect fill="%23f0f0f0" width="200" height="200"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%23999" font-size="14"%3ENo Image%3C/text%3E%3C/svg%3E';
+    const verdict = deal.fake_verdict || 'UNVERIFIED';
+    const verdictClass = verdict === 'GENUINE' ? 'genuine' : verdict === 'SUSPICIOUS' ? 'suspicious' : verdict === 'FAKE' ? 'fake' : '';
+    const discount = Math.round(deal.discount_percent || 0);
+    const rating = deal.rating ? `⭐ ${deal.rating.toFixed(1)}` : '';
+    const reviewCount = deal.review_count ? ` (${deal.review_count})` : '';
+
+    card.innerHTML = `
+        <img src="${imageUrl}" alt="${deal.title}" class="deal-image" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22200%22%3E%3Crect fill=%22%23f0f0f0%22 width=%22200%22 height=%22200%22/%3E%3C/svg%3E'">
+
+        <div class="deal-content">
+            <div class="deal-badges">
+                ${discount > 0 ? `<div class="deal-discount">-${discount}%</div>` : ''}
+                <div class="deal-verdict ${verdictClass}">${verdict}</div>
+            </div>
+
+            <div class="deal-title">${deal.title || 'Untitled Deal'}</div>
+            <div class="deal-source">${deal.site_display || 'Unknown Source'}</div>
+
+            ${rating ? `<div class="deal-rating">${rating}${reviewCount}</div>` : ''}
+
+            <div class="deal-price-section">
+                ${deal.original_price ? `<div class="deal-price-original">${formatPrice(deal.original_price)}</div>` : ''}
+                <div class="deal-price">${formatPrice(deal.current_price)}</div>
+            </div>
+
+            <div class="deal-actions">
+                <button class="btn-small" onclick="openDeal('${deal.product_url || '#'}')">🔗 View Deal</button>
+                <button class="btn-small secondary" onclick="shareDeal('${deal.title}', '${deal.current_price}')">📤 Share</button>
+            </div>
+        </div>
+    `;
+
+    return card;
+}
+
+// FORMAT PRICE
+function formatPrice(price) {
+    if (!price) return 'N/A';
+    return new Intl.NumberFormat('en-EG', {
+        style: 'currency',
+        currency: 'EGP'
+    }).format(price);
+}
+
+// OPEN DEAL
+function openDeal(url) {
+    if (url && url !== '#') {
+        window.open(url, '_blank');
+        // Track click
+        if (currentUser) {
+            updateDealClickCount();
+        }
+    }
+}
+
+// SHARE DEAL
+function shareDeal(title, price) {
+    const text = `Check out this deal! ${title} at ${price} EGP - DealHunter Egypt`;
+
+    if (navigator.share) {
+        navigator.share({
+            title: 'DealHunter Deal',
+            text: text
+        }).catch(err => {
+            copyToClipboard(text);
+        });
+    } else {
+        copyToClipboard(text);
+    }
+}
+
+// COPY TO CLIPBOARD
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text);
+    showToast('Deal shared! (Copied to clipboard)');
+}
+
+// UPDATE DAILY LIMIT
+function updateDealClickCount() {
+    const dailyLimitEl = document.getElementById('daily-limit');
+    if (userData) {
+        const current = parseInt(dailyLimitEl.textContent) || userData.daily_deal_limit || 50;
+        if (current > 0) {
+            dailyLimitEl.textContent = current - 1;
+        }
+    }
 }
 
 function copyReferralCode() {
