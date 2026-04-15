@@ -1052,6 +1052,9 @@ async function loadDeals() {
             return;
         }
 
+        console.log('Loaded deals:', deals.length);
+        console.log('First deal:', deals[0]);
+
         // Render deals
         dealsGrid.innerHTML = '';
         deals.forEach(deal => {
@@ -1121,12 +1124,17 @@ function formatPrice(price) {
 
 // OPEN DEAL
 function openDeal(url) {
-    if (url && url !== '#') {
+    console.log('Opening deal with URL:', url);
+    if (url && url !== '#' && url !== 'undefined') {
         window.open(url, '_blank');
         // Track click
         if (currentUser) {
             updateDealClickCount();
         }
+        showToast('Opened deal in new tab!');
+    } else {
+        console.warn('Invalid URL:', url);
+        showToast('This deal link is not available');
     }
 }
 
