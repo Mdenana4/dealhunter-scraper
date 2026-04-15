@@ -8,7 +8,7 @@ import json
 import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import schedule
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from functools import wraps
 import firebase_admin
 from firebase_admin import credentials, auth, firestore
@@ -177,10 +177,25 @@ def check_permission(required_permission):
 def user_dashboard():
     """Serve user dashboard"""
     try:
-        with open('./user-dashboard.html', 'r', encoding='utf-8') as f:
-            return f.read(), 200, {'Content-Type': 'text/html'}
-    except FileNotFoundError:
-        return jsonify({'error': 'User dashboard not found'}), 404
+        # Try multiple possible paths
+        paths = [
+            'user-dashboard.html',
+            './user-dashboard.html',
+            os.path.join(os.path.dirname(__file__), 'user-dashboard.html')
+        ]
+
+        for path in paths:
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    return f.read(), 200, {'Content-Type': 'text/html'}
+
+        print(f"ERROR: user-dashboard.html not found in paths: {paths}")
+        print(f"Current directory: {os.getcwd()}")
+        print(f"Files in current dir: {os.listdir('.')[:10]}")
+        return jsonify({'error': 'User dashboard not found', 'cwd': os.getcwd()}), 404
+    except Exception as e:
+        print(f"ERROR serving dashboard: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 # ============ AUTHENTICATION ENDPOINTS ============
