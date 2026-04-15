@@ -252,14 +252,26 @@ tr:hover td{background:#fafafa;}
     <div class="fg"><label>Message (English)</label><textarea id="nt-msg" placeholder="Up to 60% off today!"></textarea></div>
     <div class="fg"><label>Message (Arabic)</label><textarea id="nt-msg-ar" placeholder="خصم حتى 60% اليوم!" dir="rtl"></textarea></div>
     <div class="fg-row">
-      <div class="fg"><label>Target Users</label>
-        <select id="nt-target">
-          <option value="all">All Users / كل المستخدمين</option>
-          <option value="vip">VIP Only / VIP فقط</option>
-          <option value="premium">Premium Only / مميز فقط</option>
-          <option value="trial">Trial Users / مستخدمو التجربة</option>
-          <option value="free">Free Users / مجاني</option>
+      <div class="fg"><label>Target Users / الهدف</label>
+        <select id="nt-target" onchange="updateNotifTargetOptions()">
+          <option value="">-- Select Target --</option>
+          <optgroup label="By Tier / حسب المستوى">
+            <option value="tier:all">All Users / كل المستخدمين</option>
+            <option value="tier:vip">VIP Only / VIP فقط</option>
+            <option value="tier:premium">Premium Only / مميز فقط</option>
+            <option value="tier:free">Free Users / مجاني</option>
+          </optgroup>
+          <optgroup label="By Group / حسب المجموعة">
+            <option value="group">Specific Group / مجموعة محددة</option>
+          </optgroup>
+          <optgroup label="By User / حسب المستخدم">
+            <option value="user">Specific User / مستخدم محدد</option>
+          </optgroup>
         </select>
+      </div>
+      <div class="fg" id="group-select-div" style="display:none;">
+        <label>Select Group</label>
+        <select id="nt-group-id"></select>
       </div>
       <div class="fg"><label>Channel / قناة الإرسال</label>
         <select id="nt-channel">
@@ -1896,6 +1908,36 @@ async function loadNotifs(){
       '<tr><td colspan="5"><div class="empty"><div class="ei">🔔</div><div class="et">No notifications sent yet</div></div></td></tr>';
   }catch(e){toast('Notifs error: '+e.message);}
 }
+function updateNotifTargetOptions() {
+  const target = document.getElementById('nt-target').value;
+  const groupDiv = document.getElementById('group-select-div');
+  const userDiv = document.querySelector('div:has(#nt-user)');
+
+  // Show/hide group selector
+  groupDiv.style.display = target === 'group' ? 'block' : 'none';
+
+  // Show/hide user input
+  if (userDiv) {
+    userDiv.style.display = target === 'user' ? 'block' : 'none';
+  }
+
+  // Load groups if needed
+  if (target === 'group' && document.getElementById('nt-group-id').children.length === 0) {
+    loadNotifGroups();
+  }
+}
+
+async function loadNotifGroups() {
+  try {
+    const snap = await db.collection('user_groups').get();
+    const groups = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const select = document.getElementById('nt-group-id');
+    select.innerHTML = groups.length ? groups.map(g => `<option value="${g.id}">${g.group_name}</option>`).join('') : '<option>No groups found</option>';
+  } catch (e) {
+    console.error('Error loading groups:', e);
+  }
+}
+
 async function saveNotif(){
   const title=document.getElementById('nt-title').value.trim();
   const titleAr=document.getElementById('nt-title-ar').value.trim();
@@ -1903,18 +1945,59 @@ async function saveNotif(){
   const msgAr=document.getElementById('nt-msg-ar').value.trim();
   const target=document.getElementById('nt-target').value;
   const channel=document.getElementById('nt-channel').value;
+  const groupId=document.getElementById('nt-group-id').value;
   const user=document.getElementById('nt-user').value.trim();
+
+  if(!target){toast('Please select a target');return;}
   if(!title&&!titleAr){toast('Please enter a title');return;}
   if(!msg&&!msgAr){toast('Please enter a message');return;}
-  await db.collection('notifications').add({
-    title,title_ar:titleAr,message:msg,message_ar:msgAr,
-    target,channel,specific_user:user||null,
-    type:'manual_push',sent_at:new Date().toISOString()
-  });
-  document.getElementById('notif-modal').classList.remove('show');
-  ['nt-title','nt-title-ar','nt-msg','nt-msg-ar','nt-user'].forEach(id=>document.getElementById(id).value='');
-  toast('Notification saved and queued for delivery');
-  loadNotifs();
+
+  try {
+    // Save notification record to Firestore
+    const notifData = {
+      title, title_ar: titleAr, message: msg, message_ar: msgAr,
+      target, channel, type: 'manual_push', sent_at: new Date().toISOString(),
+      sent_by: currentAdmin?.email || 'admin'
+    };
+
+    if (target === 'user') {
+      notifData.specific_user = user;
+    } else if (target === 'group') {
+      notifData.group_id = groupId;
+    }
+
+    await db.collection('notifications').add(notifData);
+
+    // Send notification via API
+    const idToken = await auth.currentUser.getIdToken();
+    const response = await fetch('https://dealhunter-scraper.onrender.com/api/v1/notifications/send', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${idToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        title, title_ar: titleAr, message: msg, message_ar: msgAr,
+        target, group_id: groupId, specific_user: user, channel
+      })
+    });
+
+    if (response.ok) {
+      document.getElementById('notif-modal').classList.remove('show');
+      ['nt-title','nt-title-ar','nt-msg','nt-msg-ar','nt-user','nt-target','nt-group-id'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      toast('✓ Notification sent successfully!');
+      loadNotifs();
+    } else {
+      const error = await response.json().catch(() => ({}));
+      toast(`Error: ${error.error || 'Failed to send notification'}`);
+    }
+  } catch(e) {
+    console.error('Notification error:', e);
+    toast('Error: ' + e.message);
+  }
 }
 
 // ── ADD DEAL MANUALLY ──────────────────────────

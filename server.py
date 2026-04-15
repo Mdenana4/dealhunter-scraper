@@ -859,6 +859,80 @@ def get_current_subscription():
         return jsonify({'error': str(e)}), 500
 
 
+# ============ NOTIFICATION SENDING ENDPOINT ============
+
+@app.route('/api/v1/notifications/send', methods=['POST'])
+@require_auth
+def send_notification():
+    """Send notification to users/groups/tiers"""
+    try:
+        data = request.get_json()
+        admin_email = request.current_user.get('email')
+
+        # Verify admin has notification permission
+        admin_doc = db.collection('admin_users').document(admin_email).get()
+        if not admin_doc.exists or 'notifications' not in admin_doc.to_dict().get('permissions', []):
+            return jsonify({'error': 'Insufficient permissions'}), 403
+
+        title = data.get('title', '')
+        title_ar = data.get('title_ar', '')
+        message = data.get('message', '')
+        message_ar = data.get('message_ar', '')
+        target = data.get('target', '')
+        channel = data.get('channel', 'in_app')
+        group_id = data.get('group_id')
+        specific_user = data.get('specific_user')
+
+        # Find target users
+        target_users = []
+
+        if target.startswith('tier:'):
+            # Send to users of specific tier
+            tier = target.split(':')[1]
+            users_snap = db.collection('users').where('tier', '==', tier).get()
+            target_users = [doc.id for doc in users_snap]  # doc.id is email
+            print(f"Sending to {len(target_users)} users in {tier} tier")
+
+        elif target == 'user' and specific_user:
+            # Send to specific user
+            target_users = [specific_user]
+
+        elif target == 'group' and group_id:
+            # Send to users in specific group
+            group_doc = db.collection('user_groups').document(group_id).get()
+            if group_doc.exists:
+                members = group_doc.to_dict().get('members', [])
+                target_users = [m.get('email') for m in members if m.get('email')]
+            print(f"Sending to {len(target_users)} users in group {group_id}")
+
+        # Save notifications for each user
+        if target_users:
+            batch = db.batch()
+            for user_email in target_users:
+                notif_ref = db.collection('user_notifications').document()
+                batch.set(notif_ref, {
+                    'user_email': user_email,
+                    'title': title,
+                    'title_ar': title_ar,
+                    'message': message,
+                    'message_ar': message_ar,
+                    'channel': channel,
+                    'read': False,
+                    'sent_at': datetime.datetime.now(datetime.timezone.utc),
+                    'sent_by': admin_email
+                })
+            batch.commit()
+
+        return jsonify({
+            'success': True,
+            'message': f'Notification sent to {len(target_users)} users',
+            'recipients': len(target_users)
+        }), 200
+    except Exception as e:
+        print(f"Error sending notification: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 # ============ PHASE 5: USER GROUPS ENDPOINTS ============
 
 @app.route('/api/v1/groups', methods=['POST'])
