@@ -953,10 +953,28 @@ async function loadUserData() {
 
         if (response.ok) {
             userData = await response.json();
+            console.log('User data loaded:', userData);
+            updateUI();
+        } else {
+            console.error('Failed to load user data:', response.status);
+            // Set defaults if user data can't be loaded
+            userData = {
+                email: currentUser.email,
+                tier: 'free',
+                daily_deal_limit: 50,
+                referral_code: 'GENERATE_CODE'
+            };
             updateUI();
         }
     } catch (error) {
         console.error('Error loading user data:', error);
+        userData = {
+            email: currentUser.email,
+            tier: 'free',
+            daily_deal_limit: 50,
+            referral_code: 'GENERATE_CODE'
+        };
+        updateUI();
     }
 }
 
@@ -981,7 +999,9 @@ function updateUI() {
     document.getElementById('membership-limit-display').textContent = userData.daily_deal_limit || 50;
 
     // Referrals page
-    document.getElementById('referral-code').textContent = userData.referral_code || 'LOADING...';
+    const refCode = userData.referral_code || 'DEAL' + Math.random().toString(36).substr(2, 8).toUpperCase();
+    document.getElementById('referral-code').textContent = refCode;
+    console.log('Referral code set to:', refCode);
 }
 
 // UI HELPERS
