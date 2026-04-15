@@ -1020,18 +1020,23 @@ tr:hover td{background:#fafafa;}
     </div>
     <div class="fg"><label id="om-value-label">Discount Percentage *</label><input type="number" id="om-value" min="1" max="100" placeholder="20"/></div>
     <div class="fg"><label>Apply To *</label>
-      <select id="om-target">
+      <select id="om-target" onchange="updateOfferTargetFields()">
         <option value="all">All Users</option>
         <option value="tier:free">Free Tier Users</option>
         <option value="tier:trial">Trial Users</option>
         <option value="tier:premium">Premium Users</option>
         <option value="tier:vip">VIP Users</option>
         <option value="group">Specific Group</option>
+        <option value="user">Specific User</option>
       </select>
     </div>
     <div class="fg" id="om-group-div" style="display:none;">
       <label>Select Group</label>
       <select id="om-group"></select>
+    </div>
+    <div class="fg" id="om-user-div" style="display:none;">
+      <label>User Email</label>
+      <input type="email" id="om-user" placeholder="user@example.com"/>
     </div>
     <div class="fg"><label>Valid Until</label><input type="date" id="om-expires"/></div>
     <div class="ma">
@@ -1995,15 +2000,17 @@ async function updateDailyLimit(userId,newLimit){
     });
 
     const data = await response.json();
+    console.log('✅ API Response Status:', response.status, 'Data:', data);  // DEBUG
     if (response.ok) {
       toast('✓ Daily limit updated to ' + newLimit);
-      loadUsers();  // Refresh the table
+      setTimeout(() => loadUsers(), 500);  // Refresh table after slight delay
     } else {
-      toast('Error: ' + (data.error || 'Failed to update'));
+      console.error('❌ API Error:', response.status, data);  // DEBUG
+      toast('❌ Error (' + response.status + '): ' + (data.error || 'Failed to update'));
     }
   }catch(e){
-    console.error('Error:', e);
-    toast('Error updating daily limit: ' + e.message);
+    console.error('❌ Network Error:', e);
+    toast('❌ Error: ' + e.message);
   }
 }
 
@@ -2704,37 +2711,64 @@ async function saveGroup(){
   }
 
   try{
-    const idToken = await auth.currentUser.getIdToken();
-    const response = await fetch('/api/v1/user-groups', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${idToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
+    if(editingGroupId) {
+      // Update existing group
+      await db.collection('user_groups').doc(editingGroupId).update({
         group_name: name,
         tier: tier,
         daily_budget: budget,
-        members: members
-      })
-    });
+        members: members,
+        updated_at: new Date().toISOString()
+      });
+      toast('✓ Group updated: ' + name);
+      editingGroupId = null;
+    } else {
+      // Create new group via API
+      const idToken = await auth.currentUser.getIdToken();
+      const response = await fetch('/api/v1/user-groups', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${idToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          group_name: name,
+          tier: tier,
+          daily_budget: budget,
+          members: members
+        })
+      });
 
-    const data = await response.json();
-    if(response.ok){
+      const data = await response.json();
+      if(!response.ok){
+        toast('Error: ' + (data.error || 'Failed to create group'));
+        return;
+      }
       toast('✓ Group created: ' + name);
-      closeGroupModal();
-      loadGroups();
-    }else{
-      toast('Error: ' + (data.error || 'Failed to create group'));
     }
+    closeGroupModal();
+    loadGroups();
   }catch(e){
     console.error('Error:', e);
-    toast('Error creating group: ' + e.message);
+    toast('Error saving group: ' + e.message);
   }
 }
 
+let editingGroupId = null;
+
 function editGroup(id){
-  toast('Edit group coming soon');
+  editingGroupId = id;
+  // Load group data from Firestore
+  db.collection('user_groups').doc(id).get().then(doc => {
+    if(doc.exists) {
+      const g = doc.data();
+      document.getElementById('gm-name').value = g.group_name || '';
+      document.getElementById('gm-tier').value = g.tier || '';
+      document.getElementById('gm-budget').value = g.daily_budget || '';
+      document.getElementById('gm-members').value = (g.members || []).map(m => m.email).join('\n');
+      document.getElementById('group-modal').classList.add('show');
+    }
+  });
 }
 
 async function deleteGroup(id){
@@ -2778,13 +2812,16 @@ async function loadOffers(){
 }
 
 function openOfferModal(){
+  editingOfferId = null;
   document.getElementById('om-name').value = '';
   document.getElementById('om-type').value = 'discount';
   document.getElementById('om-value').value = '';
   document.getElementById('om-target').value = 'all';
   document.getElementById('om-expires').value = '';
-  document.getElementById('om-group-div').style.display = 'none';
+  document.getElementById('om-group').value = '';
+  document.getElementById('om-user').value = '';
   updateOfferFields();
+  updateOfferTargetFields();
   document.getElementById('offer-modal').classList.add('show');
 }
 
@@ -2812,6 +2849,33 @@ function updateOfferFields(){
   }
 }
 
+function updateOfferTargetFields(){
+  const target = document.getElementById('om-target').value;
+  const groupDiv = document.getElementById('om-group-div');
+  const userDiv = document.getElementById('om-user-div');
+
+  groupDiv.style.display = target === 'group' ? 'block' : 'none';
+  userDiv.style.display = target === 'user' ? 'block' : 'none';
+
+  // Load groups if selecting group target
+  if(target === 'group') {
+    loadGroupsForDropdown();
+  }
+}
+
+async function loadGroupsForDropdown(){
+  try{
+    const snap = await db.collection('user_groups').get();
+    const groups = snap.docs.map(doc => doc.data());
+    const select = document.getElementById('om-group');
+    select.innerHTML = groups.length ? groups.map(g => `<option value="${g.id}">${g.group_name}</option>`).join('') : '<option>No groups found</option>';
+  }catch(e){
+    console.error('Error loading groups:', e);
+  }
+}
+
+let editingOfferId = null;
+
 async function saveOffer(){
   const name = document.getElementById('om-name').value.trim();
   const type = document.getElementById('om-type').value;
@@ -2825,44 +2889,77 @@ async function saveOffer(){
   }
 
   try{
-    const idToken = await auth.currentUser.getIdToken();
-    const data = {
+    const offerData = {
       name: name,
       type: type,
       target_tier: target.startsWith('tier:') ? target.split(':')[1] : null,
       target_group: target === 'group' ? document.getElementById('om-group').value : null,
+      target_user: target === 'user' ? document.getElementById('om-user').value : null,
       valid_until: expires || null
     };
 
-    if(type === 'discount') data.discount_percent = value;
-    else if(type === 'free_days') data.days = value;
-    else data.amount = value;
+    if(type === 'discount') offerData.discount_percent = value;
+    else if(type === 'free_days') offerData.days = value;
+    else offerData.amount = value;
 
-    const response = await fetch('/api/v1/special-offers', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${idToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(data)
-    });
+    if(editingOfferId) {
+      // Update existing offer
+      await db.collection('special_offers').doc(editingOfferId).update(offerData);
+      toast('✓ Offer updated: ' + name);
+      editingOfferId = null;
+    } else {
+      // Create new offer
+      const idToken = await auth.currentUser.getIdToken();
+      const response = await fetch('/api/v1/special-offers', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${idToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(offerData)
+      });
 
-    const responseData = await response.json();
-    if(response.ok){
+      const responseData = await response.json();
+      if(!response.ok){
+        toast('Error: ' + (responseData.error || 'Failed to create offer'));
+        return;
+      }
       toast('✓ Offer created: ' + name);
-      closeOfferModal();
-      loadOffers();
-    }else{
-      toast('Error: ' + (responseData.error || 'Failed to create offer'));
     }
+    closeOfferModal();
+    loadOffers();
   }catch(e){
     console.error('Error:', e);
-    toast('Error creating offer: ' + e.message);
+    toast('Error saving offer: ' + e.message);
   }
 }
 
 function editOffer(id){
-  toast('Edit offer coming soon');
+  editingOfferId = id;
+  db.collection('special_offers').doc(id).get().then(doc => {
+    if(doc.exists) {
+      const o = doc.data();
+      document.getElementById('om-name').value = o.name || '';
+      document.getElementById('om-type').value = o.type || 'discount';
+      updateOfferFields();
+
+      if(o.type === 'discount') document.getElementById('om-value').value = o.discount_percent || '';
+      else if(o.type === 'free_days') document.getElementById('om-value').value = o.days || '';
+      else document.getElementById('om-value').value = o.amount || '';
+
+      if(o.target_tier) document.getElementById('om-target').value = 'tier:' + o.target_tier;
+      else if(o.target_group) document.getElementById('om-target').value = 'group';
+      else if(o.target_user) document.getElementById('om-target').value = 'user';
+      else document.getElementById('om-target').value = 'all';
+
+      document.getElementById('om-group').value = o.target_group || '';
+      document.getElementById('om-user').value = o.target_user || '';
+      document.getElementById('om-expires').value = o.valid_until ? o.valid_until.split('T')[0] : '';
+
+      updateOfferTargetFields();
+      document.getElementById('offer-modal').classList.add('show');
+    }
+  });
 }
 
 async function deleteOffer(id){
