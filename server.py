@@ -1001,6 +1001,208 @@ def admin_create_user():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/v1/users/<uid>/daily-limit', methods=['PUT'])
+@require_auth
+def update_user_daily_limit(uid):
+    """Update user's daily deal limit"""
+    try:
+        admin_email = request.current_user.get('email')
+
+        # Verify admin has user management permission
+        admin_doc = db.collection('admin_users').document(admin_email).get()
+        if not admin_doc.exists or 'users' not in admin_doc.to_dict().get('permissions', []):
+            return jsonify({'error': 'Insufficient permissions'}), 403
+
+        data = request.get_json()
+        daily_limit = data.get('daily_deal_limit')
+
+        if not daily_limit or daily_limit < 1:
+            return jsonify({'error': 'Daily limit must be at least 1'}), 400
+
+        db.collection('users').document(uid).update({
+            'daily_deal_limit': int(daily_limit),
+            'custom_daily_limit': True,
+            'updated_at': datetime.datetime.now(datetime.timezone.utc),
+            'updated_by': admin_email
+        })
+
+        return jsonify({
+            'success': True,
+            'message': f'Daily limit updated to {daily_limit}'
+        }), 200
+    except Exception as e:
+        print(f"Error updating daily limit: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/users/<uid>', methods=['DELETE'])
+@require_auth
+def delete_user(uid):
+    """Delete user account"""
+    try:
+        admin_email = request.current_user.get('email')
+
+        # Verify admin has user management permission
+        admin_doc = db.collection('admin_users').document(admin_email).get()
+        if not admin_doc.exists or 'users' not in admin_doc.to_dict().get('permissions', []):
+            return jsonify({'error': 'Insufficient permissions'}), 403
+
+        # Get user info before deletion
+        user_doc = db.collection('users').document(uid).get()
+        user_name = user_doc.to_dict().get('name', uid) if user_doc.exists else uid
+
+        # Delete user
+        db.collection('users').document(uid).delete()
+
+        print(f"User {uid} deleted by admin {admin_email}")
+
+        return jsonify({
+            'success': True,
+            'message': f'User {user_name} deleted successfully'
+        }), 200
+    except Exception as e:
+        print(f"Error deleting user: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/tiers', methods=['GET'])
+@require_auth
+def get_tiers():
+    """Get all tier configurations"""
+    try:
+        admin_email = request.current_user.get('email')
+
+        # Verify admin access
+        admin_doc = db.collection('admin_users').document(admin_email).get()
+        if not admin_doc.exists:
+            return jsonify({'error': 'Access denied'}), 403
+
+        tiers_snap = db.collection('tier_config').get()
+        tiers = [doc.to_dict() for doc in tiers_snap]
+
+        # If no custom tiers, return defaults
+        if not tiers:
+            tiers = [
+                {'tier': 'free', 'daily_limit': 50, 'price': 0, 'features': ['View Deals']},
+                {'tier': 'trial', 'daily_limit': 100, 'price': 0, 'features': ['View Deals', 'Price History']},
+                {'tier': 'premium', 'daily_limit': 500, 'price': 5, 'currency': 'USD', 'features': ['View Deals', 'Groups', 'Gifts']},
+                {'tier': 'vip', 'daily_limit': 99999, 'price': 10, 'currency': 'USD', 'features': ['All Features']}
+            ]
+
+        return jsonify({'tiers': tiers}), 200
+    except Exception as e:
+        print(f"Error getting tiers: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/tiers/<tier_name>', methods=['PUT'])
+@require_auth
+def update_tier(tier_name):
+    """Update tier configuration"""
+    try:
+        admin_email = request.current_user.get('email')
+
+        # Verify admin is owner
+        admin_doc = db.collection('admin_users').document(admin_email).get()
+        if not admin_doc.exists or admin_doc.to_dict().get('role') != 'owner':
+            return jsonify({'error': 'Only owners can modify tiers'}), 403
+
+        data = request.get_json()
+
+        db.collection('tier_config').document(tier_name).set({
+            'tier': tier_name,
+            'daily_limit': data.get('daily_limit', 50),
+            'price': data.get('price', 0),
+            'currency': data.get('currency', 'USD'),
+            'features': data.get('features', []),
+            'updated_at': datetime.datetime.now(datetime.timezone.utc),
+            'updated_by': admin_email
+        })
+
+        return jsonify({
+            'success': True,
+            'message': f'Tier {tier_name} updated'
+        }), 200
+    except Exception as e:
+        print(f"Error updating tier: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/user-groups', methods=['POST'])
+@require_auth
+def create_user_group():
+    """Create user group"""
+    try:
+        admin_email = request.current_user.get('email')
+
+        # Verify admin has users permission
+        admin_doc = db.collection('admin_users').document(admin_email).get()
+        if not admin_doc.exists or 'users' not in admin_doc.to_dict().get('permissions', []):
+            return jsonify({'error': 'Insufficient permissions'}), 403
+
+        data = request.get_json()
+        group_id = db.collection('user_groups').document().id
+
+        db.collection('user_groups').document(group_id).set({
+            'id': group_id,
+            'group_name': data.get('group_name'),
+            'admin_email': admin_email,
+            'members': data.get('members', []),
+            'tier': data.get('tier'),
+            'daily_budget': data.get('daily_budget'),
+            'created_at': datetime.datetime.now(datetime.timezone.utc)
+        })
+
+        return jsonify({
+            'success': True,
+            'message': 'Group created',
+            'group_id': group_id
+        }), 201
+    except Exception as e:
+        print(f"Error creating group: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/special-offers', methods=['POST'])
+@require_auth
+def create_offer():
+    """Create special offer"""
+    try:
+        admin_email = request.current_user.get('email')
+
+        # Verify admin is owner
+        admin_doc = db.collection('admin_users').document(admin_email).get()
+        if not admin_doc.exists or admin_doc.to_dict().get('role') != 'owner':
+            return jsonify({'error': 'Only owners can create offers'}), 403
+
+        data = request.get_json()
+        offer_id = db.collection('special_offers').document().id
+
+        db.collection('special_offers').document(offer_id).set({
+            'id': offer_id,
+            'name': data.get('name'),
+            'type': data.get('type'),  # 'discount', 'free_days', 'amount'
+            'discount_percent': data.get('discount_percent', 0),
+            'days': data.get('days', 0),
+            'amount': data.get('amount', 0),
+            'target_tier': data.get('target_tier'),
+            'target_group': data.get('target_group'),
+            'valid_until': data.get('valid_until'),
+            'is_active': data.get('is_active', True),
+            'used_count': 0,
+            'created_at': datetime.datetime.now(datetime.timezone.utc)
+        })
+
+        return jsonify({
+            'success': True,
+            'message': 'Offer created',
+            'offer_id': offer_id
+        }), 201
+    except Exception as e:
+        print(f"Error creating offer: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 # ============ PHASE 5: USER GROUPS ENDPOINTS ============
 
 @app.route('/api/v1/groups', methods=['POST'])

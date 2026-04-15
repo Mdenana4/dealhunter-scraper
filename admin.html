@@ -962,6 +962,85 @@ tr:hover td{background:#fafafa;}
   </div>
 </div>
 
+<!-- ══════════════════════════════════════════════════ -->
+<!-- TIER MODAL -->
+<!-- ══════════════════════════════════════════════════ -->
+<div class="mo" id="tier-modal">
+  <div class="md">
+    <h3 id="tier-modal-title">Edit Tier</h3>
+    <div class="fg"><label>Tier Name *</label><input type="text" id="tm-tier-name" disabled/></div>
+    <div class="fg"><label>Daily Deal Limit *</label><input type="number" id="tm-daily-limit" min="1" placeholder="50"/></div>
+    <div class="fg"><label>Monthly Price (USD) *</label><input type="number" id="tm-price" min="0" step="0.01" placeholder="5.00"/></div>
+    <div class="fg"><label>Features (comma-separated)</label><textarea id="tm-features" placeholder="View Deals, Price History, Groups"></textarea></div>
+    <div class="ma">
+      <button class="btn" onclick="closeTierModal()">Cancel</button>
+      <button class="btn btn-p" onclick="saveTier()">Save Tier</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ -->
+<!-- GROUP MODAL -->
+<!-- ══════════════════════════════════════════════════ -->
+<div class="mo" id="group-modal">
+  <div class="md">
+    <h3>Create User Group</h3>
+    <div class="fg"><label>Group Name *</label><input type="text" id="gm-name" placeholder="Family, Team, Business"/></div>
+    <div class="fg"><label>Select Tier</label>
+      <select id="gm-tier">
+        <option value="">No specific tier (mixed)</option>
+        <option value="free">Free</option>
+        <option value="trial">Trial</option>
+        <option value="premium">Premium</option>
+        <option value="vip">VIP</option>
+      </select>
+    </div>
+    <div class="fg"><label>Daily Budget (deals/day)</label><input type="number" id="gm-budget" min="1" placeholder="500"/></div>
+    <div class="fg"><label>Add Members (emails, one per line)</label><textarea id="gm-members" placeholder="user1@example.com&#10;user2@example.com"></textarea></div>
+    <div class="ma">
+      <button class="btn" onclick="closeGroupModal()">Cancel</button>
+      <button class="btn btn-p" onclick="saveGroup()">Create Group</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ -->
+<!-- OFFER MODAL -->
+<!-- ══════════════════════════════════════════════════ -->
+<div class="mo" id="offer-modal">
+  <div class="md">
+    <h3>Create Special Offer</h3>
+    <div class="fg"><label>Offer Name *</label><input type="text" id="om-name" placeholder="Summer Sale 20% Off"/></div>
+    <div class="fg"><label>Offer Type *</label>
+      <select id="om-type" onchange="updateOfferFields()">
+        <option value="discount">Discount (%)</option>
+        <option value="free_days">Free Days</option>
+        <option value="amount">Amount (EGP)</option>
+      </select>
+    </div>
+    <div class="fg"><label id="om-value-label">Discount Percentage *</label><input type="number" id="om-value" min="1" max="100" placeholder="20"/></div>
+    <div class="fg"><label>Apply To *</label>
+      <select id="om-target">
+        <option value="all">All Users</option>
+        <option value="tier:free">Free Tier Users</option>
+        <option value="tier:trial">Trial Users</option>
+        <option value="tier:premium">Premium Users</option>
+        <option value="tier:vip">VIP Users</option>
+        <option value="group">Specific Group</option>
+      </select>
+    </div>
+    <div class="fg" id="om-group-div" style="display:none;">
+      <label>Select Group</label>
+      <select id="om-group"></select>
+    </div>
+    <div class="fg"><label>Valid Until</label><input type="date" id="om-expires"/></div>
+    <div class="ma">
+      <button class="btn" onclick="closeOfferModal()">Cancel</button>
+      <button class="btn btn-p" onclick="saveOffer()">Create Offer</button>
+    </div>
+  </div>
+</div>
+
 <!-- Firebase SDK -->
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
@@ -1866,12 +1945,13 @@ async function loadUsers(){
         <td style="font-size:10px;">${ft(u.last_login)}</td>
         <td style="font-size:10px;">${ft(u.tier_upgraded_at)}</td>
         <td>
-          <select onchange="changeUserTier('${u.id}',this.value,'${u.tier}')" style="padding:3px;font-size:10px;border:0.5px solid #ddd;border-radius:5px;">
+          <select onchange="changeUserTier('${u.id}',this.value,'${u.tier}')" style="padding:3px;font-size:10px;border:0.5px solid #ddd;border-radius:5px;margin-right:3px;">
             <option value="">Change tier...</option>
             <option value="free">Free (50 deals/day)</option>
             <option value="premium">Premium ($5/mo, 500 deals/day)</option>
             <option value="vip">VIP ($10/mo, Unlimited)</option>
           </select>
+          <button class="btn btn-sm btn-d" onclick="deleteUser('${u.id}','${u.name||u.email}')" title="Delete user">🗑️</button>
         </td>
       </tr>`).join(''):
       '<tr><td colspan="10"><div class="empty"><div class="ei">👤</div><div class="et">No registered users yet — they appear here when people sign up in the app</div></div></td></tr>';
@@ -1902,14 +1982,55 @@ async function updateDailyLimit(userId,newLimit){
   }
 
   try{
-    await db.collection('users').doc(userId).update({
-      daily_deal_limit: parseInt(newLimit),
-      custom_daily_limit: true,  // Mark that this was manually set
-      updated_at: new Date().toISOString()
+    const idToken = await auth.currentUser.getIdToken();
+    const response = await fetch('/api/v1/users/' + userId + '/daily-limit', {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${idToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        daily_deal_limit: parseInt(newLimit)
+      })
     });
-    toast('✓ Daily limit updated to ' + newLimit);
+
+    const data = await response.json();
+    if (response.ok) {
+      toast('✓ Daily limit updated to ' + newLimit);
+      loadUsers();  // Refresh the table
+    } else {
+      toast('Error: ' + (data.error || 'Failed to update'));
+    }
   }catch(e){
+    console.error('Error:', e);
     toast('Error updating daily limit: ' + e.message);
+  }
+}
+
+// Delete user account
+async function deleteUser(userId,userName){
+  if(!confirm(`Delete ${userName}? This cannot be undone!`)) return;
+
+  try{
+    const idToken = await auth.currentUser.getIdToken();
+    const response = await fetch('/api/v1/users/' + userId, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${idToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const data = await response.json();
+    if (response.ok) {
+      toast('✓ User deleted: ' + userName);
+      loadUsers();
+    } else {
+      toast('Error: ' + (data.error || 'Failed to delete user'));
+    }
+  }catch(e){
+    console.error('Error:', e);
+    toast('Error deleting user: ' + e.message);
   }
 }
 
@@ -2464,9 +2585,70 @@ async function loadTierPricing(){
   }
 }
 
-function openTierModal(){ toast('Tier creation coming soon'); }
-function openTierEditModal(tier){ toast('Edit tier "' + tier + '" coming soon'); }
-function deleteTier(tier){ if(confirm('Delete ' + tier + ' tier?')) toast('Tier deletion coming soon'); }
+function openTierModal(){
+  document.getElementById('tm-tier-name').value = '';
+  document.getElementById('tm-daily-limit').value = '';
+  document.getElementById('tm-price').value = '';
+  document.getElementById('tm-features').value = '';
+  document.getElementById('tier-modal-title').textContent = 'Add Custom Tier';
+  document.getElementById('tier-modal').classList.add('show');
+}
+
+function openTierEditModal(tier){
+  document.getElementById('tm-tier-name').value = tier;
+  document.getElementById('tier-modal-title').textContent = 'Edit ' + tier.toUpperCase() + ' Tier';
+  document.getElementById('tier-modal').classList.add('show');
+  // Load current tier data (optional)
+}
+
+function closeTierModal(){
+  document.getElementById('tier-modal').classList.remove('show');
+}
+
+async function saveTier(){
+  const tierName = document.getElementById('tm-tier-name').value.trim();
+  const dailyLimit = parseInt(document.getElementById('tm-daily-limit').value);
+  const price = parseFloat(document.getElementById('tm-price').value);
+  const features = document.getElementById('tm-features').value.split(',').map(f => f.trim()).filter(f => f);
+
+  if(!tierName || !dailyLimit || price === null){
+    toast('Please fill all required fields');
+    return;
+  }
+
+  try{
+    const idToken = await auth.currentUser.getIdToken();
+    const response = await fetch('/api/v1/tiers/' + tierName, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${idToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        daily_limit: dailyLimit,
+        price: price,
+        features: features
+      })
+    });
+
+    const data = await response.json();
+    if(response.ok){
+      toast('✓ Tier saved: ' + tierName);
+      closeTierModal();
+      loadTierPricing();
+    }else{
+      toast('Error: ' + (data.error || 'Failed to save tier'));
+    }
+  }catch(e){
+    console.error('Error:', e);
+    toast('Error saving tier: ' + e.message);
+  }
+}
+
+function deleteTier(tier){
+  if(!confirm('Delete ' + tier + ' tier?')) return;
+  toast('Tier deletion coming soon (needs confirmation)');
+}
 
 // ═══════════════════════════════════════════════════════════
 // GROUP MANAGEMENT
@@ -2497,8 +2679,64 @@ async function loadGroups(){
   }
 }
 
-function openGroupModal(){ toast('Group creation coming soon'); }
-function editGroup(id){ toast('Edit group coming soon'); }
+function openGroupModal(){
+  document.getElementById('gm-name').value = '';
+  document.getElementById('gm-tier').value = '';
+  document.getElementById('gm-budget').value = '';
+  document.getElementById('gm-members').value = '';
+  document.getElementById('group-modal').classList.add('show');
+}
+
+function closeGroupModal(){
+  document.getElementById('group-modal').classList.remove('show');
+}
+
+async function saveGroup(){
+  const name = document.getElementById('gm-name').value.trim();
+  const tier = document.getElementById('gm-tier').value || null;
+  const budget = parseInt(document.getElementById('gm-budget').value) || 500;
+  const membersText = document.getElementById('gm-members').value.trim();
+  const members = membersText.split('\n').map(m => ({email: m.trim()})).filter(m => m.email);
+
+  if(!name){
+    toast('Group name is required');
+    return;
+  }
+
+  try{
+    const idToken = await auth.currentUser.getIdToken();
+    const response = await fetch('/api/v1/user-groups', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${idToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        group_name: name,
+        tier: tier,
+        daily_budget: budget,
+        members: members
+      })
+    });
+
+    const data = await response.json();
+    if(response.ok){
+      toast('✓ Group created: ' + name);
+      closeGroupModal();
+      loadGroups();
+    }else{
+      toast('Error: ' + (data.error || 'Failed to create group'));
+    }
+  }catch(e){
+    console.error('Error:', e);
+    toast('Error creating group: ' + e.message);
+  }
+}
+
+function editGroup(id){
+  toast('Edit group coming soon');
+}
+
 async function deleteGroup(id){
   if(confirm('Delete this group?')) {
     try{
@@ -2539,8 +2777,94 @@ async function loadOffers(){
   }
 }
 
-function openOfferModal(){ toast('Offer creation coming soon'); }
-function editOffer(id){ toast('Edit offer coming soon'); }
+function openOfferModal(){
+  document.getElementById('om-name').value = '';
+  document.getElementById('om-type').value = 'discount';
+  document.getElementById('om-value').value = '';
+  document.getElementById('om-target').value = 'all';
+  document.getElementById('om-expires').value = '';
+  document.getElementById('om-group-div').style.display = 'none';
+  updateOfferFields();
+  document.getElementById('offer-modal').classList.add('show');
+}
+
+function closeOfferModal(){
+  document.getElementById('offer-modal').classList.remove('show');
+}
+
+function updateOfferFields(){
+  const type = document.getElementById('om-type').value;
+  const label = document.getElementById('om-value-label');
+  const input = document.getElementById('om-value');
+
+  if(type === 'discount') {
+    label.textContent = 'Discount Percentage *';
+    input.max = 100;
+    input.placeholder = '20';
+  } else if(type === 'free_days') {
+    label.textContent = 'Number of Days *';
+    input.max = 365;
+    input.placeholder = '7';
+  } else {
+    label.textContent = 'Amount (EGP) *';
+    input.max = 999999;
+    input.placeholder = '100';
+  }
+}
+
+async function saveOffer(){
+  const name = document.getElementById('om-name').value.trim();
+  const type = document.getElementById('om-type').value;
+  const value = parseFloat(document.getElementById('om-value').value);
+  const target = document.getElementById('om-target').value;
+  const expires = document.getElementById('om-expires').value;
+
+  if(!name || !value){
+    toast('Please fill all required fields');
+    return;
+  }
+
+  try{
+    const idToken = await auth.currentUser.getIdToken();
+    const data = {
+      name: name,
+      type: type,
+      target_tier: target.startsWith('tier:') ? target.split(':')[1] : null,
+      target_group: target === 'group' ? document.getElementById('om-group').value : null,
+      valid_until: expires || null
+    };
+
+    if(type === 'discount') data.discount_percent = value;
+    else if(type === 'free_days') data.days = value;
+    else data.amount = value;
+
+    const response = await fetch('/api/v1/special-offers', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${idToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(data)
+    });
+
+    const responseData = await response.json();
+    if(response.ok){
+      toast('✓ Offer created: ' + name);
+      closeOfferModal();
+      loadOffers();
+    }else{
+      toast('Error: ' + (responseData.error || 'Failed to create offer'));
+    }
+  }catch(e){
+    console.error('Error:', e);
+    toast('Error creating offer: ' + e.message);
+  }
+}
+
+function editOffer(id){
+  toast('Edit offer coming soon');
+}
+
 async function deleteOffer(id){
   if(confirm('Delete this offer?')) {
     try{
