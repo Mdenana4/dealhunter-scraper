@@ -1026,21 +1026,29 @@ async function loadDeals() {
         noDealsEl.style.display = 'none';
         loadingEl.style.display = 'block';
 
-        // Fetch deals from Firestore
+        // Fetch deals from Firestore (simplified query to avoid index requirement)
         const snapshot = await db.collection('deals')
-            .where('hidden', '==', false)
-            .where('verified', '==', true)
-            .orderBy('featured', 'desc')
             .orderBy('timestamp', 'desc')
-            .limit(50)
+            .limit(100)
             .get();
 
         const deals = [];
         snapshot.forEach(doc => {
-            deals.push({
-                id: doc.id,
-                ...doc.data()
-            });
+            const deal = doc.data();
+            // Filter out hidden and unverified deals on client side
+            if (deal.hidden !== true && deal.verified !== false) {
+                deals.push({
+                    id: doc.id,
+                    ...deal
+                });
+            }
+        });
+
+        // Sort featured deals first
+        deals.sort((a, b) => {
+            if (a.featured && !b.featured) return -1;
+            if (!a.featured && b.featured) return 1;
+            return 0;
         });
 
         // Hide loading
