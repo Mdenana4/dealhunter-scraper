@@ -1764,6 +1764,7 @@ async function loadUsers(){
   try{
     const snap=await db.collection('users').get();
     const users=snap.docs.map(doc=>({id:doc.id,...doc.data()}));
+    console.log('📊 Loaded users:', users.length, users);  // DEBUG
     const free=users.filter(u=>u.tier==='free'||u.tier==='registered_free').length;
     const trial=users.filter(u=>u.tier==='trial').length;
     const prem=users.filter(u=>u.tier==='premium').length;
@@ -1905,9 +1906,10 @@ async function saveUser(){
     });
 
     const responseData = await response.json();
+    console.log('✅ API Response:', response.status, responseData);  // DEBUG
 
     if (response.ok) {
-      console.log('User added:', email);
+      console.log('✅ User added successfully:', email, responseData);
       document.getElementById('user-modal').classList.remove('show');
 
       // Clear form
