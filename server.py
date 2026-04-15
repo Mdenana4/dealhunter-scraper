@@ -504,7 +504,7 @@ def create_user():
 @app.route('/api/v1/users/<uid>', methods=['GET'])
 @require_auth
 def get_user(uid):
-    """Get user profile"""
+    """Get user profile - syncs Stripe subscription if user has one pending"""
     try:
         # Get user from email (uid is actually the user's UID, but we use email as doc ID)
         user_email = request.current_user.get('email')
@@ -514,6 +514,47 @@ def get_user(uid):
             return jsonify({'error': 'User not found'}), 404
 
         user_data = user_doc.to_dict()
+        stripe_customer_id = user_data.get('stripe_customer_id')
+
+        # If user has a stripe_customer_id but no active subscription, check Stripe
+        if stripe_customer_id and not user_data.get('stripe_subscription_id'):
+            try:
+                subscriptions = stripe.Subscription.list(customer=stripe_customer_id, status='active', limit=1)
+
+                if subscriptions.data:
+                    active_sub = subscriptions.data[0]
+                    line_items = active_sub.get('items', {}).get('data', [])
+                    product_name = 'Unknown'
+
+                    if line_items:
+                        product_id = line_items[0].get('price', {}).get('product')
+                        if product_id:
+                            product = stripe.Product.retrieve(product_id)
+                            product_name = product.get('name', 'Unknown')
+
+                    tier = 'premium' if 'premium' in product_name.lower() else 'vip'
+                    limit_map = {'premium': 500, 'vip': 99999}
+
+                    # Update user with new subscription info
+                    db.collection('users').document(user_email).update({
+                        'stripe_subscription_id': active_sub.id,
+                        'subscription_active': True,
+                        'tier': tier,
+                        'subscription_start_date': datetime.datetime.fromtimestamp(active_sub.get('current_period_start')),
+                        'subscription_renewal_date': datetime.datetime.fromtimestamp(active_sub.get('current_period_end')),
+                        'daily_deal_limit': limit_map.get(tier, 500)
+                    })
+
+                    # Update user_data with synced values
+                    user_data['stripe_subscription_id'] = active_sub.id
+                    user_data['subscription_active'] = True
+                    user_data['tier'] = tier
+                    user_data['daily_deal_limit'] = limit_map.get(tier, 500)
+                    print(f"Synced subscription for {user_email}: tier={tier}")
+            except Exception as e:
+                print(f"Error checking Stripe subscription for {user_email}: {e}")
+                # Continue with local data if Stripe check fails
+
         return jsonify(user_data), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -705,7 +746,7 @@ def create_checkout_session():
 @app.route('/api/v1/subscriptions/current', methods=['GET'])
 @require_auth
 def get_current_subscription():
-    """Get current subscription"""
+    """Get current subscription - checks Stripe directly and syncs with database"""
     try:
         user_email = request.current_user.get('email')
         user_doc = db.collection('users').document(user_email).get()
@@ -715,6 +756,42 @@ def get_current_subscription():
 
         user_data = user_doc.to_dict()
         sub_id = user_data.get('stripe_subscription_id')
+        stripe_customer_id = user_data.get('stripe_customer_id')
+
+        # If user has a stripe_customer_id but no subscription, check Stripe for active subscriptions
+        if not sub_id and stripe_customer_id:
+            print(f"Checking Stripe for active subscriptions for customer {stripe_customer_id}")
+            subscriptions = stripe.Subscription.list(customer=stripe_customer_id, status='active', limit=1)
+
+            if subscriptions.data:
+                active_sub = subscriptions.data[0]
+                print(f"Found active subscription: {active_sub.id}")
+
+                # Sync this subscription to the database
+                line_items = active_sub.get('items', {}).get('data', [])
+                product_name = 'Unknown'
+
+                if line_items:
+                    product_id = line_items[0].get('price', {}).get('product')
+                    if product_id:
+                        product = stripe.Product.retrieve(product_id)
+                        product_name = product.get('name', 'Unknown')
+
+                tier = 'premium' if 'premium' in product_name.lower() else 'vip'
+                limit_map = {'premium': 500, 'vip': 99999}
+
+                # Update user with new subscription info
+                db.collection('users').document(user_email).update({
+                    'stripe_subscription_id': active_sub.id,
+                    'subscription_active': True,
+                    'tier': tier,
+                    'subscription_start_date': datetime.datetime.fromtimestamp(active_sub.get('current_period_start')),
+                    'subscription_renewal_date': datetime.datetime.fromtimestamp(active_sub.get('current_period_end')),
+                    'daily_deal_limit': limit_map.get(tier, 500)
+                })
+
+                print(f"Updated user {user_email} to tier: {tier}")
+                sub_id = active_sub.id
 
         if not sub_id:
             return jsonify({
