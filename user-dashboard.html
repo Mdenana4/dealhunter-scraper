@@ -368,6 +368,12 @@
 
         .btn-small:hover {
             background: #764ba2;
+        }
+
+        .btn-small:disabled,
+        .btn-small.disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
             transform: translateY(-2px);
         }
 
@@ -674,6 +680,35 @@
         <h2>🎯 Today's Best Deals</h2>
         <p style="color: #666; margin-bottom: 20px;">Your daily deal limit: <strong id="daily-limit">50</strong> deals</p>
 
+        <!-- Filters Section -->
+        <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin-bottom: 20px; display: grid; grid-template-columns: 1fr 1fr auto; gap: 15px; align-items: end;">
+            <div>
+                <label style="display: block; font-weight: 600; margin-bottom: 8px;">Category</label>
+                <select id="category-filter" onchange="applyFilters()" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                    <option value="">All Categories</option>
+                    <option value="electronics">Electronics</option>
+                    <option value="clothing">Clothing</option>
+                    <option value="home">Home & Garden</option>
+                    <option value="beauty">Beauty</option>
+                    <option value="food">Food & Grocery</option>
+                    <option value="sports">Sports</option>
+                    <option value="books">Books</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            <div>
+                <label style="display: block; font-weight: 600; margin-bottom: 8px;">Source</label>
+                <select id="source-filter" onchange="applyFilters()" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
+                    <option value="">All Sources</option>
+                    <option value="Amazon">Amazon</option>
+                    <option value="Jumia">Jumia</option>
+                    <option value="Noon">Noon</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+            <button class="btn-small" onclick="clearFilters()" style="background: #999;">Clear Filters</button>
+        </div>
+
         <!-- Loading Spinner -->
         <div id="deals-loading" style="text-align: center; padding: 40px;">
             <div class="loading"></div>
@@ -750,25 +785,33 @@
                 <div class="label">Deals Viewed Today</div>
                 <div class="value">0 / <span id="membership-limit-display">50</span></div>
             </div>
+            <div class="membership-stat" id="renewal-stat" style="display:none;">
+                <div class="label">Renewal Date</div>
+                <div class="value" id="membership-renewal">-</div>
+            </div>
+            <div style="margin-top: 20px;" id="cancel-subscription-section" style="display:none;">
+                <button class="btn btn-secondary" onclick="cancelSubscription()">Cancel Subscription</button>
+                <p style="font-size: 12px; color: #999; margin-top: 10px;">Your subscription will remain active until the renewal date</p>
+            </div>
         </div>
 
         <h3 style="color: #333; margin-bottom: 20px;">Available Plans</h3>
         <div class="features-grid">
-            <div class="feature-box" style="border-left-color: #27ae60;">
+            <div class="feature-box" style="border-left-color: #27ae60;" id="premium-box">
                 <h4>📦 Premium - $5/month</h4>
                 <p>✓ 500 deals per day</p>
                 <p>✓ Create up to 5 groups</p>
                 <p>✓ Gift deals to contacts</p>
                 <p>✓ Price history</p>
-                <button class="btn-small" onclick="upgradeTier('premium')">Upgrade Now</button>
+                <button class="btn-small" id="premium-btn" onclick="upgradeTier('premium')">Upgrade Now</button>
             </div>
-            <div class="feature-box" style="border-left-color: #f39c12;">
+            <div class="feature-box" style="border-left-color: #f39c12;" id="vip-box">
                 <h4>💎 VIP - $10/month</h4>
                 <p>✓ Unlimited deals</p>
                 <p>✓ Unlimited groups</p>
                 <p>✓ Priority support</p>
                 <p>✓ Advanced analytics</p>
-                <button class="btn-small" onclick="upgradeTier('vip')">Upgrade Now</button>
+                <button class="btn-small" id="vip-btn" onclick="upgradeTier('vip')">Upgrade Now</button>
             </div>
         </div>
     </div>
@@ -1020,10 +1063,50 @@ function updateUI() {
     document.getElementById('member-since').textContent = new Date(userData.created_at).toLocaleDateString();
 
     // Membership page
-    document.getElementById('membership-tier').textContent = (userData.tier || 'free').toUpperCase() + ' TIER';
+    const currentTier = userData.tier || 'free';
+    document.getElementById('membership-tier').textContent = currentTier.toUpperCase() + ' TIER';
     document.getElementById('membership-limit').textContent = userData.daily_deal_limit || 50;
     document.getElementById('daily-limit').textContent = userData.daily_deal_limit || 50;
     document.getElementById('membership-limit-display').textContent = userData.daily_deal_limit || 50;
+
+    // Show/hide tier buttons based on current tier
+    const premiumBtn = document.getElementById('premium-btn');
+    const vipBtn = document.getElementById('vip-btn');
+
+    if (currentTier === 'premium') {
+        premiumBtn.textContent = 'Current Plan';
+        premiumBtn.disabled = true;
+        premiumBtn.className = 'btn-small disabled';
+    } else {
+        premiumBtn.textContent = 'Upgrade Now';
+        premiumBtn.disabled = false;
+        premiumBtn.className = 'btn-small';
+    }
+
+    if (currentTier === 'vip') {
+        vipBtn.textContent = 'Current Plan';
+        vipBtn.disabled = true;
+        vipBtn.className = 'btn-small disabled';
+    } else {
+        vipBtn.textContent = 'Upgrade Now';
+        vipBtn.disabled = false;
+        vipBtn.className = 'btn-small';
+    }
+
+    // Show cancel subscription button for paid users
+    const cancelSection = document.getElementById('cancel-subscription-section');
+    const renewalStat = document.getElementById('renewal-stat');
+    if (currentTier === 'premium' || currentTier === 'vip') {
+        cancelSection.style.display = 'block';
+        renewalStat.style.display = 'block';
+        if (userData.subscription_renewal_date) {
+            const renewalDate = new Date(userData.subscription_renewal_date);
+            document.getElementById('membership-renewal').textContent = renewalDate.toLocaleDateString();
+        }
+    } else {
+        cancelSection.style.display = 'none';
+        renewalStat.style.display = 'none';
+    }
 
     // Referrals page
     const refCode = userData.referral_code || ('DEAL' + Math.random().toString(36).substr(2, 8).toUpperCase());
@@ -1066,6 +1149,9 @@ function showDashboard() {
     document.getElementById('dashboard').style.display = 'block';
 }
 
+// Store for all deals
+let allDeals = [];
+
 // LOAD DEALS FROM FIRESTORE
 async function loadDeals() {
     try {
@@ -1084,12 +1170,12 @@ async function loadDeals() {
             .limit(100)
             .get();
 
-        const deals = [];
+        allDeals = [];
         snapshot.forEach(doc => {
             const deal = doc.data();
             // Filter out hidden and unverified deals on client side
             if (deal.hidden !== true && deal.verified !== false) {
-                deals.push({
+                allDeals.push({
                     id: doc.id,
                     ...deal
                 });
@@ -1097,7 +1183,7 @@ async function loadDeals() {
         });
 
         // Sort featured deals first
-        deals.sort((a, b) => {
+        allDeals.sort((a, b) => {
             if (a.featured && !b.featured) return -1;
             if (!a.featured && b.featured) return 1;
             return 0;
@@ -1107,22 +1193,16 @@ async function loadDeals() {
         loadingEl.style.display = 'none';
 
         // Check if deals exist
-        if (deals.length === 0) {
+        if (allDeals.length === 0) {
             noDealsEl.style.display = 'block';
             return;
         }
 
-        console.log('Loaded deals:', deals.length);
-        console.log('First deal:', deals[0]);
+        console.log('Loaded deals:', allDeals.length);
 
-        // Render deals
-        dealsGrid.innerHTML = '';
-        deals.forEach(deal => {
-            const dealCard = renderDealCard(deal);
-            dealsGrid.appendChild(dealCard);
-        });
-
-        dealsGrid.style.display = 'grid';
+        // Load and apply saved filters
+        loadFilters();
+        applyFilters();
     } catch (error) {
         console.error('Error loading deals:', error);
         document.getElementById('deals-loading').innerHTML = `
@@ -1130,6 +1210,67 @@ async function loadDeals() {
             <button class="btn-small" onclick="loadDeals()" style="margin-top: 10px;">Retry</button>
         `;
     }
+}
+
+// FILTER FUNCTIONS
+function loadFilters() {
+    const savedCategory = localStorage.getItem('dealCategory') || '';
+    const savedSource = localStorage.getItem('dealSource') || '';
+    document.getElementById('category-filter').value = savedCategory;
+    document.getElementById('source-filter').value = savedSource;
+}
+
+function applyFilters() {
+    const category = document.getElementById('category-filter').value;
+    const source = document.getElementById('source-filter').value;
+
+    // Save filters
+    localStorage.setItem('dealCategory', category);
+    localStorage.setItem('dealSource', source);
+
+    // Filter deals
+    let filtered = allDeals;
+
+    if (category) {
+        filtered = filtered.filter(deal => {
+            const dealCategory = deal.category || deal.tags?.[0] || '';
+            return dealCategory.toLowerCase().includes(category.toLowerCase());
+        });
+    }
+
+    if (source) {
+        filtered = filtered.filter(deal => {
+            const dealSource = deal.site_display || deal.source || '';
+            return dealSource.toLowerCase().includes(source.toLowerCase());
+        });
+    }
+
+    // Render filtered deals
+    const dealsGrid = document.getElementById('deals-grid');
+    const noDealsEl = document.getElementById('no-deals');
+
+    if (filtered.length === 0) {
+        dealsGrid.style.display = 'none';
+        noDealsEl.style.display = 'block';
+        return;
+    }
+
+    dealsGrid.innerHTML = '';
+    filtered.forEach(deal => {
+        const dealCard = renderDealCard(deal);
+        dealsGrid.appendChild(dealCard);
+    });
+
+    dealsGrid.style.display = 'grid';
+}
+
+function clearFilters() {
+    document.getElementById('category-filter').value = '';
+    document.getElementById('source-filter').value = '';
+    localStorage.removeItem('dealCategory');
+    localStorage.removeItem('dealSource');
+    applyFilters();
+    showToast('Filters cleared');
 }
 
 // RENDER INDIVIDUAL DEAL CARD
@@ -1402,6 +1543,41 @@ function copyReferralCode() {
     const code = document.getElementById('referral-code').textContent;
     navigator.clipboard.writeText(code);
     showToast('Referral code copied!');
+}
+
+// CANCEL SUBSCRIPTION
+async function cancelSubscription() {
+    const confirm = window.confirm('Are you sure you want to cancel your subscription?\n\nYour subscription will remain active until the renewal date.');
+    if (!confirm) return;
+
+    try {
+        const idToken = await currentUser.getIdToken();
+
+        const response = await fetch(`${API_BASE_URL}/subscriptions/cancel`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${idToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                feedback: ''
+            })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            userData.subscription_active = false;
+            updateUI();
+            showToast('✓ Subscription cancelled. Your access continues until renewal date.');
+            console.log('Subscription cancelled:', data);
+        } else {
+            const error = await response.json().catch(() => ({}));
+            showToast(`Error: ${error.error || 'Failed to cancel subscription'}`);
+        }
+    } catch (error) {
+        console.error('Error canceling subscription:', error);
+        showToast(`Error: ${error.message}`);
+    }
 }
 
 function showToast(message) {

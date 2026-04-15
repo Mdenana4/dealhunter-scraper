@@ -743,6 +743,47 @@ def create_checkout_session():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/v1/subscriptions/cancel', methods=['POST'])
+@require_auth
+def cancel_subscription():
+    """Cancel user subscription"""
+    try:
+        user_email = request.current_user.get('email')
+        user_doc = db.collection('users').document(user_email).get()
+
+        if not user_doc.exists:
+            return jsonify({'error': 'User not found'}), 404
+
+        user_data = user_doc.to_dict()
+        stripe_sub_id = user_data.get('stripe_subscription_id')
+
+        if not stripe_sub_id:
+            return jsonify({'error': 'No active subscription to cancel'}), 400
+
+        # Cancel subscription at Stripe
+        stripe.Subscription.modify(
+            stripe_sub_id,
+            cancel_at_period_end=True
+        )
+
+        print(f"Subscription {stripe_sub_id} marked for cancellation at period end")
+
+        # Update user document to reflect cancellation
+        db.collection('users').document(user_email).update({
+            'subscription_active': False,
+            'cancel_at_period_end': True,
+            'updated_at': datetime.datetime.now(datetime.timezone.utc)
+        })
+
+        return jsonify({
+            'success': True,
+            'message': 'Subscription cancelled. Access continues until renewal date.'
+        }), 200
+    except Exception as e:
+        print(f"Error canceling subscription: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/v1/subscriptions/current', methods=['GET'])
 @require_auth
 def get_current_subscription():
