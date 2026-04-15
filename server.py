@@ -613,8 +613,8 @@ def create_checkout_session():
 
         # Tier pricing (in cents, EGP)
         pricing = {
-            'premium': {'amount': 9900, 'product_name': 'Premium Monthly'},
-            'vip': {'amount': 19900, 'product_name': 'VIP Monthly'}
+            'premium': {'amount': 500, 'product_name': 'Premium Monthly'},
+            'vip': {'amount': 1000, 'product_name': 'VIP Monthly'}
         }
 
         # Create checkout session
@@ -624,7 +624,7 @@ def create_checkout_session():
             mode='subscription',
             line_items=[{
                 'price_data': {
-                    'currency': 'egp',
+                    'currency': 'usd',
                     'product_data': {
                         'name': pricing[tier]['product_name'],
                         'metadata': {'tier': tier}

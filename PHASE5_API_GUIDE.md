@@ -186,7 +186,7 @@ const idToken = await firebase.auth().currentUser.getIdToken();
   "tier": "premium",
   "status": "active",
   "current_period_end": "2026-05-14T00:00:00Z",
-  "monthly_amount_egp": 99.00,
+  "monthly_amount_usd": 5.00,
   "auto_renew": true,
   "cancel_at_period_end": false
 }
@@ -461,10 +461,10 @@ const idToken = await firebase.auth().currentUser.getIdToken();
 ### Daily Deal Limits (by tier):
 | Tier | Daily Deals | Groups | Gifts/Month | Cost |
 |------|------------|--------|------------|------|
-| Free | 50 | 0 | 0 | EGP 0 |
-| Trial | 100 | 1 | 0 | EGP 0 (7 days) |
-| Premium | 500 | 5 | 5 | EGP 99/mo |
-| VIP | Unlimited | Unlimited | Unlimited | EGP 199/mo |
+| Free | 50 | 0 | 0 | Free |
+| Trial | 100 | 1 | 0 | Free (7 days) |
+| Premium | 500 | 5 | 5 | $5.00/mo |
+| VIP | Unlimited | Unlimited | Unlimited | $10.00/mo |
 
 ### Features by Tier:
 | Feature | Free | Trial | Premium | VIP |
