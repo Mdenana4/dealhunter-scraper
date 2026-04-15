@@ -2219,19 +2219,23 @@ async function saveNotif(){
         const idToken = await auth.currentUser.getIdToken();
         const apiUrl = '/api/v1/notifications/send'; // Use relative URL
 
+        const payload = {
+          title, title_ar: titleAr, message: msg, message_ar: msgAr,
+          target, group_id: groupId, specific_user: user, channel
+        };
+        console.log('📤 Sending notification payload:', payload);  // DEBUG
+
         const response = await fetch(apiUrl, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${idToken}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            title, title_ar: titleAr, message: msg, message_ar: msgAr,
-            target, group_id: groupId, specific_user: user, channel
-          })
+          body: JSON.stringify(payload)
         });
 
         const responseData = await response.json();
+        console.log('📥 API Response:', response.status, responseData);  // DEBUG
 
         if (response.ok) {
           document.getElementById('notif-modal').classList.remove('show');
@@ -2239,14 +2243,15 @@ async function saveNotif(){
             const el = document.getElementById(id);
             if (el) el.value = '';
           });
-          toast(`✓ ${responseData.message || 'Notification sent!'}`);
+          toast(`✓ ${responseData.message || 'Notification sent to ' + (responseData.recipients || '?') + ' users'}`);
           loadNotifs();
         } else {
-          toast(`Error: ${responseData.error || 'Failed to send notification'}`);
+          console.error('❌ API Error:', response.status, responseData);  // DEBUG
+          toast(`❌ Error (${response.status}): ${responseData.error || 'Failed to send notification'}`);
         }
       } catch(apiError) {
-        console.error('API call error:', apiError);
-        toast(`Connection error: ${apiError.message}`);
+        console.error('❌ API call error:', apiError);
+        toast(`❌ Connection error: ${apiError.message}`);
       }
     } else {
       toast('Error: Not authenticated');
