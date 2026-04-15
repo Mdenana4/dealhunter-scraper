@@ -106,6 +106,17 @@
             background: #e0e0e0;
         }
 
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn:disabled:hover {
+            transform: none;
+            box-shadow: none;
+        }
+
         .toggle-link {
             text-align: center;
             margin-top: 20px;
@@ -1241,11 +1252,17 @@ function editMode() {
 async function saveProfile() {
     const name = document.getElementById('edit-name-input').value;
     const phone = document.getElementById('edit-phone-input').value;
+    const saveBtn = event.target;
 
     if (!name || !phone) {
         showToast('Please fill in all fields');
         return;
     }
+
+    // Disable button and show loading state
+    const originalText = saveBtn.textContent;
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
 
     try {
         const idToken = await currentUser.getIdToken();
@@ -1282,20 +1299,35 @@ async function saveProfile() {
     } catch (error) {
         console.error('Error saving profile:', error);
         showToast(`Connection error: ${error.message}`);
+    } finally {
+        // Re-enable button
+        saveBtn.disabled = false;
+        saveBtn.textContent = originalText;
     }
 }
 
 // CHANGE PASSWORD
 function changePassword() {
-    const newPassword = prompt('Enter your new password:');
+    const newPassword = prompt('Enter your new password (min 6 characters):');
     if (!newPassword) return;
+
+    if (newPassword.length < 6) {
+        showToast('Password must be at least 6 characters');
+        return;
+    }
 
     auth.currentUser.updatePassword(newPassword)
         .then(() => {
-            showToast('Password changed successfully!');
+            showToast('✓ Password changed successfully!');
+            console.log('Password updated for:', currentUser.email);
         })
         .catch(error => {
-            showToast(`Error: ${error.message}`);
+            console.error('Password change error:', error);
+            if (error.code === 'auth/requires-recent-login') {
+                showToast('Please sign out and sign in again to change your password');
+            } else {
+                showToast(`Error: ${error.message}`);
+            }
         });
 }
 
@@ -1311,15 +1343,59 @@ function changeLanguage() {
 }
 
 // UPGRADE TIER
-function upgradeTier(tier) {
+async function upgradeTier(tier) {
     if (!currentUser) {
         showToast('Please sign in first');
         return;
     }
 
-    showToast('Stripe integration coming soon! Contact support to upgrade.');
-    // TODO: Integrate with Stripe checkout
-    // window.location.href = `${API_BASE_URL}/subscriptions/checkout?tier=${tier}`;
+    try {
+        const idToken = await currentUser.getIdToken();
+        const tierPrices = {
+            'premium': { price: '$5/month', deals: '500/day', perks: 'Price history, Groups, Gifts' },
+            'vip': { price: '$10/month', deals: 'Unlimited', perks: 'Everything + Priority support' }
+        };
+
+        const tierInfo = tierPrices[tier];
+        if (!tierInfo) {
+            showToast('Invalid tier');
+            return;
+        }
+
+        // Show confirmation dialog
+        const confirm = window.confirm(`Upgrade to ${tier.toUpperCase()}?\n\nPrice: ${tierInfo.price}\nDaily Deals: ${tierInfo.deals}\nPerks: ${tierInfo.perks}\n\nClick OK to continue to payment.`);
+        if (!confirm) return;
+
+        console.log('Creating checkout session for tier:', tier);
+
+        const response = await fetch(`${API_BASE_URL}/subscriptions/checkout`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${idToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                tier: tier,
+                success_url: window.location.origin + '/user?tab=membership&status=success',
+                cancel_url: window.location.origin + '/user?tab=membership&status=cancel'
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.error || 'Failed to create checkout session');
+        }
+
+        const data = await response.json();
+        if (data.checkout_url) {
+            window.location.href = data.checkout_url;
+        } else {
+            showToast('Could not create payment session. Please try again.');
+        }
+    } catch (error) {
+        console.error('Upgrade error:', error);
+        showToast(`Error: ${error.message}`);
+    }
 }
 
 function copyReferralCode() {
