@@ -889,9 +889,17 @@ def send_notification():
         if target.startswith('tier:'):
             # Send to users of specific tier
             tier = target.split(':')[1]
-            users_snap = db.collection('users').where('tier', '==', tier).get()
-            target_users = [doc.id for doc in users_snap]  # doc.id is email
-            print(f"Sending to {len(target_users)} users in {tier} tier")
+
+            if tier == 'all':
+                # Send to all users
+                users_snap = db.collection('users').get()
+                target_users = [doc.id for doc in users_snap]  # doc.id is email
+                print(f"Sending to {len(target_users)} total users")
+            else:
+                # Send to users of specific tier
+                users_snap = db.collection('users').where('tier', '==', tier).get()
+                target_users = [doc.id for doc in users_snap]  # doc.id is email
+                print(f"Sending to {len(target_users)} users in {tier} tier")
 
         elif target == 'user' and specific_user:
             # Send to specific user
