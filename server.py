@@ -1443,6 +1443,24 @@ def health_check():
     return 'DealHunter Scraper is running!', 200
 
 
+@app.route('/admin', methods=['GET'])
+def serve_admin():
+    """Serve admin dashboard"""
+    try:
+        return send_file('./admin.html', mimetype='text/html')
+    except FileNotFoundError:
+        return jsonify({'error': 'Admin dashboard not found'}), 404
+
+
+@app.route('/user', methods=['GET'])
+def serve_user_dashboard():
+    """Serve user dashboard"""
+    try:
+        return send_file('./user-dashboard.html', mimetype='text/html')
+    except FileNotFoundError:
+        return jsonify({'error': 'User dashboard not found'}), 404
+
+
 # ============ BACKGROUND SCRAPER ============
 
 def run_scheduler():
