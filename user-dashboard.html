@@ -978,7 +978,7 @@ async function loadUserData() {
                 email: currentUser.email,
                 tier: 'free',
                 daily_deal_limit: 50,
-                referral_code: 'GENERATE_CODE'
+                referral_code: 'DEAL' + Math.random().toString(36).substr(2, 8).toUpperCase()
             };
             updateUI();
         }
@@ -988,7 +988,7 @@ async function loadUserData() {
             email: currentUser.email,
             tier: 'free',
             daily_deal_limit: 50,
-            referral_code: 'GENERATE_CODE'
+            referral_code: 'DEAL' + Math.random().toString(36).substr(2, 8).toUpperCase()
         };
         updateUI();
     }
@@ -1015,9 +1015,14 @@ function updateUI() {
     document.getElementById('membership-limit-display').textContent = userData.daily_deal_limit || 50;
 
     // Referrals page
-    const refCode = userData.referral_code || 'DEAL' + Math.random().toString(36).substr(2, 8).toUpperCase();
-    document.getElementById('referral-code').textContent = refCode;
-    console.log('Referral code set to:', refCode);
+    const refCode = userData.referral_code || ('DEAL' + Math.random().toString(36).substr(2, 8).toUpperCase());
+    const refCodeEl = document.getElementById('referral-code');
+    if (refCodeEl) {
+        refCodeEl.textContent = refCode;
+        console.log('✓ Referral code updated:', refCode);
+    } else {
+        console.warn('✗ Referral code element not found - page may not be loaded yet');
+    }
 }
 
 // UI HELPERS
@@ -1244,6 +1249,9 @@ async function saveProfile() {
 
     try {
         const idToken = await currentUser.getIdToken();
+        console.log('Saving profile for:', currentUser.uid, { name, phone });
+        console.log('Using API:', `${API_BASE_URL}/users/${currentUser.uid}`);
+
         const response = await fetch(`${API_BASE_URL}/users/${currentUser.uid}`, {
             method: 'PUT',
             headers: {
@@ -1253,18 +1261,27 @@ async function saveProfile() {
             body: JSON.stringify({ name, phone })
         });
 
+        console.log('Profile update response:', response.status, response.statusText);
+
         if (response.ok) {
+            const responseData = await response.json();
             userData.name = name;
             userData.phone = phone;
+            if (responseData.user) {
+                userData = { ...userData, ...responseData.user };
+            }
             updateUI();
             editMode();
-            showToast('Profile updated successfully!');
+            showToast('✓ Profile updated successfully!');
         } else {
-            showToast('Failed to update profile');
+            const errorData = await response.json().catch(() => ({ error: response.statusText }));
+            console.error('Profile update error (status ' + response.status + '):', errorData);
+            const errorMsg = errorData.error || errorData.message || 'Failed to update profile';
+            showToast(`Error (${response.status}): ${errorMsg}`);
         }
     } catch (error) {
         console.error('Error saving profile:', error);
-        showToast('Error updating profile');
+        showToast(`Connection error: ${error.message}`);
     }
 }
 
@@ -1286,8 +1303,11 @@ function changePassword() {
 function changeLanguage() {
     const language = document.getElementById('language-select').value;
     localStorage.setItem('language', language);
-    showToast(`Language changed to ${language === 'en' ? 'English' : 'العربية'}`);
-    // In a real app, you would reload translations here
+    const langName = language === 'en' ? 'English' : 'العربية';
+    showToast(`Language changed to ${langName}`);
+    console.log('Language set to:', language);
+    // TODO: Implement full translation system
+    // For now, this just saves the preference for future use
 }
 
 // UPGRADE TIER

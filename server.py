@@ -527,6 +527,32 @@ def update_user(uid):
         user_email = request.current_user.get('email')
         data = request.get_json()
 
+        # Check if user exists
+        user_doc = db.collection('users').document(user_email).get()
+
+        if not user_doc.exists:
+            # Create user document if it doesn't exist
+            user_data = {
+                'id': request.current_user.get('uid'),
+                'email': user_email,
+                'name': data.get('name', ''),
+                'phone': data.get('phone', ''),
+                'tier': 'free',
+                'subscription_active': False,
+                'daily_deal_limit': 50,
+                'deals_shared_today': 0,
+                'last_reset_date': datetime.date.today().isoformat(),
+                'referral_code': generate_referral_code(),
+                'created_at': datetime.datetime.now(datetime.timezone.utc),
+                'updated_at': datetime.datetime.now(datetime.timezone.utc),
+                'metadata': {
+                    'language': 'en',
+                    'notifications_enabled': True
+                }
+            }
+            db.collection('users').document(user_email).set(user_data)
+            return jsonify({'success': True, 'user': user_data}), 201
+
         updates = {}
         if 'name' in data:
             updates['name'] = data['name']
@@ -544,6 +570,7 @@ def update_user(uid):
         user_doc = db.collection('users').document(user_email).get()
         return jsonify({'success': True, 'user': user_doc.to_dict()}), 200
     except Exception as e:
+        print(f"Error updating user {user_email}: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
