@@ -1275,7 +1275,7 @@ async function loadTeam() {
         <td style="font-size:11px;color:#666;">${m.email}</td>
         <td>${m.name}</td>
         <td><span class="badge ${m.role === 'owner' ? 'bvi' : m.role === 'editor' ? 'bb' : 'bgr'}">${m.role.toUpperCase()}</span></td>
-        <td style="font-size:10px;">${m.permissions.slice(0,2).join(', ')}${m.permissions.length > 2 ? '...' : ''}</td>
+        <td style="font-size:10px;">${Array.isArray(m.permissions) ? m.permissions.slice(0,2).join(', ') + (m.permissions.length > 2 ? '...' : '') : '—'}</td>
         <td><span class="badge ${m.status === 'active' ? 'bg' : 'bgr'}">${m.status}</span></td>
         <td style="font-size:10px;color:#999;">${m.last_login ? new Date(m.last_login).toLocaleDateString() : '—'}</td>
         <td>
@@ -1346,6 +1346,9 @@ function vb(v){
 function stars(r){if(!r)return'—';const s=Math.round(r);return'★'.repeat(s)+'☆'.repeat(5-s)+` ${r}`;}
 function channelBadge(c){const m={in_app:'<span class="badge bb">In-App</span>',email:'<span class="badge bg">Email</span>',sms:'<span class="badge bo">SMS</span>',all_channels:'<span class="badge bpu">All</span>'};return m[c]||`<span class="badge bgr">${c||'—'}</span>`;}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3500);}
+
+// Alias for showToast compatibility
+const showToast = toast;
 
 // Permission mapping for pages
 const PAGE_PERMISSIONS = {
