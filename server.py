@@ -859,41 +859,6 @@ def get_current_subscription():
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/v1/subscriptions/cancel', methods=['POST'])
-@require_auth
-def cancel_subscription():
-    """Cancel subscription (at period end)"""
-    try:
-        user_email = request.current_user.get('email')
-        user_doc = db.collection('users').document(user_email).get()
-
-        if not user_doc.exists:
-            return jsonify({'error': 'User not found'}), 404
-
-        user_data = user_doc.to_dict()
-        sub_id = user_data.get('stripe_subscription_id')
-
-        if not sub_id:
-            return jsonify({'error': 'No active subscription'}), 400
-
-        # Cancel at period end
-        stripe.Subscription.modify(
-            sub_id,
-            cancel_at_period_end=True
-        )
-
-        sub_doc = db.collection('subscriptions').document(sub_id).get()
-        final_date = sub_doc.to_dict().get('current_period_end')
-
-        return jsonify({
-            'success': True,
-            'message': f'Subscription will cancel on {final_date}',
-            'final_date': final_date
-        }), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
 # ============ PHASE 5: USER GROUPS ENDPOINTS ============
 
 @app.route('/api/v1/groups', methods=['POST'])
