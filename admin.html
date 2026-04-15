@@ -15,8 +15,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .nb:hover{background:rgba(255,255,255,0.1);color:#fff;}
 .nb.active{background:#E24B4A;color:#fff;}
 .ts{font-size:10px;color:rgba(255,255,255,0.35);}
-.page{display:none;padding:18px;max-width:1300px;margin:0 auto;}
-.page.active{display:block;}
+.page {
+  display: none !important;
+  padding: 18px;
+  max-width: 1300px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.page.active {
+  display: block !important;
+}
 /* STAT GRID */
 .sg{display:grid;gap:10px;margin-bottom:18px;}
 .sg-4{grid-template-columns:repeat(4,1fr);}
@@ -1357,12 +1366,32 @@ function canAccessPage(pageName) {
 }
 
 function showPage(name,btn){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  // Hide all pages
+  document.querySelectorAll('.page').forEach(p => {
+    p.classList.remove('active');
+    p.style.display = 'none';
+  });
+
+  // Remove active class from all buttons
   document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
-  document.getElementById('page-'+name).classList.add('active');
-  if(btn&&btn.classList)btn.classList.add('active');
+
+  // Show selected page
+  const selectedPage = document.getElementById('page-'+name);
+  if (selectedPage) {
+    selectedPage.classList.add('active');
+    selectedPage.style.display = 'block';
+  }
+
+  // Highlight selected button
+  if(btn&&btn.classList) {
+    btn.classList.add('active');
+  }
+
+  // Call the appropriate load function
   const L={monitor:loadMonitor,deals:loadDeals,sources:loadSources,users:loadUsers,notifications:loadNotifs,'add-deal':loadManualDeals,checker:()=>{},competitors:()=>{},team:loadTeam};
-  if(L[name])L[name]();
+  if(L[name]) L[name]();
+
+  console.log('Switched to page:', name);
 }
 function detectSiteFromUrl(url){
   if(!url)return'other';
