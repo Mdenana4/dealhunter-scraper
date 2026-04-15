@@ -656,24 +656,6 @@ def get_referral_stats(uid):
         return jsonify({'error': str(e)}), 500
 
 
-@app.route('/api/v1/users/<uid>', methods=['DELETE'])
-@require_auth
-def delete_user(uid):
-    """Deactivate/delete account"""
-    try:
-        user_email = request.current_user.get('email')
-
-        # Soft delete - mark as inactive
-        db.collection('users').document(user_email).update({
-            'status': 'deleted',
-            'updated_at': datetime.datetime.now(datetime.timezone.utc)
-        })
-
-        return jsonify({'success': True, 'message': 'Account deleted'}), 200
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
 # ============ PHASE 5: SUBSCRIPTION ENDPOINTS ============
 
 @app.route('/api/v1/subscriptions/checkout', methods=['POST'])
