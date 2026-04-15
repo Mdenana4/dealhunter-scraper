@@ -1878,45 +1878,46 @@ async function saveUser(){
   const phone=document.getElementById('nu-phone').value.trim();
   const name=document.getElementById('nu-name').value.trim();
   const tier=document.getElementById('nu-tier').value;
-  const limit=parseInt(document.getElementById('nu-limit').value);
   const notes=document.getElementById('nu-notes').value.trim();
 
-  if(!email&&!phone){toast('Please enter email or phone');return;}
-  if(!email){toast('Email is required for user account');return;}
+  if(!email){toast('Email is required');return;}
 
   try {
-    const limits={free:50,premium:500,vip:99999};
+    // Call server API to create user
+    const idToken = await auth.currentUser.getIdToken();
 
-    // Use email as document ID (like in server.py)
-    const userData = {
-      id: email,
-      email: email,
-      phone: phone || '',
-      name: name || '',
-      tier: tier,
-      daily_deal_limit: limits[tier] || 50,
-      subscription_active: false,
-      referral_code: 'DEAL' + Math.random().toString(36).substr(2, 8).toUpperCase(),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      notes: notes || '',
-      added_by: currentAdmin?.email || 'admin',
-      status: 'active'
-    };
-
-    await db.collection('users').doc(email).set(userData);
-
-    console.log('User added:', email);
-    document.getElementById('user-modal').classList.remove('show');
-
-    // Clear form
-    ['nu-email','nu-phone','nu-name','nu-tier','nu-limit','nu-notes'].forEach(id => {
-      const el = document.getElementById(id);
-      if(el) el.value = '';
+    const response = await fetch('/api/v1/admin/users', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${idToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        email,
+        phone,
+        name,
+        tier,
+        notes
+      })
     });
 
-    toast('✓ User added: '+(name||email));
-    loadUsers();
+    const responseData = await response.json();
+
+    if (response.ok) {
+      console.log('User added:', email);
+      document.getElementById('user-modal').classList.remove('show');
+
+      // Clear form
+      ['nu-email','nu-phone','nu-name','nu-tier','nu-limit','nu-notes'].forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.value = '';
+      });
+
+      toast('✓ User added: '+(name||email));
+      loadUsers();
+    } else {
+      toast(`Error: ${responseData.error || 'Failed to add user'}`);
+    }
   } catch(e) {
     console.error('Error adding user:', e);
     toast('Error: '+e.message);

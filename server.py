@@ -933,6 +933,66 @@ def send_notification():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/v1/admin/users', methods=['POST'])
+@require_auth
+def admin_create_user():
+    """Admin endpoint to create/update user manually"""
+    try:
+        admin_email = request.current_user.get('email')
+
+        # Verify admin has user management permission
+        admin_doc = db.collection('admin_users').document(admin_email).get()
+        if not admin_doc.exists or 'users' not in admin_doc.to_dict().get('permissions', []):
+            return jsonify({'error': 'Insufficient permissions'}), 403
+
+        data = request.get_json()
+        email = data.get('email', '').strip()
+        phone = data.get('phone', '').strip()
+        name = data.get('name', '').strip()
+        tier = data.get('tier', 'free')
+        notes = data.get('notes', '').strip()
+
+        if not email:
+            return jsonify({'error': 'Email is required'}), 400
+
+        # Tier limits
+        limit_map = {'free': 50, 'premium': 500, 'vip': 99999}
+
+        # Generate referral code
+        import random
+        import string
+        referral_code = 'DEAL' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
+
+        user_data = {
+            'id': email,
+            'email': email,
+            'phone': phone,
+            'name': name,
+            'tier': tier,
+            'daily_deal_limit': limit_map.get(tier, 50),
+            'subscription_active': False,
+            'referral_code': referral_code,
+            'created_at': datetime.datetime.now(datetime.timezone.utc),
+            'updated_at': datetime.datetime.now(datetime.timezone.utc),
+            'notes': notes,
+            'added_by': admin_email,
+            'status': 'active'
+        }
+
+        db.collection('users').document(email).set(user_data, merge=True)
+
+        print(f"User created by admin {admin_email}: {email}")
+
+        return jsonify({
+            'success': True,
+            'message': f'User {name or email} created successfully',
+            'user': user_data
+        }), 201
+    except Exception as e:
+        print(f"Error creating user: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 # ============ PHASE 5: USER GROUPS ENDPOINTS ============
 
 @app.route('/api/v1/groups', methods=['POST'])
