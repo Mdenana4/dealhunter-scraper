@@ -13,15 +13,16 @@
 /// For Android: Download google-services.json
 
 class FirebaseConfig {
-  // TODO: Replace with your actual Firebase configuration
+  // Production Firebase Configuration - dealhunter-admin-prod
+  // Generated: 2026-04-16
 
-  static const String apiKey = 'AIzaSy...'; // Your API Key
-  static const String appId = 'YOUR_APP_ID'; // Your App ID
-  static const String messagingSenderId = 'YOUR_MESSAGING_SENDER_ID'; // FCM Sender ID
-  static const String projectId = 'dealhunter-admin'; // Your Project ID
-  static const String authDomain = 'dealhunter-admin.firebaseapp.com'; // Your Auth Domain
-  static const String databaseUrl = 'https://dealhunter-admin.firebaseio.com'; // Your Database URL
-  static const String storageBucket = 'dealhunter-admin.appspot.com'; // Your Storage Bucket
+  static const String apiKey = 'AIzaSyCc6Sn-xHVzGal-M_8IE59mN63_t15eRwo';
+  static const String appId = '1:97738565887:android:7340590dc772bbfaae04ca';
+  static const String messagingSenderId = '97738565887';
+  static const String projectId = 'dealhunter-admin-prod';
+  static const String authDomain = 'dealhunter-admin-prod.firebaseapp.com';
+  static const String databaseUrl = 'https://dealhunter-admin-prod.firebaseio.com';
+  static const String storageBucket = 'dealhunter-admin-prod.firebasestorage.app';
 
   /// Initialize Firebase in main.dart:
   ///
