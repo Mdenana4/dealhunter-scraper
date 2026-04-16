@@ -1093,14 +1093,21 @@ window.addEventListener('DOMContentLoaded', () => {
 function checkAuthentication() {
   auth.onAuthStateChanged(async (user) => {
     if (user) {
-      // User is logged in — check if they're an admin
+      // User is logged in — check if they're an admin via API
       try {
-        const adminDoc = await db.collection('admin_users').doc(user.email).get();
-        if (adminDoc.exists) {
-          currentAdmin = { uid: user.uid, email: user.email, ...adminDoc.data() };
-          localStorage.setItem('currentAdmin', JSON.stringify(currentAdmin));
-          showDashboard();
-          updateLastLogin(user.email);
+        const token = await user.getIdToken();
+        const response = await fetch('/api/v1/admin/check-auth', {
+          headers: { 'Authorization': 'Bearer ' + token }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.is_admin) {
+            currentAdmin = { uid: user.uid, email: user.email, ...data };
+            localStorage.setItem('currentAdmin', JSON.stringify(currentAdmin));
+            localStorage.setItem('adminToken', token);
+            showDashboard();
+            updateLastLogin(user.email);
         } else {
           // User logged in but not an admin
           showError('Access denied: You are not registered as an admin.');
@@ -1400,8 +1407,16 @@ async function loadTeam() {
   if (!admin) return;
 
   try {
-    const snapshot = await db.collection('admin_users').get();
-    const members = snapshot.docs.map(doc => doc.data());
+    const token = localStorage.getItem('adminToken');
+    const response = await fetch('/api/v1/admin/team', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+
+    let members = [];
+    if (response.ok) {
+      const data = await response.json();
+      members = data.team || [];
+    }
 
     if (members.length === 0) {
       document.getElementById('team-tb').innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:#aaa;">No team members yet</td></tr>';
@@ -2566,11 +2581,25 @@ async function loadTierPricing(){
       vip: { daily_limit: 99999, price: 10, features: ['All Premium Features', 'Priority Support'] }
     };
 
-    // Load tier data from Firestore
-    const tierInfo = {};
-    for(const tier of tiers) {
-      const doc = await db.collection('tier_config').doc(tier).get();
-      tierInfo[tier] = doc.exists ? doc.data() : defaults[tier];
+    // Load tier data from API instead of Firestore
+    const token = await getCurrentAdmin().getToken?.() || localStorage.getItem('adminToken');
+    const response = await fetch('/api/v1/admin/tiers', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+
+    let tierInfo = {};
+    if (response.ok) {
+      const data = await response.json();
+      data.tiers?.forEach(t => {
+        tierInfo[t.name] = t;
+      });
+      // Fill in defaults for missing tiers
+      tiers.forEach(t => {
+        if (!tierInfo[t]) tierInfo[t] = defaults[t];
+      });
+    } else {
+      // Fallback to defaults if API fails
+      tiers.forEach(t => tierInfo[t] = defaults[t]);
     }
 
     console.log('📊 Loaded tier pricing:', tierInfo);  // DEBUG
@@ -2706,8 +2735,16 @@ function deleteTier(tier){
 
 async function loadGroups(){
   try{
-    const snap = await db.collection('user_groups').get();
-    const groups = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const token = localStorage.getItem('adminToken');
+    const response = await fetch('/api/v1/admin/groups', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+
+    let groups = [];
+    if (response.ok) {
+      const data = await response.json();
+      groups = data.groups || [];
+    }
 
     document.getElementById('groups-tb').innerHTML = groups.length ? groups.map(g => `
       <tr>
@@ -2830,8 +2867,16 @@ async function deleteGroup(id){
 
 async function loadOffers(){
   try{
-    const snap = await db.collection('special_offers').get();
-    const offers = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const token = localStorage.getItem('adminToken');
+    const response = await fetch('/api/v1/admin/offers', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+
+    let offers = [];
+    if (response.ok) {
+      const data = await response.json();
+      offers = data.offers || [];
+    }
 
     document.getElementById('offers-tb').innerHTML = offers.length ? offers.map(o => `
       <tr>

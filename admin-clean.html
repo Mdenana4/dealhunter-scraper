@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DealHunter Egypt — Admin</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f4f5f7;color:#222;font-size:14px;}
+.topnav{background:#1a1a2e;padding:0 16px;display:flex;align-items:center;justify-content:space-between;height:52px;position:sticky;top:0;z-index:100;}
+.brand{font-size:15px;font-weight:700;color:#E24B4A;}
+.brand span{color:rgba(255,255,255,0.45);font-weight:400;font-size:12px;margin-left:6px;}
+.nav-links{display:flex;gap:2px;flex-wrap:wrap;}
+.nb{background:none;border:none;color:rgba(255,255,255,0.55);padding:7px 10px;border-radius:6px;cursor:pointer;font-size:11px;transition:all 0.15s;}
+.nb:hover{background:rgba(255,255,255,0.1);color:#fff;}
+.nb.active{background:#E24B4A;color:#fff;}
+.ts{font-size:10px;color:rgba(255,255,255,0.35);}
+.page{display:none;padding:18px;max-width:1300px;margin:0 auto;}
+.page.active{display:block;}
+.card{background:#fff;border-radius:11px;border:0.5px solid #e8e8e8;margin-bottom:14px;overflow:hidden;}
+.ch{padding:11px 15px;border-bottom:0.5px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;}
+.ct{font-size:13px;font-weight:600;color:#222;}
+.cb{padding:15px;}
+table{width:100%;border-collapse:collapse;font-size:11px;}
+th{background:#f8f8f8;padding:8px 10px;text-align:left;color:#888;font-weight:500;font-size:10px;border-bottom:0.5px solid #eee;white-space:nowrap;}
+td{padding:8px 10px;border-bottom:0.5px solid #f5f5f5;color:#333;vertical-align:middle;}
+tr:hover td{background:#fafafa;}
+.badge{display:inline-block;padding:2px 7px;border-radius:20px;font-size:9px;font-weight:500;white-space:nowrap;}
+.bg{background:#EAF3DE;color:#3B6D11;}
+.br{background:#FCEBEB;color:#A32D2D;}
+.bb{background:#E6F1FB;color:#185FA5;}
+.bo{background:#FAEEDA;color:#854F0B;}
+.bpu{background:#EEEDFE;color:#534AB7;}
+.bvi{background:#1a1a2e;color:#E24B4A;}
+.btn{padding:5px 11px;border-radius:6px;font-size:11px;border:0.5px solid #ddd;background:#fff;cursor:pointer;color:#444;transition:all 0.15s;white-space:nowrap;}
+.btn:hover{background:#f5f5f5;}
+.btn-p{background:#E24B4A;color:#fff;border-color:#E24B4A;}
+.btn-p:hover{background:#c73b3a;}
+.btn-sm{padding:3px 7px;font-size:10px;}
+.toast{position:fixed;bottom:18px;right:18px;background:#1a1a2e;color:#fff;padding:9px 15px;border-radius:9px;font-size:11px;opacity:0;transition:opacity 0.3s;z-index:999;pointer-events:none;max-width:280px;}
+.toast.show{opacity:1;}
+.loading{text-align:center;padding:30px;color:#aaa;font-size:11px;}
+.empty{text-align:center;padding:36px;color:#aaa;}
+
+/* LOGIN PAGE */
+.login-page{position:fixed;top:0;left:0;width:100%;height:100%;background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);display:flex;align-items:center;justify-content:center;z-index:999;flex-direction:column;gap:20px;padding:20px;}
+.login-page.hidden{display:none;}
+.login-box{background:#fff;border-radius:14px;padding:28px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,0.3);}
+.login-box h3{font-size:14px;font-weight:600;margin-bottom:3px;color:#222;}
+.login-box p{font-size:11px;color:#888;margin-bottom:18px;}
+.login-form{display:flex;flex-direction:column;gap:11px;}
+.fg{margin-bottom:11px;}
+.fg label{display:block;font-size:10px;color:#666;margin-bottom:5px;font-weight:500;}
+.fg input{width:100%;padding:8px 12px;border:0.5px solid #ddd;border-radius:7px;font-size:12px;outline:none;font-family:inherit;}
+.fg input:focus{border-color:#E24B4A;}
+.login-btn{background:#E24B4A;color:#fff;border:none;padding:9px 16px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;margin-top:6px;transition:all 0.2s;}
+.login-btn:disabled{background:#ccc;cursor:not-allowed;}
+.login-error{display:none;background:#FCEBEB;color:#A32D2D;padding:9px 12px;border-radius:7px;font-size:11px;margin-top:13px;border:0.5px solid #F7C1C1;}
+.login-error.show{display:block;}
+.modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.45);display:none;align-items:center;justify-content:center;z-index:200;}
+.modal.show{display:flex;}
+.modal-content{background:#fff;border-radius:14px;padding:20px;width:500px;max-width:94vw;max-height:90vh;overflow-y:auto;}
+.modal-content h3{font-size:13px;font-weight:600;margin-bottom:13px;}
+.ma{display:flex;gap:7px;justify-content:flex-end;margin-top:13px;}
+.sg{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px;}
+.sc{background:#fff;border-radius:11px;padding:13px 16px;border:0.5px solid #e8e8e8;}
+.sl{font-size:10px;color:#999;margin-bottom:3px;text-transform:uppercase;}
+.sv{font-size:20px;font-weight:600;color:#222;}
+.ss{font-size:10px;color:#aaa;margin-top:2px;}
+</style>
+</head>
+<body>
+
+<!-- LOGIN PAGE -->
+<div class="login-page" id="login-page">
+  <div style="text-align:center;margin-bottom:20px;">
+    <div style="font-size:32px;font-weight:700;color:#E24B4A;margin-bottom:5px;">DealHunter</div>
+    <div style="font-size:13px;color:rgba(255,255,255,0.6);">Admin Dashboard</div>
+  </div>
+
+  <div class="login-box">
+    <h3>Sign In</h3>
+    <p>Enter your admin credentials</p>
+
+    <form id="login-form" class="login-form" onsubmit="handleLogin(event)">
+      <div class="fg">
+        <label>Email Address</label>
+        <input type="email" id="login-email" placeholder="admin@example.com" required/>
+      </div>
+      <div class="fg">
+        <label>Password</label>
+        <input type="password" id="login-password" placeholder="••••••••" required/>
+      </div>
+      <button type="submit" id="login-btn" class="login-btn">Sign In</button>
+    </form>
+
+    <div id="login-error" class="login-error"></div>
+    <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-top:13px;text-align:center;">
+      For security, only registered admin users can access this dashboard.
+    </div>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard" class="hidden" style="display:none;">
+<div class="topnav">
+  <div class="brand">DealHunter <span>Admin</span></div>
+  <div class="nav-links">
+    <button class="nb active" onclick="showPage('monitor',this)">Monitor</button>
+    <button class="nb" onclick="showPage('deals',this)">Deals</button>
+    <button class="nb" onclick="showPage('sources',this)">Sources</button>
+    <button class="nb" onclick="showPage('users',this)">Users</button>
+    <button class="nb" onclick="showPage('team',this)">👥 Team</button>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+    <div class="ts" id="admin-info" style="color:rgba(255,255,255,0.7);font-size:11px;">—</div>
+    <button class="btn btn-sm" onclick="logout()">Sign Out</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- MONITOR PAGE -->
+<div class="page active" id="page-monitor">
+  <div class="card">
+    <div class="ch"><div class="ct">📊 Dashboard Statistics</div></div>
+    <div class="cb">
+      <div class="sg">
+        <div class="sc"><div class="sl">Total Deals</div><div class="sv" id="stat-deals">0</div><div class="ss">all sources</div></div>
+        <div class="sc"><div class="sl">Total Users</div><div class="sv" id="stat-users">0</div><div class="ss">registered</div></div>
+        <div class="sc"><div class="sl">Total Clicks</div><div class="sv" id="stat-clicks">0</div><div class="ss">on deals</div></div>
+        <div class="sc"><div class="sl">Buy Clicks</div><div class="sv" id="stat-buys">0</div><div class="ss">conversions</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="ch"><div class="ct">🔍 Scraper Status</div></div>
+    <div class="cb">
+      <table>
+        <thead>
+          <tr><th>Source</th><th>Status</th><th>Deals</th><th>Last Deal</th></tr>
+        </thead>
+        <tbody id="scraper-tb">
+          <tr><td colspan="4" class="loading">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="ch"><div class="ct">📋 Latest Deals</div></div>
+    <div class="cb">
+      <table>
+        <thead>
+          <tr><th>Product</th><th>Site</th><th>Discount</th><th>Price</th><th>Time</th></tr>
+        </thead>
+        <tbody id="latest-deals-tb">
+          <tr><td colspan="5" class="loading">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- DEALS PAGE -->
+<div class="page" id="page-deals">
+  <div class="card">
+    <div class="ch"><div class="ct">💰 All Deals</div></div>
+    <div class="cb">
+      <table>
+        <thead>
+          <tr><th>Product</th><th>Site</th><th>Category</th><th>Discount</th><th>Price</th><th>Time</th></tr>
+        </thead>
+        <tbody id="deals-tb">
+          <tr><td colspan="6" class="loading">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- SOURCES PAGE -->
+<div class="page" id="page-sources">
+  <div class="card">
+    <div class="ch"><div class="ct">📌 Scraping Sources</div><button class="btn btn-p" onclick="alert('Coming soon')">+ Add Source</button></div>
+    <div class="cb">
+      <table>
+        <thead>
+          <tr><th>Source</th><th>URL</th><th>Status</th><th>Frequency</th></tr>
+        </thead>
+        <tbody id="sources-tb">
+          <tr><td colspan="4" class="loading">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- USERS PAGE -->
+<div class="page" id="page-users">
+  <div class="card">
+    <div class="ch"><div class="ct">👤 App Users</div></div>
+    <div class="cb">
+      <table>
+        <thead>
+          <tr><th>Email</th><th>Name</th><th>Tier</th><th>Created</th><th>Last Login</th></tr>
+        </thead>
+        <tbody id="users-tb">
+          <tr><td colspan="5" class="loading">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- TEAM PAGE -->
+<div class="page" id="page-team">
+  <div class="card">
+    <div class="ch">
+      <div class="ct">👥 Admin Team</div>
+      <button class="btn btn-p" onclick="openTeamModal()">+ Add Member</button>
+    </div>
+    <div class="cb">
+      <table>
+        <thead>
+          <tr><th>Email</th><th>Name</th><th>Role</th><th>Permissions</th><th>Status</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="team-tb">
+          <tr><td colspan="6" class="loading">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- TEAM MODAL -->
+<div class="modal" id="team-modal">
+  <div class="modal-content">
+    <h3>Add Team Member</h3>
+    <div class="fg">
+      <label>Email *</label>
+      <input type="email" id="tm-email" placeholder="admin@example.com" required/>
+    </div>
+    <div class="fg">
+      <label>Name *</label>
+      <input type="text" id="tm-name" placeholder="John Doe" required/>
+    </div>
+    <div class="fg">
+      <label>Role *</label>
+      <select id="tm-role" style="width:100%;padding:8px 12px;border:0.5px solid #ddd;border-radius:7px;font-size:12px;">
+        <option value="viewer">Viewer (read-only)</option>
+        <option value="editor">Editor (edit permissions)</option>
+        <option value="owner">Owner (full access)</option>
+      </select>
+    </div>
+    <div class="ma">
+      <button type="button" class="btn" onclick="closeTeamModal()">Cancel</button>
+      <button type="button" class="btn btn-p" onclick="saveTeamMember()">Save</button>
+    </div>
+  </div>
+</div>
+
+</div><!-- END DASHBOARD -->
+
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// FIREBASE INITIALIZATION
+// ═══════════════════════════════════════════════════════════
+firebase.initializeApp(FIREBASE_CONFIG);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+// ═══════════════════════════════════════════════════════════
+// STATE MANAGEMENT
+// ═══════════════════════════════════════════════════════════
+let currentAdmin = null;
+let allDeals = [];
+
+// ═══════════════════════════════════════════════════════════
+// AUTHENTICATION
+// ═══════════════════════════════════════════════════════════
+async function handleLogin(event) {
+  event.preventDefault();
+  const email = document.getElementById('login-email').value.trim().toLowerCase();
+  const password = document.getElementById('login-password').value;
+  const btn = document.getElementById('login-btn');
+  const errorDiv = document.getElementById('login-error');
+
+  btn.disabled = true;
+  btn.textContent = 'Signing in...';
+  errorDiv.classList.remove('show');
+
+  try {
+    const userCred = await auth.signInWithEmailAndPassword(email, password);
+    const idToken = await userCred.user.getIdToken();
+
+    // Verify with server
+    const response = await fetch('/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id_token: idToken})
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Login failed');
+    }
+
+    const data = await response.json();
+    currentAdmin = data.admin;
+    localStorage.setItem('currentAdmin', JSON.stringify(currentAdmin));
+    localStorage.setItem('idToken', idToken);
+
+    // Show dashboard
+    document.getElementById('login-page').classList.add('hidden');
+    document.getElementById('dashboard').style.display = 'block';
+    updateAdminInfo();
+    showPage('monitor', document.querySelector('.nb'));
+    loadMonitor();
+
+  } catch (err) {
+    errorDiv.textContent = err.message;
+    errorDiv.classList.add('show');
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
+  }
+}
+
+async function logout() {
+  await auth.signOut();
+  localStorage.removeItem('currentAdmin');
+  localStorage.removeItem('idToken');
+  currentAdmin = null;
+  document.getElementById('login-page').classList.remove('hidden');
+  document.getElementById('dashboard').style.display = 'none';
+  document.getElementById('login-form').reset();
+  document.getElementById('login-error').classList.remove('show');
+}
+
+function updateAdminInfo() {
+  if (currentAdmin) {
+    document.getElementById('admin-info').textContent = `${currentAdmin.name} (${currentAdmin.role})`;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PAGE MANAGEMENT
+// ═══════════════════════════════════════════════════════════
+function showPage(name, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nb').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  if (btn && btn.classList) btn.classList.add('active');
+
+  const loaders = {
+    monitor: loadMonitor,
+    deals: loadDeals,
+    sources: loadSources,
+    users: loadUsers,
+    team: loadTeam
+  };
+
+  if (loaders[name]) loaders[name]();
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+// ═══════════════════════════════════════════════════════════
+// PAGE LOADERS
+// ═══════════════════════════════════════════════════════════
+async function loadMonitor() {
+  try {
+    const snap = await db.collection('deals').get();
+    const deals = snap.docs.map(d => ({id: d.id, ...d.data()}));
+    allDeals = deals;
+
+    let clicks = 0, buys = 0;
+    deals.forEach(d => {
+      clicks += d.click_count || 0;
+      buys += d.buy_click_count || 0;
+    });
+
+    document.getElementById('stat-deals').textContent = deals.length;
+    document.getElementById('stat-clicks').textContent = clicks;
+    document.getElementById('stat-buys').textContent = buys;
+
+    const uSnap = await db.collection('users').get();
+    document.getElementById('stat-users').textContent = uSnap.size;
+
+    // Latest deals
+    const latest = deals.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 10);
+    document.getElementById('latest-deals-tb').innerHTML = latest.length ? latest.map(d => `
+      <tr>
+        <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;">${d.title}</td>
+        <td><span class="badge bb">${d.site_display || d.site}</span></td>
+        <td><span style="font-size:10px;color:#666;">${d.discount_percent}% OFF</span></td>
+        <td style="color:#E24B4A;font-weight:600;">EGP ${Number(d.current_price).toLocaleString()}</td>
+        <td style="font-size:9px;color:#aaa;">${new Date(d.timestamp).toLocaleDateString()}</td>
+      </tr>
+    `).join('') : '<tr><td colspan="5" class="empty">No deals yet</td></tr>';
+
+  } catch (e) {
+    toast('Monitor error: ' + e.message);
+  }
+}
+
+async function loadDeals() {
+  try {
+    const snap = await db.collection('deals').orderBy('timestamp', 'desc').limit(100).get();
+    const deals = snap.docs.map(d => ({id: d.id, ...d.data()}));
+
+    document.getElementById('deals-tb').innerHTML = deals.length ? deals.map(d => `
+      <tr>
+        <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;">${d.title}</td>
+        <td><span class="badge bb">${d.site_display || d.site}</span></td>
+        <td style="font-size:10px;">${d.category || '—'}</td>
+        <td><strong>${d.discount_percent}% OFF</strong></td>
+        <td style="color:#E24B4A;">EGP ${Number(d.current_price).toLocaleString()}</td>
+        <td style="font-size:9px;color:#aaa;">${new Date(d.timestamp).toLocaleDateString()}</td>
+      </tr>
+    `).join('') : '<tr><td colspan="6" class="empty">No deals yet</td></tr>';
+  } catch (e) {
+    toast('Deals error: ' + e.message);
+  }
+}
+
+async function loadSources() {
+  const sources = [
+    {name: 'Amazon Egypt', url: 'https://www.amazon.eg', status: 'active'},
+    {name: 'Jumia Egypt', url: 'https://www.jumia.com.eg', status: 'active'},
+    {name: 'Noon Egypt', url: 'https://www.noon.com/egypt-en', status: 'active'},
+    {name: 'B.Tech', url: 'https://btech.com', status: 'active'},
+    {name: 'Carrefour', url: 'https://www.carrefouregypt.com', status: 'active'},
+  ];
+
+  document.getElementById('sources-tb').innerHTML = sources.map(s => `
+    <tr>
+      <td><strong>${s.name}</strong></td>
+      <td style="font-size:9px;">${s.url}</td>
+      <td><span class="badge bg">Active</span></td>
+      <td>Every 3 min</td>
+    </tr>
+  `).join('');
+}
+
+async function loadUsers() {
+  try {
+    const snap = await db.collection('users').limit(50).get();
+    const users = snap.docs.map(d => ({id: d.id, ...d.data()}));
+
+    document.getElementById('users-tb').innerHTML = users.length ? users.map(u => `
+      <tr>
+        <td style="font-size:9px;color:#888;">${u.email || u.phone || '—'}</td>
+        <td>${u.name || u.display_name || '—'}</td>
+        <td><span class="badge ${u.tier === 'premium' ? 'bpu' : u.tier === 'vip' ? 'bvi' : 'bb'}">${u.tier || 'Free'}</span></td>
+        <td style="font-size:9px;color:#aaa;">${u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</td>
+        <td style="font-size:9px;color:#aaa;">${u.last_login ? new Date(u.last_login).toLocaleDateString() : '—'}</td>
+      </tr>
+    `).join('') : '<tr><td colspan="5" class="empty">No users yet</td></tr>';
+  } catch (e) {
+    toast('Users error: ' + e.message);
+  }
+}
+
+async function loadTeam() {
+  const idToken = localStorage.getItem('idToken');
+  if (!idToken) {
+    toast('Authentication required');
+    return;
+  }
+
+  try {
+    const resp = await fetch('/admin/team', {
+      method: 'GET',
+      headers: {'Authorization': `Bearer ${idToken}`}
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.error || 'Failed to load team');
+    }
+
+    const data = await resp.json();
+    const team = data.team || [];
+
+    document.getElementById('team-tb').innerHTML = team.length ? team.map(m => `
+      <tr>
+        <td>${m.email}</td>
+        <td>${m.name}</td>
+        <td><span class="badge ${m.role === 'owner' ? 'bvi' : m.role === 'editor' ? 'bpu' : 'bb'}">${m.role}</span></td>
+        <td style="font-size:9px;color:#888;">${(m.permissions || []).join(', ') || '—'}</td>
+        <td><span class="badge ${m.status === 'active' ? 'bg' : 'br'}">${m.status}</span></td>
+        <td><button class="btn btn-sm" onclick="alert('Edit not implemented yet')">Edit</button></td>
+      </tr>
+    `).join('') : '<tr><td colspan="6" class="empty">No team members</td></tr>';
+  } catch (e) {
+    toast('Team error: ' + e.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// TEAM MANAGEMENT
+// ═══════════════════════════════════════════════════════════
+function openTeamModal() {
+  document.getElementById('team-modal').classList.add('show');
+}
+
+function closeTeamModal() {
+  document.getElementById('team-modal').classList.remove('show');
+}
+
+async function saveTeamMember() {
+  const email = document.getElementById('tm-email').value.trim().toLowerCase();
+  const name = document.getElementById('tm-name').value.trim();
+  const role = document.getElementById('tm-role').value;
+  const idToken = localStorage.getItem('idToken');
+
+  if (!email || !name) {
+    toast('Email and name required');
+    return;
+  }
+
+  try {
+    const resp = await fetch('/admin/team', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${idToken}`
+      },
+      body: JSON.stringify({email, name, role})
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.error || 'Failed to save');
+    }
+
+    toast('Team member added');
+    closeTeamModal();
+    loadTeam();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// INITIALIZATION
+// ═══════════════════════════════════════════════════════════
+auth.onAuthStateChanged(async (user) => {
+  if (user) {
+    const stored = localStorage.getItem('currentAdmin');
+    if (stored) {
+      try {
+        currentAdmin = JSON.parse(stored);
+        document.getElementById('login-page').classList.add('hidden');
+        document.getElementById('dashboard').style.display = 'block';
+        updateAdminInfo();
+      } catch {}
+    }
+  } else {
+    document.getElementById('login-page').classList.remove('hidden');
+    document.getElementById('dashboard').style.display = 'none';
+  }
+});
+</script>
+</body>
+</html>

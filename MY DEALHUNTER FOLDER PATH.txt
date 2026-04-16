@@ -1,0 +1,16 @@
+MY DEALHUNTER FOLDER PATH
+DPythonPanadasdealhunter
+
+TO OPEN COMMAND PROMPT IN MY FOLDER
+1. Open Command Prompt
+2. Type cd DPythonPanadasdealhunter
+3. Press Enter
+
+MY FIREBASE PROJECT ID
+dealhunter-egypt-70d29
+
+MY RENDER URL
+httpsdealhunter-scraper.onrender.com
+
+MY GITHUB REPO
+httpsgithub.comMdenana4dealhunter-scraper

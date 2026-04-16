@@ -1,0 +1,507 @@
+in CMD 
+
+D:\Python\Panadas\dealhunter>python fake_checker.py
+=======================================================
+Testing Fake Discount Checker
+Product: Oraimo FreePods 3 earbuds
+Amazon claims: Was EGP 1,099 → Now EGP 899 (18% OFF)
+=======================================================
+    Checking price history: Oraimo FreePods 3 OEB-E104DC True Wirele...
+    [KANBKAM] Found: Low=EGP 3,218 High=EGP 7,000
+    [SAFQA] Not found for this product
+
+=======================================================
+RESULT:
+Verdict: ✅ GENUINE
+Verdict (AR): خصم حقيقي — قريب من أقل سعر تاريخي
+Lowest price ever: EGP 3,218
+Highest price ever: EGP 7,000
+Rule A triggered: False
+Rule B triggered: False
+Source used: kanbkam
+Coupon codes: []
+Wait for price: EGP 3,379
+
+Reason: GENUINE (source: kanbkam):
+Current EGP 899 is near historical low EGP 3,218. Great deal!
+=======================================================
+
+D:\Python\Panadas\dealhunter>python server.py
+DealHunter Egypt Starting...
+Web server started on port 10000
+Connecting to Firebase...
+Firebase key loaded from file.
+Connected to Firebase successfully!
+Scheduler started — running first scrape now...
+
+==============================================================
+  SCRAPE CYCLE: 2026-04-12 22:16:13 UTC
+  ScraperAPI: NOT SET — get free key at scraperapi.com
+==============================================================
+
+[AMAZON] Starting — with Kanbkam+Safqa check...
+    Checking: WIWU Wi-P041 Snail Magnetic Power B...
+    Checking price history: WIWU Wi-P041 Snail Magnetic Power Bank 1...
+    [KANBKAM] Found: Low=EGP 999 High=EGP 999
+    [SAFQA] Not found for this product
+  REFRESH: WIWU Wi-P041 Snail Magnetic Power Bank 10,000 | ❌ FAKE
+    Direct fetch error: HTTPSConnectionPool(host='www.amazon.eg', port=443): Max retries exceeded with url: /s?k=sunglasses&language=en_AE (Caused by NewConnectionError("HTTPSConnection(host='www.amazon.eg', port=443): Failed to establish a new connection: [WinError 10065] A socket operation was attempted to an unreachable host"))
+    Direct fetch error: HTTPSConnectionPool(host='www.amazon.eg', port=443): Max retries exceeded with url: /s?k=perfume+men&language=en_AE (Caused by NameResolutionError("HTTPSConnection(host='www.amazon.eg', port=443): Failed to resolve 'www.amazon.eg' ([Errno 11001] getaddrinfo failed)"))
+Traceback (most recent call last):
+  File "D:\Python\Panadas\dealhunter\server.py", line 55, in <module>
+    run_web_server()
+    ~~~~~~~~~~~~~~^^
+  File "D:\Python\Panadas\dealhunter\server.py", line 38, in run_web_server
+    server.serve_forever()
+    ~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\mansy\AppData\Local\Programs\Python\Python314\Lib\socketserver.py", line 235, in serve_forever
+    ready = selector.select(poll_interval)
+  File "C:\Users\mansy\AppData\Local\Programs\Python\Python314\Lib\selectors.py", line 314, in select
+    r, w, _ = self._select(self._readers, self._writers, [], timeout)
+              ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\mansy\AppData\Local\Programs\Python\Python314\Lib\selectors.py", line 305, in _select
+    r, w, x = select.select(r, w, w, timeout)
+              ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt
+^C
+D:\Python\Panadas\dealhunter>
+D:\Python\Panadas\dealhunter>
+D:\Python\Panadas\dealhunter>
+D:\Python\Panadas\dealhunter>
+D:\Python\Panadas\dealhunter>git add scraper.py server.py fake_checker.py
+warning: in the working copy of 'fake_checker.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'scraper.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server.py', LF will be replaced by CRLF the next time Git touches it
+
+D:\Python\Panadas\dealhunter>git commit -m "v6 FIXED - no indentation errors, all 3 files clean"
+[main 43e1eb7] v6 FIXED - no indentation errors, all 3 files clean
+ 2 files changed, 640 insertions(+), 553 deletions(-)
+
+D:\Python\Panadas\dealhunter>git push
+fatal: unable to access 'https://github.com/Mdenana4/dealhunter-scraper.git/': Could not resolve host: github.com
+
+D:\Python\Panadas\dealhunter>python server.py
+DealHunter Egypt Starting...
+Web server started on port 10000
+Connecting to Firebase...
+Firebase key loaded from file.
+Connected to Firebase successfully!
+Scheduler started — running first scrape now...
+
+==============================================================
+  SCRAPE CYCLE: 2026-04-12 22:21:27 UTC
+  ScraperAPI: NOT SET — get free key at scraperapi.com
+==============================================================
+
+[AMAZON] Starting — with Kanbkam+Safqa check...
+    Checking: Iphone Apps Book Vol. 1: The Essent...
+    Checking price history: Iphone Apps Book Vol. 1: The Essential D...
+    [KANBKAM] Found: Low=EGP 2,564 High=EGP 4,999
+    [SAFQA] Not found for this product
+  REFRESH: Iphone Apps Book Vol. 1: The Essential Dictio | ✅ GENUINE
+    Checking: Anker soundcore life u2i bluetooth ...
+    Checking price history: Anker soundcore life u2i bluetooth neckb...
+    [KANBKAM] Found: Low=EGP 440 High=EGP 1,225
+    [SAFQA] Not found for this product
+  REFRESH: Anker soundcore life u2i bluetooth neckband w | ⚠️ SUSPICIOUS
+    Checking: Mienta - hand blender 450w -hb11113...
+    Checking price history: Mienta - hand blender 450w -hb111138b -b...
+    [KANBKAM] Found: Low=EGP 1,085 High=EGP 2,950
+    [SAFQA] Not found for this product
+  REFRESH: Mienta - hand blender 450w -hb111138b -black | ✅ GENUINE
+    Checking: Philips Blender - 450W, Plastic, 1L...
+    Checking price history: Philips Blender - 450W, Plastic, 1L Capa...
+    [KANBKAM] Found: Low=EGP 1,387 High=EGP 3,999
+    [SAFQA] Not found for this product
+  REFRESH: Philips Blender - 450W, Plastic, 1L Capacity, | ⏳ WAIT
+    Checking: 13 PCS Professional PRO Makeup Brus...
+    Checking price history: 13 PCS Professional PRO Makeup Brushes S...
+    [KANBKAM] Found: Low=EGP 152 High=EGP 345
+    [SAFQA] Not found for this product
+  REFRESH: 13 PCS Professional PRO Makeup Brushes Set wi | ✅ GENUINE
+    Checking: Bobana Shampoo Black Garlic Oil 400...
+    Checking price history: Bobana Shampoo Black Garlic Oil 400 ML 0...
+    [KANBKAM] Found: Low=EGP 85 High=EGP 169
+    [SAFQA] Not found for this product
+  REFRESH: Bobana Shampoo Black Garlic Oil 400 ML 00 | ⚠️ SUSPICIOUS
+[AMAZON] Done. 6 deals.
+
+[JUMIA] Starting...
+  [JUMIA] 55 products: https://www.jumia.com.eg/phones-tablets/?sort=discountP...
+    Checking price history: VIC 20000mAh Power Banks Portable Charge...
+    [SAFQA] Not found for this product
+  NEW:     VIC 20000mAh Power Banks Portable Charge, Ult | 71% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Matrix MK10-10000mAh Power Bank Fast Cha...
+    [SAFQA] Not found for this product
+  NEW:     Matrix MK10-10000mAh Power Bank Fast Charging | 50% OFF | ⚠️ SUSPICIOUS
+    Checking price history: RichRipple M10 LED Display Bluetooth Hea...
+    [SAFQA] Not found for this product
+  NEW:     RichRipple M10 LED Display Bluetooth Headsets | 63% OFF | ⚠️ SUSPICIOUS
+    Checking price history: RichRipple Pro3 Bluetooth Headsets Wirel...
+    [SAFQA] Not found for this product
+  NEW:     RichRipple Pro3 Bluetooth Headsets Wireless P | 60% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Charging Cable 3 In 1 (Type-C, Lightning...
+    [SAFQA] Not found for this product
+  NEW:     Charging Cable 3 In 1 (Type-C, Lightning, And | 64% OFF | ⚠️ SUSPICIOUS
+    Checking price history: pods Pro 2 Wireless Earbuds Bluetooth To...
+    [SAFQA] Not found for this product
+  NEW:     pods Pro 2 Wireless Earbuds Bluetooth Touch C | 49% OFF | ❓ UNVERIFIED
+    Checking price history: Vidvie Type-C Fast Original Cable 3.1A W...
+    [SAFQA] Not found for this product
+  NEW:     Vidvie Type-C Fast Original Cable 3.1A With A | 60% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Earldom PB41 Power Bank 10000mAh LED Dis...
+    [SAFQA] Not found for this product
+  NEW:     Earldom PB41 Power Bank 10000mAh LED Display  | 54% OFF | ⚠️ SUSPICIOUS
+    Checking price history: RichRipple Sports Bluetooth  Into The Ea...
+    [SAFQA] Not found for this product
+  NEW:     RichRipple Sports Bluetooth  Into The Ear Nec | 61% OFF | ⚠️ SUSPICIOUS
+    Checking price history: JOY ROOM 10000mAh 2.4A LED Power Bank JR...
+    [SAFQA] Not found for this product
+  NEW:     JOY ROOM 10000mAh 2.4A LED Power Bank JR-PBF1 | 47% OFF | ❓ UNVERIFIED
+    Checking price history: Nokia Mobile 105, Dual SIM, 4 MB Interna...
+    [SAFQA] Not found for this product
+  NEW:     Nokia Mobile 105, Dual SIM, 4 MB Internal Mem | 41% OFF | ❓ UNVERIFIED
+    Checking price history: RichRipple GT11 Bluetooth Headsets Digit...
+    [SAFQA] Not found for this product
+  NEW:     RichRipple GT11 Bluetooth Headsets Digital Di | 52% OFF | ⚠️ SUSPICIOUS
+    Checking price history: RichRipple New Small Coconut Ball  Heads...
+    [SAFQA] Not found for this product
+  NEW:     RichRipple New Small Coconut Ball  Headset Op | 46% OFF | ❓ UNVERIFIED
+    Checking price history: RichRipple Sports Bluetooth  Into The Ea...
+    [SAFQA] Not found for this product
+  NEW:     RichRipple Sports Bluetooth  Into The Ear Nec | 55% OFF | ⚠️ SUSPICIOUS
+    Checking price history: RichRipple  Sleep Invisible Earbuds  Min...
+    [SAFQA] Not found for this product
+  NEW:     RichRipple  Sleep Invisible Earbuds  Mini Hea | 50% OFF | ❓ UNVERIFIED
+    Checking price history: RichRipple Micro Charging Cable Type-C I...
+    [SAFQA] Not found for this product
+  NEW:     RichRipple Micro Charging Cable Type-C IPhone | 82% OFF | ⚠️ SUSPICIOUS
+    Checking price history: GaN 120W Super Fast Charger PD QC30 High...
+    [SAFQA] Not found for this product
+  NEW:     GaN 120W Super Fast Charger PD QC30 High Powe | 59% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Nokia Noki a 106 Dual Sim 4G-Black...
+    [SAFQA] Not found for this product
+  NEW:     Nokia Noki a 106 Dual Sim 4G-Black | 45% OFF | ❓ UNVERIFIED
+  [JUMIA] 40 products: https://www.jumia.com.eg/electronics/?sort=discountPerc...
+    Checking price history: SODO SODO Sd-1004 Wireless Over Ear Head...
+    [SAFQA] Not found for this product
+  NEW:     SODO SODO Sd-1004 Wireless Over Ear Headphone | 54% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Joc Joc Digital Selects FM Radio - Red...
+    [SAFQA] Not found for this product
+  NEW:     Joc Joc Digital Selects FM Radio - Red | 74% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Golon Radio Classic Mini Electric 608 Br...
+    [SAFQA] Not found for this product
+  NEW:     Golon Radio Classic Mini Electric 608 Brown | 63% OFF | ⚠️ SUSPICIOUS
+  [JUMIA] 0 products: https://www.jumia.com.eg/fashion/?sort=discountPercent#...
+  [JUMIA] 108 products: https://www.jumia.com.eg/home-office/?sort=discountPerc...
+    Checking price history: Mincer, Garlic Blender/Mini Kibbeh Spice...
+    [SAFQA] Not found for this product
+  NEW:     Mincer, Garlic Blender/Mini Kibbeh Spice Grin | 72% OFF | ⚠️ SUSPICIOUS
+  [JUMIA] 55 products: https://www.jumia.com.eg/sporting-goods/?sort=discountP...
+    Checking price history: Door Mounted Pull Up Bar For Home Gym - ...
+    [SAFQA] Not found for this product
+  NEW:     Door Mounted Pull Up Bar For Home Gym - Heavy | 52% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Waist Trimmer...
+    [SAFQA] Not found for this product
+  NEW:     Waist Trimmer | 72% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Starter Swift Turf - White...
+    [SAFQA] Not found for this product
+  NEW:     Starter Swift Turf - White | 50% OFF | ❓ UNVERIFIED
+    Checking price history: Lastic Exercise Resistance Bands - 5 Pcs...
+    [SAFQA] Not found for this product
+  NEW:     Lastic Exercise Resistance Bands - 5 Pcs - Mu | 82% OFF | ⚠️ SUSPICIOUS
+    Checking price history: 750ml Leakproof Motivational Sports Wate...
+    [SAFQA] Not found for this product
+  NEW:     750ml Leakproof Motivational Sports Water Bot | 53% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Hand Grip Strengthener - Adjustable Fing...
+    [SAFQA] Not found for this product
+  NEW:     Hand Grip Strengthener - Adjustable Finger Ex | 83% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Muscle toning, chest, abdomen, arm and h...
+    [SAFQA] Not found for this product
+  NEW:     Muscle toning, chest, abdomen, arm and hand s | 57% OFF | ⚠️ SUSPICIOUS
+    Checking price history: 32oz Leakproof Motivational Sports Water...
+    [SAFQA] Not found for this product
+  NEW:     32oz Leakproof Motivational Sports Water Bott | 71% OFF | ⚠️ SUSPICIOUS
+    Checking price history: LED Emergency Flashlight Rechargeable...
+    [SAFQA] Not found for this product
+  NEW:     LED Emergency Flashlight Rechargeable | 52% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Wrist grip for strengthening hand wrist ...
+    [SAFQA] Not found for this product
+  NEW:     Wrist grip for strengthening hand wrist muscl | 62% OFF | ⚠️ SUSPICIOUS
+    Checking price history: 11 Pcs Resistance Fitness Band Set with ...
+    [SAFQA] Not found for this product
+  NEW:     11 Pcs Resistance Fitness Band Set with Stack | 71% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Stylish Premium Backpack Multi-purpose F...
+    [SAFQA] Not found for this product
+  NEW:     Stylish Premium Backpack Multi-purpose For La | 63% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Rechargeable Headlight - High Brightness...
+    [SAFQA] Not found for this product
+  NEW:     Rechargeable Headlight - High Brightness Wate | 47% OFF | ❓ UNVERIFIED
+    Checking price history: LED Emergency Flashlight Rechargeable...
+    [SAFQA] Not found for this product
+  NEW:     LED Emergency Flashlight Rechargeable | 71% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Starter Swift Turf - Black...
+    [SAFQA] Not found for this product
+  NEW:     Starter Swift Turf - Black | 50% OFF | ❓ UNVERIFIED
+    Checking price history: LED Rechargeable Emergency Light...
+    [SAFQA] Not found for this product
+  NEW:     LED Rechargeable Emergency Light | 63% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Stylish Premium Backpack Multi-purpose F...
+    [SAFQA] Not found for this product
+  NEW:     Stylish Premium Backpack Multi-purpose For La | 55% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Dumbbell - 4 Kg - 2 Pcs...
+    [SAFQA] Not found for this product
+  NEW:     Dumbbell - 4 Kg - 2 Pcs | 46% OFF | ❓ UNVERIFIED
+    Checking price history: For Protection From Rain And Sun...
+    [SAFQA] Not found for this product
+  NEW:     For Protection From Rain And Sun | 50% OFF | ❓ UNVERIFIED
+    Checking price history: Bar - 60/100 Cm...
+    [SAFQA] Not found for this product
+  NEW:     Bar - 60/100 Cm | 59% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Sauna Suit for Fitness and Gym Workout, ...
+    [SAFQA] Not found for this product
+  NEW:     Sauna Suit for Fitness and Gym Workout, Plus  | 67% OFF | ⚠️ SUSPICIOUS
+    Checking price history: LED Rechargeable Emergency Light...
+    [SAFQA] Not found for this product
+  NEW:     LED Rechargeable Emergency Light | 63% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Giant ATX 620 Mountain Bike - Grey...
+    [SAFQA] Not found for this product
+  NEW:     Giant ATX 620 Mountain Bike - Grey | 50% OFF | ❓ UNVERIFIED
+    Checking price history: Door Pull Up Bar Full foam...
+    [SAFQA] Not found for this product
+  NEW:     Door Pull Up Bar Full foam | 49% OFF | ❓ UNVERIFIED
+    Checking price history: LED Flood Light - Solar Energy for Light...
+    [SAFQA] Not found for this product
+  NEW:     LED Flood Light - Solar Energy for Lighting - | 50% OFF | ❓ UNVERIFIED
+    Checking price history: Giant LIV - ALIGHT 3 - City Bike - White...
+    [SAFQA] Not found for this product
+  NEW:     Giant LIV - ALIGHT 3 - City Bike - White | 50% OFF | ❓ UNVERIFIED
+    Checking price history: Giant MOUNTAIN BIKE (2022) ATX 660 - Gre...
+    [SAFQA] Not found for this product
+  NEW:     Giant MOUNTAIN BIKE (2022) ATX 660 - Grey | 50% OFF | ❓ UNVERIFIED
+    Checking price history: Waterproof crossbody sling backpack anti...
+    [SAFQA] Not found for this product
+  NEW:     Waterproof crossbody sling backpack anti-thef | 54% OFF | ⚠️ SUSPICIOUS
+    Checking price history: Giant ATX 620 (2022) Mountain Bike - Bla...
+    [SAFQA] Not found for this product
+  NEW:     Giant ATX 620 (2022) Mountain Bike - Black | 50% OFF | ❓ UNVERIFIED
+    Checking price history: 5-Piece Hand Grip Strength Training Set...
+    [SAFQA] Not found for this product
+  NEW:     5-Piece Hand Grip Strength Training Set | 71% OFF | ⚠️ SUSPICIOUS
+  [JUMIA] 50 products: https://www.jumia.com.eg/baby-products/?sort=discountPe...
+    Checking price history: Kiddy Large Baby Diapers Size 4 - 64 Pcs...
+    [SAFQA] Not found for this product
+  NEW:     Kiddy Large Baby Diapers Size 4 - 64 Pcs | 43% OFF | ❓ UNVERIFIED
+    Checking price history: Quidado Kids Shampoo - 250 Ml...
+    [SAFQA] Not found for this product
+  NEW:     Quidado Kids Shampoo - 250 Ml | 43% OFF | ❓ UNVERIFIED
+    Checking price history: Johnson Baby Oil, Sleep Time Oil 200ml...
+    [SAFQA] Not found for this product
+  NEW:     Johnson Baby Oil, Sleep Time Oil 200ml | 58% OFF | ⚠️ SUSPICIOUS
+[JUMIA] Done. 55 deals.
+
+[B.TECH] Starting...
+[B.TECH] Done. 0 deals.
+
+[CARREFOUR] Starting — JSON API...
+  [CARREFOUR] 0 products: electronics
+  [CARREFOUR] 0 products: mobiles-tablets
+  [CARREFOUR] 0 products: computers
+  [CARREFOUR] 0 products: tv-video
+  [CARREFOUR] 0 products: kitchen-appliances
+  [CARREFOUR] 0 products: large-appliances
+  [CARREFOUR] 0 products: fashion
+  [CARREFOUR] 0 products: sports-outdoors
+  [CARREFOUR] 0 products: beauty-health
+[CARREFOUR] Done. 0 deals.
+
+[SHARAF DG] Starting...
+  [SHARAF] 0 products: https://www.sharafdg.com/en/eg/deals...
+  [SHARAF] 0 products: https://www.sharafdg.com/en/eg/mobiles-tablets...
+  [SHARAF] 0 products: https://www.sharafdg.com/en/eg/computers-laptops...
+  [SHARAF] 0 products: https://www.sharafdg.com/en/eg/tv-video-audio...
+  [SHARAF] 0 products: https://www.sharafdg.com/en/eg/home-appliances...
+[SHARAF DG] Done. 0 deals.
+
+[NOON] Starting — ScraperAPI JS rendering...
+    Direct fetch error: HTTPSConnectionPool(host='www.noon.com', port=443): Read timed out. (read timeout=20)
+    Direct fetch error: HTTPSConnectionPool(host='www.noon.com', port=443): Read timed out. (read timeout=20)
+    Direct fetch error: HTTPSConnectionPool(host='www.noon.com', port=443): Read timed out. (read timeout=20)
+    Direct fetch error: HTTPSConnectionPool(host='www.noon.com', port=443): Read timed out. (read timeout=20)
+    Direct fetch error: HTTPSConnectionPool(host='www.noon.com', port=443): Read timed out. (read timeout=20)
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+in admin dashboard locally
+
+in tabs deal Amazon Egypt and Jumia Egypt appear 
+
+in monitor tabs in the top of the page 
+Total Deals
+127
+all sources
+
+Amazon Egypt
+72
+14 suspicious
+
+the rest not appear in any tabs 
+Scraper Status — All Sources / حالة جميع المصادر
+
+Still Amazong Egypt the only is green the rest still orange 
+
+Safqa is not working at all but kanbakam wrong result as before 
+
+where i can put the money or limit the price for the product s 
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+Still error in render 
+
+==> Downloading cache...
+Menu
+==> Cloning from https://github.com/Mdenana4/dealhunter-scraper
+==> Checking out commit 4e151265150e581f48f9367b13c6f430520b4569 in branch main
+==> Downloaded 104MB in 1s. Extraction took 3s.
+==> Using Python version 3.14.3 (default)
+==> Docs on specifying a Python version: https://render.com/docs/python-version
+==> Installing Python version 3.14.3...
+==> Using Poetry version 2.1.3 (default)
+==> Docs on specifying a Poetry version: https://render.com/docs/poetry-version
+==> Running build command 'pip install -r requirements.txt'...
+Collecting requests==2.31.0 (from -r requirements.txt (line 1))
+  Using cached requests-2.31.0-py3-none-any.whl.metadata (4.6 kB)
+Collecting firebase-admin==6.4.0 (from -r requirements.txt (line 2))
+  Using cached firebase_admin-6.4.0-py3-none-any.whl.metadata (1.5 kB)
+Collecting beautifulsoup4==4.12.3 (from -r requirements.txt (line 3))
+  Using cached beautifulsoup4-4.12.3-py3-none-any.whl.metadata (3.8 kB)
+Collecting schedule==1.2.1 (from -r requirements.txt (line 4))
+  Using cached schedule-1.2.1-py2.py3-none-any.whl.metadata (3.3 kB)
+Collecting lxml==5.1.0 (from -r requirements.txt (line 5))
+  Using cached lxml-5.1.0-cp314-cp314-linux_x86_64.whl
+Collecting python-dotenv==1.0.1 (from -r requirements.txt (line 6))
+  Using cached python_dotenv-1.0.1-py3-none-any.whl.metadata (23 kB)
+Collecting charset-normalizer<4,>=2 (from requests==2.31.0->-r requirements.txt (line 1))
+  Using cached charset_normalizer-3.4.7-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (40 kB)
+Collecting idna<4,>=2.5 (from requests==2.31.0->-r requirements.txt (line 1))
+  Using cached idna-3.11-py3-none-any.whl.metadata (8.4 kB)
+Collecting urllib3<3,>=1.21.1 (from requests==2.31.0->-r requirements.txt (line 1))
+  Using cached urllib3-2.6.3-py3-none-any.whl.metadata (6.9 kB)
+Collecting certifi>=2017.4.17 (from requests==2.31.0->-r requirements.txt (line 1))
+  Using cached certifi-2026.2.25-py3-none-any.whl.metadata (2.5 kB)
+Collecting cachecontrol>=0.12.6 (from firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached cachecontrol-0.14.4-py3-none-any.whl.metadata (3.1 kB)
+Collecting google-api-python-client>=1.7.8 (from firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_api_python_client-2.194.0-py3-none-any.whl.metadata (7.0 kB)
+Collecting google-cloud-storage>=1.37.1 (from firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_cloud_storage-3.10.1-py3-none-any.whl.metadata (15 kB)
+Collecting pyjwt>=2.5.0 (from pyjwt[crypto]>=2.5.0->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached pyjwt-2.12.1-py3-none-any.whl.metadata (4.1 kB)
+Collecting google-api-core<3.0.0dev,>=1.22.1 (from google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_api_core-2.30.3-py3-none-any.whl.metadata (3.1 kB)
+Collecting google-cloud-firestore>=2.9.1 (from firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_cloud_firestore-2.26.0-py3-none-any.whl.metadata (10 kB)
+Collecting soupsieve>1.2 (from beautifulsoup4==4.12.3->-r requirements.txt (line 3))
+  Using cached soupsieve-2.8.3-py3-none-any.whl.metadata (4.6 kB)
+Collecting googleapis-common-protos<2.0.0,>=1.63.2 (from google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached googleapis_common_protos-1.74.0-py3-none-any.whl.metadata (9.2 kB)
+Collecting protobuf<8.0.0,>=4.25.8 (from google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached protobuf-7.34.1-cp310-abi3-manylinux2014_x86_64.whl.metadata (595 bytes)
+Collecting proto-plus<2.0.0,>=1.22.3 (from google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached proto_plus-1.27.2-py3-none-any.whl.metadata (2.2 kB)
+Collecting google-auth<3.0.0,>=2.14.1 (from google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_auth-2.49.2-py3-none-any.whl.metadata (6.2 kB)
+Collecting grpcio<2.0.0,>=1.33.2 (from google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached grpcio-1.80.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (3.8 kB)
+Collecting grpcio-status<2.0.0,>=1.33.2 (from google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached grpcio_status-1.80.0-py3-none-any.whl.metadata (1.3 kB)
+Collecting pyasn1-modules>=0.2.1 (from google-auth<3.0.0,>=2.14.1->google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached pyasn1_modules-0.4.2-py3-none-any.whl.metadata (3.5 kB)
+Collecting cryptography>=38.0.3 (from google-auth<3.0.0,>=2.14.1->google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached cryptography-46.0.7-cp311-abi3-manylinux_2_34_x86_64.whl.metadata (5.7 kB)
+Collecting typing-extensions~=4.12 (from grpcio<2.0.0,>=1.33.2->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting protobuf<8.0.0,>=4.25.8 (from google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl.metadata (593 bytes)
+Collecting msgpack<2.0.0,>=0.5.2 (from cachecontrol>=0.12.6->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached msgpack-1.1.2-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (8.1 kB)
+Collecting cffi>=2.0.0 (from cryptography>=38.0.3->google-auth<3.0.0,>=2.14.1->google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached cffi-2.0.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.6 kB)
+Collecting pycparser (from cffi>=2.0.0->cryptography>=38.0.3->google-auth<3.0.0,>=2.14.1->google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached pycparser-3.0-py3-none-any.whl.metadata (8.2 kB)
+Collecting httplib2<1.0.0,>=0.19.0 (from google-api-python-client>=1.7.8->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached httplib2-0.31.2-py3-none-any.whl.metadata (2.2 kB)
+Collecting google-auth-httplib2<1.0.0,>=0.2.0 (from google-api-python-client>=1.7.8->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_auth_httplib2-0.3.1-py3-none-any.whl.metadata (3.0 kB)
+Collecting uritemplate<5,>=3.0.1 (from google-api-python-client>=1.7.8->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached uritemplate-4.2.0-py3-none-any.whl.metadata (2.6 kB)
+Collecting pyparsing<4,>=3.1 (from httplib2<1.0.0,>=0.19.0->google-api-python-client>=1.7.8->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached pyparsing-3.3.2-py3-none-any.whl.metadata (5.8 kB)
+Collecting google-cloud-core<3.0.0,>=1.4.1 (from google-cloud-firestore>=2.9.1->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_cloud_core-2.5.1-py3-none-any.whl.metadata (2.8 kB)
+Collecting google-resumable-media<3.0.0,>=2.7.2 (from google-cloud-storage>=1.37.1->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_resumable_media-2.8.2-py3-none-any.whl.metadata (2.2 kB)
+Collecting google-crc32c<2.0.0,>=1.1.3 (from google-cloud-storage>=1.37.1->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_crc32c-1.8.0-cp314-cp314-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl.metadata (1.7 kB)
+Collecting pyasn1<0.7.0,>=0.6.1 (from pyasn1-modules>=0.2.1->google-auth<3.0.0,>=2.14.1->google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached pyasn1-0.6.3-py3-none-any.whl.metadata (8.4 kB)
+Using cached requests-2.31.0-py3-none-any.whl (62 kB)
+Using cached firebase_admin-6.4.0-py3-none-any.whl (120 kB)
+Using cached beautifulsoup4-4.12.3-py3-none-any.whl (147 kB)
+Using cached schedule-1.2.1-py2.py3-none-any.whl (11 kB)
+Using cached python_dotenv-1.0.1-py3-none-any.whl (19 kB)
+Using cached charset_normalizer-3.4.7-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (215 kB)
+Using cached google_api_core-2.30.3-py3-none-any.whl (173 kB)
+Using cached google_auth-2.49.2-py3-none-any.whl (240 kB)
+Using cached googleapis_common_protos-1.74.0-py3-none-any.whl (300 kB)
+Using cached grpcio-1.80.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (6.8 MB)
+Using cached grpcio_status-1.80.0-py3-none-any.whl (14 kB)
+Using cached idna-3.11-py3-none-any.whl (71 kB)
+Using cached proto_plus-1.27.2-py3-none-any.whl (50 kB)
+Using cached protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl (323 kB)
+Using cached typing_extensions-4.15.0-py3-none-any.whl (44 kB)
+Using cached urllib3-2.6.3-py3-none-any.whl (131 kB)
+Using cached cachecontrol-0.14.4-py3-none-any.whl (22 kB)
+Using cached msgpack-1.1.2-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (419 kB)
+Using cached certifi-2026.2.25-py3-none-any.whl (153 kB)
+Using cached cryptography-46.0.7-cp311-abi3-manylinux_2_34_x86_64.whl (4.5 MB)
+Using cached cffi-2.0.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (219 kB)
+Using cached google_api_python_client-2.194.0-py3-none-any.whl (15.0 MB)
+Using cached google_auth_httplib2-0.3.1-py3-none-any.whl (9.5 kB)
+Using cached httplib2-0.31.2-py3-none-any.whl (91 kB)
+Using cached pyparsing-3.3.2-py3-none-any.whl (122 kB)
+Using cached uritemplate-4.2.0-py3-none-any.whl (11 kB)
+Using cached google_cloud_firestore-2.26.0-py3-none-any.whl (416 kB)
+Using cached google_cloud_core-2.5.1-py3-none-any.whl (29 kB)
+Using cached google_cloud_storage-3.10.1-py3-none-any.whl (324 kB)
+Using cached google_crc32c-1.8.0-cp314-cp314-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl (33 kB)
+Using cached google_resumable_media-2.8.2-py3-none-any.whl (81 kB)
+Using cached pyasn1_modules-0.4.2-py3-none-any.whl (181 kB)
+Using cached pyasn1-0.6.3-py3-none-any.whl (83 kB)
+Using cached pyjwt-2.12.1-py3-none-any.whl (29 kB)
+Using cached soupsieve-2.8.3-py3-none-any.whl (37 kB)
+Using cached pycparser-3.0-py3-none-any.whl (48 kB)
+Installing collected packages: urllib3, uritemplate, typing-extensions, soupsieve, schedule, python-dotenv, pyparsing, pyjwt, pycparser, pyasn1, protobuf, msgpack, lxml, idna, google-crc32c, charset-normalizer, certifi, requests, pyasn1-modules, proto-plus, httplib2, grpcio, googleapis-common-protos, google-resumable-media, cffi, beautifulsoup4, grpcio-status, cryptography, cachecontrol, google-auth, google-auth-httplib2, google-api-core, google-cloud-core, google-api-python-client, google-cloud-storage, google-cloud-firestore, firebase-admin
+Successfully installed beautifulsoup4-4.12.3 cachecontrol-0.14.4 certifi-2026.2.25 cffi-2.0.0 charset-normalizer-3.4.7 cryptography-46.0.7 firebase-admin-6.4.0 google-api-core-2.30.3 google-api-python-client-2.194.0 google-auth-2.49.2 google-auth-httplib2-0.3.1 google-cloud-core-2.5.1 google-cloud-firestore-2.26.0 google-cloud-storage-3.10.1 google-crc32c-1.8.0 google-resumable-media-2.8.2 googleapis-common-protos-1.74.0 grpcio-1.80.0 grpcio-status-1.80.0 httplib2-0.31.2 idna-3.11 lxml-5.1.0 msgpack-1.1.2 proto-plus-1.27.2 protobuf-6.33.6 pyasn1-0.6.3 pyasn1-modules-0.4.2 pycparser-3.0 pyjwt-2.12.1 pyparsing-3.3.2 python-dotenv-1.0.1 requests-2.31.0 schedule-1.2.1 soupsieve-2.8.3 typing-extensions-4.15.0 uritemplate-4.2.0 urllib3-2.6.3
+[notice] A new release of pip is available: 25.3 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+==> Uploading build...
+==> Uploaded in 8.3s. Compression took 3.9s
+==> Build successful 🎉
+==> Deploying...
+==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+==> Running 'python server.py'
+Traceback (most recent call last):
+  File "/opt/render/project/src/server.py", line 7, in <module>
+    from scraper import run_scraper, INTERVAL
+  File "/opt/render/project/src/scraper.py", line 608
+    kb = check_price_history(
+IndentationError: unexpected indent
+==> Exited with status 1
+==> Common ways to troubleshoot your deploy: https://render.com/docs/troubleshooting-deploys  
+

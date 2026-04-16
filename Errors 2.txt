@@ -1,0 +1,59 @@
+never change the current requirement and current interface and current logic of the code; just fix issues and add more features
+if anything not clear ask me
+
+almost all the requirement is working except some issue still need to fix 
+
+also i need the user can change the app language from English and Arabic 
+
+need i can add set anyone as admin or remove him 
+but he has limitation for can not change my password 
+he have differen password 
+
+Amazon is working now for all deals
+but still same issue for the other source still not working 
+
+Customer Reviews
+3.7 out of 5 that's good it's correct in amazon i check it the number 
+but how come it's 0 reviews i checked customer review on the amazon site i found it 
+
+Kanbkam not automated for all sites not only amazon any site in the app 
+
+check for discount 
+have an issue 
+https://www.amazon.eg/dp/B0DCGRV4M6?language=en_AE
+the price was List Price: EGP1,068.75 
+discount is -40% 
+prince now is 645
+
+but on kanbkam
+
+أقل سعر
+645
+أعلى سعر
+645
+
+https://www.amazon.eg/dp/B0CZP48CV1?language=en_AE&th=1&psc=1
+the price was List Price: EGP1,999.00 
+discount is -52% 
+prince now is 962.
+but on kanbkam
+أقل سعر
+962
+أعلى سعر
+962
+
+
+need to add when the price change chart for prince change for the user and admin can open on small pop-up window 
+
+
+so this is fake discount prince never become EGP1,068.75 
+so this is fake discount prince never become EGP1,999.00 
+check again this happened for all auto checker for app products 
+
+did you add i can offer the user free membership for days or months with specific features i can edit or modify them by my self i can give him one day all features or only one features give me permission i can do anything for one user or groups or per registration type 
+did you 
+
+me as admin and user can set EGP limitation for the price this also for registration type not all  200 minimum✅ Now EGP 50 minimum
+
+
+Custom sources not scraped✅ Reads your admin collection and scrapes dynamically this also for users per registration type  not all 

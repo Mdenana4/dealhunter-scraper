@@ -41,8 +41,8 @@ def get_headers(arabic=False):
 def check_kanbkam(asin, title=""):
     """
     Fetch real price history from Kanbkam.com
-    FIX: Use /eg/ar/dp/{ASIN} — the correct Amazon-style direct URL.
-         Old slug-based URL matched wrong products causing bad data.
+    Uses /eg/ar/dp/{ASIN} — direct Amazon-style URL.
+    Methods 0-3 only (Method 4 removed — too noisy, caused wrong results).
     Returns: {lowest_price, highest_price, current_price, found, url}
     """
     result = {"found": False, "lowest_price": 0, "highest_price": 0,
@@ -55,42 +55,70 @@ def check_kanbkam(asin, title=""):
         headers = get_headers(arabic=True)
         headers["Referer"] = "https://www.kanbkam.com/"
 
-        # ✅ FIX: Direct ASIN URL — correct and always matches the exact product
-        direct_url = f"https://www.kanbkam.com/eg/ar/dp/{asin}"
-        resp = requests.get(direct_url, headers=headers, timeout=15, allow_redirects=True)
+        resp = None
+        for url in [
+            f"https://www.kanbkam.com/eg/ar/dp/{asin}",
+            f"https://www.kanbkam.com/eg/en/dp/{asin}",
+            f"https://www.kanbkam.com/sa/ar/dp/{asin}",
+        ]:
+            try:
+                r = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
+                if r.status_code == 200 and len(r.text) > 500:
+                    resp = r
+                    break
+            except:
+                continue
 
-        if resp.status_code != 200:
-            # Fallback 1: Try English version
-            en_url = f"https://www.kanbkam.com/eg/en/dp/{asin}"
-            resp = requests.get(en_url, headers=headers, timeout=15, allow_redirects=True)
+        # If direct URL didn't work or redirected away from ASIN, try search
+        if not resp or (asin not in resp.url and asin not in resp.text[:2000]):
+            try:
+                search_url = f"https://www.kanbkam.com/eg/ar/search?q={asin}"
+                r = requests.get(search_url, headers=headers, timeout=15)
+                if r.status_code == 200 and asin in r.text:
+                    resp = r
+            except:
+                pass
 
-        if resp.status_code != 200:
-            # Fallback 2: Search by ASIN
-            search_url = f"https://www.kanbkam.com/eg/ar/search?q={asin}"
-            resp = requests.get(search_url, headers=headers, timeout=15)
-            if resp.status_code != 200:
-                return result
+        if not resp or resp.status_code != 200:
+            return result
 
         soup = BeautifulSoup(resp.content, "lxml")
         text = soup.get_text(separator=" ")
-
         lowest = 0
         highest = 0
 
-        # Method 1: Arabic labels (most reliable on Kanbkam)
-        lm = re.search(r'أقل\s*سعر[^\d]*(\d[\d,]*)', text)
-        hm = re.search(r'أعلى\s*سعر[^\d]*(\d[\d,]*)', text)
-        if lm:
-            lowest = clean_price(lm.group(1))
-        if hm:
-            highest = clean_price(hm.group(1))
+        # Method 0: __NEXT_DATA__ / __NUXT__ JSON (most reliable for modern SSR sites)
+        for script in soup.find_all("script", id="__NEXT_DATA__"):
+            try:
+                nd_str = json.dumps(json.loads(script.string or ""))
+                lj = re.search(r'"lowestPrice"\s*:\s*([\d.]+)', nd_str)
+                hj = re.search(r'"highestPrice"\s*:\s*([\d.]+)', nd_str)
+                if lj:
+                    lowest = float(lj.group(1))
+                if hj:
+                    highest = float(hj.group(1))
+                if lowest > 0:
+                    break
+            except:
+                pass
 
-        # Method 2: JSON data embedded in page scripts
+        # Method 1: Arabic labels (reliable on Kanbkam Arabic pages)
+        if lowest == 0:
+            lm = re.search(r'أقل\s*سعر[^\d]*(\d[\d,]*)', text)
+            hm = re.search(r'أعلى\s*سعر[^\d]*(\d[\d,]*)', text)
+            if lm:
+                lowest = clean_price(lm.group(1))
+            if hm:
+                highest = clean_price(hm.group(1))
+
+        # Method 2: JSON keys in any script tag (only look in scripts that mention the ASIN)
         if lowest == 0:
             for script in soup.find_all("script"):
-                script_text = script.get_text()
-                lj = re.search(r'"lowestPrice"\s*:\s*([\d.]+)', script_text)
-                hj = re.search(r'"highestPrice"\s*:\s*([\d.]+)', script_text)
+                st = script.get_text()
+                if "lowestPrice" not in st and "lowest_price" not in st:
+                    continue
+                lj = re.search(r'"lowestPrice"\s*:\s*([\d.]+)', st)
+                hj = re.search(r'"highestPrice"\s*:\s*([\d.]+)', st)
                 if lj:
                     lowest = float(lj.group(1))
                 if hj:
@@ -98,7 +126,7 @@ def check_kanbkam(asin, title=""):
                 if lowest > 0:
                     break
 
-        # Method 3: Structured data / JSON-LD
+        # Method 3: JSON-LD structured data
         if lowest == 0:
             for tag in soup.find_all("script", type="application/ld+json"):
                 try:
@@ -112,22 +140,7 @@ def check_kanbkam(asin, title=""):
                 except:
                     pass
 
-        # Method 4: Extract all EGP-formatted prices from page
-        if lowest == 0:
-            prices = []
-            for m in re.finditer(r'(\d[\d,]*(?:\.\d+)?)\s*(?:جنية|جنيه|EGP|ج\.م)', text):
-                v = clean_price(m.group(1))
-                if 10 < v < 500000:
-                    prices.append(v)
-            if len(prices) >= 2:
-                prices = sorted(set(prices))
-                lowest = prices[0]
-                highest = prices[-1]
-            elif len(prices) == 1:
-                lowest = prices[0]
-                highest = prices[0]
-
-        # Sanity check: lowest must be less than or equal to highest
+        # Sanity check
         if lowest > 0 and highest > 0 and lowest > highest:
             lowest, highest = highest, lowest
         if lowest > 0 and highest == 0:
@@ -173,119 +186,22 @@ def check_safqa(asin=None, product_url=None, title=""):
         base_headers["Referer"] = "https://joinsafqa.com/"
         base_headers["Origin"] = "https://joinsafqa.com"
 
-        # ─── Method 1: Chrome Extension API (reverse engineered) ───
+        # ─── Method 1: Safqa API — try known endpoint formats ───
         if asin and not result["found"]:
             ext_headers = base_headers.copy()
             ext_headers["Accept"] = "application/json"
             ext_headers["x-app-source"] = "extension"
             ext_headers["x-country"] = "eg"
 
-            urls_to_try = [
+            api_urls = [
+                f"https://api.joinsafqa.com/product?asin={asin}&country=eg",
+                f"https://joinsafqa.com/api/v1/product?asin={asin}&country=eg",
                 f"https://joinsafqa.com/api/extension/product?asin={asin}&country=eg",
                 f"https://joinsafqa.com/api/product?asin={asin}&country=eg",
-                f"https://joinsafqa.com/extension/product/{asin}?country=eg",
             ]
-            for url in urls_to_try:
+            for url in api_urls:
                 try:
-                    resp = requests.get(url, headers=ext_headers, timeout=12)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        result = extract_safqa_product(data, result)
-                        if result["found"]:
-                            result["url"] = url
-                            break
-                except:
-                    continue
-
-        # ─── Method 2: Search page HTML scrape ───
-        if asin and not result["found"]:
-            search_urls = [
-                f"https://joinsafqa.com/search?q={asin}",
-                f"https://joinsafqa.com/eg/search?q={asin}",
-                f"https://joinsafqa.com/eg/ar/search?q={asin}",
-            ]
-            for url in search_urls:
-                try:
-                    resp = requests.get(url, headers=base_headers, timeout=15)
-                    if resp.status_code == 200 and len(resp.text) > 500:
-                        soup = BeautifulSoup(resp.content, "lxml")
-                        text = soup.get_text(separator=" ")
-
-                        # Look for JSON state embedded in page
-                        for script in soup.find_all("script"):
-                            st = script.get_text()
-                            if asin in st and ("lowestPrice" in st or "lowest_price" in st or "أقل" in st):
-                                lm = re.search(r'"lowestPrice"\s*:\s*([\d.]+)', st)
-                                hm = re.search(r'"highestPrice"\s*:\s*([\d.]+)', st)
-                                if lm:
-                                    result["lowest_price"] = float(lm.group(1))
-                                    result["highest_price"] = float(hm.group(1)) if hm else float(lm.group(1))
-                                    result["found"] = True
-                                    result["url"] = url
-                                    break
-
-                        if result["found"]:
-                            break
-
-                        # Arabic price labels
-                        lm = re.search(r'(?:أقل|lowest)[^\d]*(\d[\d,]*)', text, re.IGNORECASE)
-                        hm = re.search(r'(?:أعلى|highest)[^\d]*(\d[\d,]*)', text, re.IGNORECASE)
-                        if lm:
-                            result["lowest_price"] = clean_price(lm.group(1))
-                            result["highest_price"] = clean_price(hm.group(1)) if hm else result["lowest_price"]
-                            if result["lowest_price"] > 0:
-                                result["found"] = True
-                                result["url"] = url
-                                break
-                except:
-                    continue
-
-        # ─── Method 3: Direct product page ───
-        if asin and not result["found"]:
-            page_urls = [
-                f"https://joinsafqa.com/eg/ar/product/{asin}",
-                f"https://joinsafqa.com/product/{asin}",
-                f"https://joinsafqa.com/eg/product/{asin}",
-            ]
-            for url in page_urls:
-                try:
-                    resp = requests.get(url, headers=base_headers, timeout=15)
-                    if resp.status_code == 200 and len(resp.text) > 500:
-                        soup = BeautifulSoup(resp.content, "lxml")
-                        text = soup.get_text(separator=" ")
-
-                        lm = re.search(r'(?:أقل|lowest|min)\s*(?:سعر|price)[^\d]*(\d[\d,]*)', text, re.IGNORECASE)
-                        hm = re.search(r'(?:أعلى|highest|max)\s*(?:سعر|price)[^\d]*(\d[\d,]*)', text, re.IGNORECASE)
-
-                        if lm:
-                            result["lowest_price"] = clean_price(lm.group(1))
-                        if hm:
-                            result["highest_price"] = clean_price(hm.group(1))
-
-                        # Coupon codes
-                        coupon_matches = re.findall(r'(?:code|coupon|كود|كوبون)[:\s]*([A-Z0-9]{4,20})', text, re.IGNORECASE)
-                        if coupon_matches:
-                            result["coupon_codes"] = list(set(coupon_matches))
-
-                        if result["lowest_price"] > 0:
-                            result["found"] = True
-                            result["url"] = url
-                            if result["highest_price"] == 0:
-                                result["highest_price"] = result["lowest_price"]
-                            break
-                except:
-                    continue
-
-        # ─── Method 4: For Noon/Jumia — URL-based lookup ───
-        if not result["found"] and product_url and any(s in str(product_url) for s in ["noon", "jumia"]):
-            try:
-                encoded_url = requests.utils.quote(product_url, safe='')
-                lookup_urls = [
-                    f"https://joinsafqa.com/api/price-history?url={encoded_url}&country=eg",
-                    f"https://joinsafqa.com/api/product?url={encoded_url}&country=eg",
-                ]
-                for url in lookup_urls:
-                    resp = requests.get(url, headers=base_headers, timeout=15)
+                    resp = requests.get(url, headers=ext_headers, timeout=10)
                     if resp.status_code == 200:
                         try:
                             data = resp.json()
@@ -295,8 +211,79 @@ def check_safqa(asin=None, product_url=None, title=""):
                                 break
                         except:
                             pass
-            except:
-                pass
+                except:
+                    continue
+
+        # ─── Method 2: Product/search page HTML scrape ───
+        if asin and not result["found"]:
+            page_urls = [
+                f"https://joinsafqa.com/products/{asin}",
+                f"https://joinsafqa.com/product/{asin}",
+                f"https://joinsafqa.com/eg/ar/dp/{asin}",
+                f"https://joinsafqa.com/search?q={asin}",
+            ]
+            for url in page_urls:
+                try:
+                    resp = requests.get(url, headers=base_headers, timeout=12)
+                    if resp.status_code != 200 or len(resp.text) < 500:
+                        continue
+                    soup = BeautifulSoup(resp.content, "lxml")
+                    text = soup.get_text(separator=" ")
+
+                    # __NEXT_DATA__ JSON (most reliable)
+                    for script in soup.find_all("script", id="__NEXT_DATA__"):
+                        try:
+                            nd_str = json.dumps(json.loads(script.string or ""))
+                            if asin not in nd_str:
+                                continue
+                            lj = re.search(r'"lowestPrice"\s*:\s*([\d.]+)', nd_str)
+                            hj = re.search(r'"highestPrice"\s*:\s*([\d.]+)', nd_str)
+                            if lj:
+                                result["lowest_price"] = float(lj.group(1))
+                                result["highest_price"] = float(hj.group(1)) if hj else float(lj.group(1))
+                                result["found"] = True
+                                result["url"] = url
+                                break
+                        except:
+                            pass
+
+                    if result["found"]:
+                        break
+
+                    # Inline script JSON
+                    for script in soup.find_all("script"):
+                        st = script.get_text()
+                        if asin not in st:
+                            continue
+                        lj = re.search(r'"lowestPrice"\s*:\s*([\d.]+)', st)
+                        hj = re.search(r'"highestPrice"\s*:\s*([\d.]+)', st)
+                        if lj:
+                            result["lowest_price"] = float(lj.group(1))
+                            result["highest_price"] = float(hj.group(1)) if hj else float(lj.group(1))
+                            result["found"] = True
+                            result["url"] = url
+                            break
+
+                    if result["found"]:
+                        break
+
+                    # Arabic/English price labels
+                    lm = re.search(r'(?:أقل|lowest|min)\s*(?:سعر|price)[^\d]*(\d[\d,]*)', text, re.IGNORECASE)
+                    hm = re.search(r'(?:أعلى|highest|max)\s*(?:سعر|price)[^\d]*(\d[\d,]*)', text, re.IGNORECASE)
+                    if lm:
+                        result["lowest_price"] = clean_price(lm.group(1))
+                        result["highest_price"] = clean_price(hm.group(1)) if hm else result["lowest_price"]
+                        if result["lowest_price"] > 0:
+                            result["found"] = True
+                            result["url"] = url
+                            break
+
+                    # Coupon codes (even if price not found)
+                    coupon_matches = re.findall(r'(?:code|coupon|كود|كوبون)[:\s]*([A-Z0-9]{4,20})', text, re.IGNORECASE)
+                    if coupon_matches:
+                        result["coupon_codes"] = list(set(coupon_matches))
+                except:
+                    continue
 
         if result["found"]:
             print(f"    [SAFQA] Result: Low={result['lowest_price']:,.0f} High={result['highest_price']:,.0f} Coupons={result['coupon_codes']}")

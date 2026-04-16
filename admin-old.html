@@ -1,0 +1,2159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DealHunter Egypt — Admin</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f4f5f7;color:#222;font-size:14px;}
+.topnav{background:#1a1a2e;padding:0 16px;display:flex;align-items:center;justify-content:space-between;height:52px;position:sticky;top:0;z-index:100;}
+.brand{font-size:15px;font-weight:700;color:#E24B4A;}
+.brand span{color:rgba(255,255,255,0.45);font-weight:400;font-size:12px;margin-left:6px;}
+.nav-links{display:flex;gap:2px;flex-wrap:wrap;}
+.nb{background:none;border:none;color:rgba(255,255,255,0.55);padding:7px 10px;border-radius:6px;cursor:pointer;font-size:11px;transition:all 0.15s;}
+.nb:hover{background:rgba(255,255,255,0.1);color:#fff;}
+.nb.active{background:#E24B4A;color:#fff;}
+.ts{font-size:10px;color:rgba(255,255,255,0.35);}
+.page{display:none;padding:18px;max-width:1300px;margin:0 auto;}
+.page.active{display:block;}
+/* STAT GRID */
+.sg{display:grid;gap:10px;margin-bottom:18px;}
+.sg-4{grid-template-columns:repeat(4,1fr);}
+.sg-5{grid-template-columns:repeat(5,1fr);}
+.sg-auto{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));}
+.sc{background:#fff;border-radius:11px;padding:13px 16px;border:0.5px solid #e8e8e8;}
+.sl{font-size:10px;color:#999;margin-bottom:3px;text-transform:uppercase;letter-spacing:0.4px;}
+.sv{font-size:20px;font-weight:600;color:#222;line-height:1.1;}
+.ss{font-size:10px;color:#aaa;margin-top:2px;}
+.sup{color:#3B6D11;}.sred{color:#E24B4A;}
+/* CARDS */
+.card{background:#fff;border-radius:11px;border:0.5px solid #e8e8e8;margin-bottom:14px;overflow:hidden;}
+.ch{padding:11px 15px;border-bottom:0.5px solid #f0f0f0;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;}
+.ct{font-size:13px;font-weight:600;color:#222;}
+.cb{padding:15px;}
+/* TABLE */
+table{width:100%;border-collapse:collapse;font-size:11px;}
+th{background:#f8f8f8;padding:8px 10px;text-align:left;color:#888;font-weight:500;font-size:10px;border-bottom:0.5px solid #eee;white-space:nowrap;}
+td{padding:8px 10px;border-bottom:0.5px solid #f5f5f5;color:#333;vertical-align:middle;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:#fafafa;}
+/* BADGES */
+.badge{display:inline-block;padding:2px 7px;border-radius:20px;font-size:9px;font-weight:500;white-space:nowrap;}
+.bg{background:#EAF3DE;color:#3B6D11;}
+.br{background:#FCEBEB;color:#A32D2D;}
+.bb{background:#E6F1FB;color:#185FA5;}
+.bo{background:#FAEEDA;color:#854F0B;}
+.bgr{background:#F1EFE8;color:#5F5E5A;}
+.bpu{background:#EEEDFE;color:#534AB7;}
+.bvi{background:#1a1a2e;color:#E24B4A;}
+/* BUTTONS */
+.btn{padding:5px 11px;border-radius:6px;font-size:11px;border:0.5px solid #ddd;background:#fff;cursor:pointer;color:#444;transition:all 0.15s;white-space:nowrap;}
+.btn:hover{background:#f5f5f5;}
+.btn-p{background:#E24B4A;color:#fff;border-color:#E24B4A;}
+.btn-p:hover{background:#c73b3a;}
+.btn-d{background:#FCEBEB;color:#A32D2D;border-color:#F7C1C1;}
+.btn-sm{padding:3px 7px;font-size:10px;}
+/* STATUS DOTS */
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:4px;flex-shrink:0;}
+.dg{background:#639922;}.dr{background:#E24B4A;}.dy{background:#EF9F27;}
+/* DEAL ELEMENTS */
+.dimg{width:34px;height:34px;border-radius:6px;object-fit:cover;background:#f5f5f5;}
+.dimp{width:34px;height:34px;border-radius:6px;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-size:14px;}
+.disc{background:#E24B4A;color:#fff;padding:2px 7px;border-radius:20px;font-size:9px;font-weight:600;}
+/* MODALS */
+.mo{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.45);display:none;align-items:center;justify-content:center;z-index:200;}
+.mo.show{display:flex;}
+.md{background:#fff;border-radius:14px;padding:20px;width:500px;max-width:94vw;max-height:90vh;overflow-y:auto;}
+.md h3{font-size:13px;font-weight:600;margin-bottom:13px;}
+.fg{margin-bottom:11px;}
+.fg label{display:block;font-size:10px;color:#888;margin-bottom:3px;}
+.fg input,.fg select,.fg textarea{width:100%;padding:7px 10px;border:0.5px solid #ddd;border-radius:7px;font-size:11px;outline:none;font-family:inherit;}
+.fg input:focus,.fg select:focus{border-color:#E24B4A;}
+.fg textarea{height:58px;resize:vertical;}
+.fg-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.ma{display:flex;gap:7px;justify-content:flex-end;margin-top:13px;}
+/* MISC */
+.loading{text-align:center;padding:30px;color:#aaa;font-size:11px;}
+.empty{text-align:center;padding:36px;color:#aaa;}
+.ei{font-size:26px;margin-bottom:8px;}
+.et{font-size:11px;line-height:1.5;}
+.sb{display:flex;gap:7px;margin-bottom:11px;align-items:center;flex-wrap:wrap;}
+.sb input{padding:7px 10px;border:0.5px solid #ddd;border-radius:7px;font-size:11px;flex:1;min-width:140px;outline:none;}
+.sb select{padding:7px 10px;border:0.5px solid #ddd;border-radius:7px;font-size:11px;outline:none;background:#fff;}
+.pt{width:100%;height:5px;background:#f0f0f0;border-radius:4px;overflow:hidden;}
+.pf{height:100%;border-radius:4px;}
+.log{background:#0f1117;color:#7ec8a4;font-family:monospace;font-size:10px;padding:11px;border-radius:9px;height:150px;overflow-y:auto;line-height:1.9;}
+.toast{position:fixed;bottom:18px;right:18px;background:#1a1a2e;color:#fff;padding:9px 15px;border-radius:9px;font-size:11px;opacity:0;transition:opacity 0.3s;z-index:999;pointer-events:none;max-width:280px;}
+.toast.show{opacity:1;}
+/* CATEGORY TABS */
+.cat-tabs{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px;}
+.cat-tab{padding:5px 12px;border-radius:20px;font-size:11px;cursor:pointer;border:0.5px solid #ddd;background:#fff;color:#666;transition:all 0.15s;}
+.cat-tab.active{background:#E24B4A;color:#fff;border-color:#E24B4A;}
+/* VERDICT BADGES */
+.v-genuine{background:#EAF3DE;color:#3B6D11;padding:3px 8px;border-radius:20px;font-size:9px;font-weight:600;}
+.v-suspicious{background:#FAEEDA;color:#854F0B;padding:3px 8px;border-radius:20px;font-size:9px;font-weight:600;}
+.v-fake{background:#FCEBEB;color:#A32D2D;padding:3px 8px;border-radius:20px;font-size:9px;font-weight:600;}
+.v-wait{background:#E6F1FB;color:#185FA5;padding:3px 8px;border-radius:20px;font-size:9px;font-weight:600;}
+.v-unknown{background:#F1EFE8;color:#5F5E5A;padding:3px 8px;border-radius:20px;font-size:9px;font-weight:600;}
+/* STARS */
+.stars{color:#EF9F27;font-size:11px;}
+/* CHECKER */
+.fdc-score{display:flex;align-items:center;justify-content:center;width:68px;height:68px;border-radius:50%;font-size:18px;font-weight:700;border:3px solid;flex-shrink:0;}
+.fdc-g{border-color:#639922;color:#3B6D11;background:#EAF3DE;}
+.fdc-y{border-color:#EF9F27;color:#854F0B;background:#FAEEDA;}
+.fdc-r{border-color:#E24B4A;color:#A32D2D;background:#FCEBEB;}
+.fdc-row{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:0.5px solid #f0f0f0;}
+.fdc-row:last-child{border-bottom:none;}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid #ddd;border-top-color:#E24B4A;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:5px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+@media(max-width:900px){.sg-4,.sg-5{grid-template-columns:1fr 1fr;}}
+@media(max-width:500px){.sg-4,.sg-5,.sg-auto{grid-template-columns:1fr 1fr;}}
+/* LOGIN PAGE */
+.login-container{position:fixed;top:0;left:0;width:100%;height:100%;background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);display:flex;align-items:center;justify-content:center;z-index:999;visibility:visible;opacity:1;transition:opacity 0.3s;}
+.login-container.hidden{visibility:hidden;opacity:0;pointer-events:none;}
+.login-box{background:#fff;border-radius:14px;padding:40px;width:360px;max-width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.3);}
+.login-box h2{font-size:24px;font-weight:600;margin-bottom:8px;color:#222;}
+.login-box p{font-size:13px;color:#666;margin-bottom:24px;}
+.login-form .fg{margin-bottom:16px;}
+.login-form label{display:block;font-size:12px;color:#888;margin-bottom:6px;font-weight:500;}
+.login-form input{width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:13px;outline:none;transition:border 0.2s;}
+.login-form input:focus{border-color:#E24B4A;}
+.login-btn{width:100%;padding:11px;background:#E24B4A;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px;transition:background 0.2s;}
+.login-btn:hover{background:#c73b3a;}
+.login-btn:disabled{background:#999;cursor:not-allowed;}
+.login-error{background:#FCEBEB;color:#A32D2D;padding:10px 12px;border-radius:6px;font-size:12px;margin-bottom:16px;display:none;border:0.5px solid #F7C1C1;}
+.login-error.show{display:block;}
+.login-spinner{display:inline-block;width:14px;height:14px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:spin 0.7s linear infinite;margin-right:6px;vertical-align:middle;}
+</style>
+</head>
+<body>
+
+<!-- LOGIN PAGE -->
+<div class="login-container" id="login-container">
+  <div class="login-box">
+    <h2>DealHunter Admin</h2>
+    <p>Sign in to manage your deals</p>
+    <div class="login-error" id="login-error"></div>
+    <form class="login-form" id="login-form" onsubmit="handleLogin(event)">
+      <div class="fg">
+        <label>Email Address</label>
+        <input type="email" id="login-email" placeholder="admin@example.com" required/>
+      </div>
+      <div class="fg">
+        <label>Password</label>
+        <input type="password" id="login-password" placeholder="••••••••" required/>
+      </div>
+      <button type="submit" class="login-btn" id="login-btn">Sign In</button>
+    </form>
+    <p style="text-align:center;margin-top:16px;font-size:12px;color:#999;">
+      Authorized users only<br/>
+      <a href="#" onclick="toggleSignup()" style="color:#E24B4A;text-decoration:none;">Create account</a>
+    </p>
+  </div>
+</div>
+
+<!-- SIGNUP PAGE (hidden by default) -->
+<div class="login-container hidden" id="signup-container">
+  <div class="login-box">
+    <h2>Create Admin Account</h2>
+    <p>First admin user (owner role)</p>
+    <div class="login-error" id="signup-error"></div>
+    <form class="login-form" id="signup-form" onsubmit="handleSignup(event)">
+      <div class="fg">
+        <label>Full Name</label>
+        <input type="text" id="signup-name" placeholder="Your Name" required/>
+      </div>
+      <div class="fg">
+        <label>Email Address</label>
+        <input type="email" id="signup-email" placeholder="admin@example.com" required/>
+      </div>
+      <div class="fg">
+        <label>Password (min 8 chars)</label>
+        <input type="password" id="signup-password" placeholder="••••••••" minlength="8" required/>
+      </div>
+      <button type="submit" class="login-btn" id="signup-btn">Create Account</button>
+    </form>
+    <p style="text-align:center;margin-top:16px;font-size:12px;color:#999;">
+      <a href="#" onclick="toggleSignup()" style="color:#E24B4A;text-decoration:none;">Back to Login</a>
+    </p>
+  </div>
+</div>
+
+<div class="topnav" id="topnav">
+  <div class="brand">DealHunter <span>Admin</span></div>
+  <div class="nav-links">
+    <button class="nb active" onclick="showPage('monitor',this)">Monitor</button>
+    <button class="nb" onclick="showPage('deals',this)">Deals</button>
+    <button class="nb" onclick="showPage('sources',this)">Sources</button>
+    <button class="nb" onclick="showPage('users',this)">Users</button>
+    <button class="nb" onclick="showPage('notifications',this)">Notifications</button>
+    <button class="nb" onclick="showPage('add-deal',this)">+ Add Deal</button>
+    <button class="nb" onclick="showPage('checker',this)">Fake Checker</button>
+    <button class="nb" onclick="showPage('competitors',this)">Competitors</button>
+    <button class="nb" onclick="showPage('team',this)">👥 Team</button>
+  </div>
+  <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+    <a href="https://dealhunter-scraper.onrender.com/" target="_blank"
+       style="background:#E24B4A;color:#fff;padding:5px 11px;border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap;">
+      ↗ View Site
+    </a>
+    <div style="font-size:11px;color:rgba(255,255,255,0.6);border-left:0.5px solid rgba(255,255,255,0.2);padding-left:8px;">
+      <div id="admin-name" style="color:#fff;font-weight:500;margin-bottom:2px;">—</div>
+      <div id="admin-role" style="font-size:10px;color:rgba(255,255,255,0.5);">—</div>
+    </div>
+    <button class="nb" onclick="logout()" title="Logout" style="color:#E24B4A;">⎙ Logout</button>
+    <div class="ts" id="ts">—</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ══ SOURCE MODAL ══ -->
+<div class="mo" id="src-modal">
+  <div class="md">
+    <h3 id="src-modal-title">Add New Scraping Source</h3>
+    <div class="fg"><label>Site Name (English) *</label><input type="text" id="sn-name" placeholder="e.g. Jumia Egypt"/></div>
+    <div class="fg"><label>Site Name (Arabic)</label><input type="text" id="sn-name-ar" placeholder="e.g. جوميا مصر" dir="rtl"/></div>
+    <div class="fg"><label>Base URL *</label><input type="text" id="sn-url" placeholder="https://www.jumia.com.eg"/></div>
+    <div class="fg-row">
+      <div class="fg"><label>Status</label>
+        <select id="sn-status"><option value="active">Active</option><option value="paused">Paused</option><option value="draft">Draft</option></select>
+      </div>
+      <div class="fg"><label>Scrape every</label>
+        <select id="sn-freq"><option value="3">3 min</option><option value="5">5 min</option><option value="10">10 min</option><option value="30">30 min</option></select>
+      </div>
+    </div>
+    <div class="fg"><label>Notes</label><textarea id="sn-notes" placeholder="Any notes about this source..."></textarea></div>
+    <div class="ma">
+      <button class="btn" onclick="closeSrcModal()">Cancel</button>
+      <button class="btn btn-p" id="sn-save-btn" onclick="saveSource()">Save Source</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ NOTIFICATION MODAL ══ -->
+<div class="mo" id="notif-modal">
+  <div class="md">
+    <h3>Send Notification / إرسال إشعار</h3>
+    <div class="fg-row">
+      <div class="fg"><label>Title (English)</label><input type="text" id="nt-title" placeholder="e.g. Flash Sale!"/></div>
+      <div class="fg"><label>Title (Arabic)</label><input type="text" id="nt-title-ar" placeholder="مثال: تخفيضات!" dir="rtl"/></div>
+    </div>
+    <div class="fg"><label>Message (English)</label><textarea id="nt-msg" placeholder="Up to 60% off today!"></textarea></div>
+    <div class="fg"><label>Message (Arabic)</label><textarea id="nt-msg-ar" placeholder="خصم حتى 60% اليوم!" dir="rtl"></textarea></div>
+    <div class="fg-row">
+      <div class="fg"><label>Target Users</label>
+        <select id="nt-target">
+          <option value="all">All Users / كل المستخدمين</option>
+          <option value="vip">VIP Only / VIP فقط</option>
+          <option value="premium">Premium Only / مميز فقط</option>
+          <option value="trial">Trial Users / مستخدمو التجربة</option>
+          <option value="free">Free Users / مجاني</option>
+        </select>
+      </div>
+      <div class="fg"><label>Channel / قناة الإرسال</label>
+        <select id="nt-channel">
+          <option value="in_app">In-App (Free) / داخل التطبيق</option>
+          <option value="email">Email / بريد إلكتروني</option>
+          <option value="sms">SMS / رسالة نصية</option>
+          <option value="all_channels">All Channels / كل القنوات</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg"><label>Specific User (optional — leave blank for group)</label>
+      <input type="text" id="nt-user" placeholder="Email or phone number of specific user..."/>
+    </div>
+    <div class="ma">
+      <button class="btn" onclick="document.getElementById('notif-modal').classList.remove('show')">Cancel</button>
+      <button class="btn btn-p" onclick="saveNotif()">Send Notification</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ ADD USER MODAL ══ -->
+<div class="mo" id="user-modal">
+  <div class="md">
+    <h3>Add User Manually / إضافة مستخدم يدوياً</h3>
+    <div class="fg-row">
+      <div class="fg"><label>Email Address</label><input type="email" id="nu-email" placeholder="user@email.com"/></div>
+      <div class="fg"><label>Phone Number</label><input type="tel" id="nu-phone" placeholder="+20 1xx xxx xxxx"/></div>
+    </div>
+    <div class="fg"><label>Full Name</label><input type="text" id="nu-name" placeholder="Full name..."/></div>
+    <div class="fg-row">
+      <div class="fg"><label>User Tier</label>
+        <select id="nu-tier">
+          <option value="registered_free">Free / مجاني</option>
+          <option value="trial">Trial / تجريبي</option>
+          <option value="premium">Premium / مميز</option>
+          <option value="vip">VIP</option>
+        </select>
+      </div>
+      <div class="fg"><label>Daily Deal Limit</label>
+        <select id="nu-limit">
+          <option value="50">50 deals (Free)</option>
+          <option value="100">100 deals (Trial)</option>
+          <option value="500">500 deals (Premium)</option>
+          <option value="99999">Unlimited (VIP)</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg"><label>Notes</label><textarea id="nu-notes" placeholder="Any admin notes about this user..."></textarea></div>
+    <div class="ma">
+      <button class="btn" onclick="document.getElementById('user-modal').classList.remove('show')">Cancel</button>
+      <button class="btn btn-p" onclick="saveUser()">Add User</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- PAGE: MONITOR -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="page active" id="page-monitor">
+
+  <!-- Dynamic stat cards — shows ALL sources -->
+  <div class="sg sg-auto" id="monitor-stats">
+    <div class="sc"><div class="sl">Total Deals</div><div class="sv" id="s-total">—</div><div class="ss">all sources</div></div>
+    <div class="sc"><div class="sl">Total Users</div><div class="sv" id="s-users">—</div><div class="ss">registered</div></div>
+    <div class="sc"><div class="sl">Total Clicks</div><div class="sv" id="s-clicks">—</div><div class="ss">on deals</div></div>
+    <div class="sc"><div class="sl">Buy Clicks</div><div class="sv" id="s-buys">—</div><div class="ss">went to buy</div></div>
+  </div>
+
+  <!-- Per-source stat cards loaded dynamically -->
+  <div class="sg sg-auto" id="source-stats"></div>
+
+  <div class="card">
+    <div class="ch">
+      <div class="ct">Scraper Status — All Sources / حالة جميع المصادر</div>
+      <button class="btn btn-p btn-sm" onclick="loadMonitor()">Refresh / تحديث</button>
+    </div>
+    <div class="cb" style="padding:0;">
+      <table><thead><tr><th>Site / الموقع</th><th>URL</th><th>Status / الحالة</th><th>Deals / صفقات</th><th>Last Deal / آخر صفقة</th><th>Fake Check</th></tr></thead>
+      <tbody id="scraper-tb"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <!-- Quick Links -->
+  <div class="card" style="margin-bottom:14px;">
+    <div class="ch"><div class="ct">Quick Links / روابط سريعة</div></div>
+    <div class="cb" style="display:flex;flex-wrap:wrap;gap:8px;padding:12px 15px;">
+      <a href="https://dealhunter-scraper.onrender.com/" target="_blank" class="btn btn-p" style="text-decoration:none;">↗ Live Site</a>
+      <a href="https://dashboard.render.com/web/srv-d7cnfijeo5us73fekul0/logs?r=1h" target="_blank" class="btn" style="text-decoration:none;">📋 Render Logs</a>
+      <a href="https://dashboard.render.com/web/srv-d7cnfijeo5us73fekul0" target="_blank" class="btn" style="text-decoration:none;">⚙️ Render Dashboard</a>
+      <a href="https://console.firebase.google.com/u/0/project/dealhunter-egypt-70d29/firestore/databases/-default-/data/~2Fdeals" target="_blank" class="btn" style="text-decoration:none;">🔥 Firebase Deals</a>
+      <a href="https://dashboard.uptimerobot.com/monitors/802820944" target="_blank" class="btn" style="text-decoration:none;">🟢 UptimeRobot</a>
+      <a href="https://github.com/Mdenana4/dealhunter-scraper" target="_blank" class="btn" style="text-decoration:none;">💻 GitHub Repo</a>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+    <div class="card">
+      <div class="ch"><div class="ct">Deals by Category / حسب الفئة</div></div>
+      <div class="cb" id="cat-chart"><div class="loading">Loading...</div></div>
+    </div>
+    <div class="card">
+      <div class="ch"><div class="ct">Deals by Site / حسب الموقع</div></div>
+      <div class="cb" id="site-chart"><div class="loading">Loading...</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="ch">
+      <div class="ct">Latest 10 Deals / أحدث 10 صفقات</div>
+      <button class="btn btn-sm" onclick="showPage('deals',document.querySelectorAll('.nb')[1])">View All / عرض الكل</button>
+    </div>
+    <div class="cb" style="padding:0;">
+      <table><thead><tr><th>Product / المنتج</th><th>Site / الموقع</th><th>Category / الفئة</th><th>Discount / خصم</th><th>Price / السعر</th><th>Verdict / الحكم</th><th>Time / الوقت</th></tr></thead>
+      <tbody id="latest-tb"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody></table>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- PAGE: DEALS -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="page" id="page-deals">
+
+  <!-- Category filter tabs -->
+  <div class="cat-tabs" id="cat-tabs">
+    <div class="cat-tab active" onclick="setCat('all',this)">All / الكل</div>
+    <div class="cat-tab" onclick="setCat('electronics',this)">Electronics / إلكترونيات</div>
+    <div class="cat-tab" onclick="setCat('fashion',this)">Fashion / موضة</div>
+    <div class="cat-tab" onclick="setCat('home',this)">Home / منزل</div>
+    <div class="cat-tab" onclick="setCat('beauty',this)">Beauty / جمال</div>
+    <div class="cat-tab" onclick="setCat('sports',this)">Sports / رياضة</div>
+    <div class="cat-tab" onclick="setCat('toys',this)">Toys / ألعاب</div>
+    <div class="cat-tab" onclick="setCat('grocery',this)">Grocery / بقالة</div>
+    <div class="cat-tab" onclick="setCat('books',this)">Books / كتب</div>
+    <div class="cat-tab" onclick="setCat('automotive',this)">Auto / سيارات</div>
+    <div class="cat-tab" onclick="setCat('general',this)">General / عام</div>
+  </div>
+
+  <div class="sb">
+    <input type="text" id="ds" placeholder="Search / بحث..." oninput="filterDeals()"/>
+    <select id="df-site" onchange="filterDeals()">
+      <option value="all">All Sites / كل المواقع</option>
+      <option value="amazon_eg">Amazon Egypt</option>
+      <option value="noon_eg">Noon Egypt</option>
+      <option value="jumia_eg">Jumia Egypt</option>
+      <option value="btech_eg">B.Tech Egypt</option>
+      <option value="carrefour_eg">Carrefour Egypt</option>
+      <option value="sharaf_dg_eg">Sharaf DG Egypt</option>
+      <option value="hyperone_eg">HyperOne Egypt</option>
+      <option value="sahla_eg">Sahla Egypt</option>
+    </select>
+    <select id="df-disc" onchange="filterDeals()">
+      <option value="0">All Discounts</option>
+      <option value="40">40%+</option>
+      <option value="50">50%+</option>
+      <option value="60">60%+</option>
+      <option value="70">70%+</option>
+    </select>
+    <select id="df-verdict" onchange="filterDeals()">
+      <option value="all">All Verdicts</option>
+      <option value="GENUINE">Genuine ✅</option>
+      <option value="SUSPICIOUS">Suspicious ⚠️</option>
+      <option value="WAIT">Wait ⏳</option>
+      <option value="FAKE">Fake ❌</option>
+    </select>
+    <span id="dc" style="font-size:10px;color:#999;white-space:nowrap;"></span>
+  </div>
+
+  <div class="card"><div class="cb" style="padding:0;">
+    <table><thead><tr>
+      <th style="width:36px;"></th>
+      <th>Product / المنتج</th>
+      <th>Site</th>
+      <th>Cat.</th>
+      <th>Discount</th>
+      <th>Price</th>
+      <th>Original</th>
+      <th>Rating</th>
+      <th>Kanbkam Verdict</th>
+      <th>Lowest Ever</th>
+      <th>Status</th>
+      <th>Clicks</th>
+      <th>Actions</th>
+    </tr></thead>
+    <tbody id="deals-tb"><tr><td colspan="13" class="loading">Loading...</td></tr></tbody></table>
+  </div></div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- PAGE: SOURCES -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="page" id="page-sources">
+  <div class="ch" style="background:transparent;border:none;padding:0 0 12px;">
+    <div style="font-size:12px;color:#888;">All added sources automatically appear in Monitor Scraper Status and are scraped every cycle. / جميع المصادر المضافة تظهر تلقائياً في المراقبة وتُجمع بيانتها في كل دورة.</div>
+    <button class="btn btn-p" onclick="openSrcModal()">+ Add New Site</button>
+  </div>
+  <div class="card"><div class="cb" style="padding:0;">
+    <table><thead><tr><th>Site / الموقع</th><th>URL</th><th>Status</th><th>Freq.</th><th>Deals</th><th>Last Scraped</th><th>Notes</th><th>Actions</th></tr></thead>
+    <tbody id="src-tb"><tr><td colspan="8" class="loading">Loading...</td></tr></tbody></table>
+  </div></div>
+  <div class="card">
+    <div class="ch"><div class="ct">Recent Activity Log / سجل النشاط الأخير</div></div>
+    <div class="cb"><div class="log" id="act-log">Loading...</div></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- PAGE: USERS -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="page" id="page-users">
+
+  <div class="sg sg-5" style="margin-bottom:14px;">
+    <div class="sc"><div class="sl">Total Users</div><div class="sv" id="u-total">—</div><div class="ss">all accounts</div></div>
+    <div class="sc"><div class="sl">Free</div><div class="sv" id="u-free">—</div><div class="ss">registered_free</div></div>
+    <div class="sc"><div class="sl">Trial</div><div class="sv" id="u-trial">—</div><div class="ss">7-day trial</div></div>
+    <div class="sc"><div class="sl">Premium</div><div class="sv" id="u-prem">—</div><div class="ss sup">paying</div></div>
+    <div class="sc"><div class="sl">VIP</div><div class="sv" id="u-vip">—</div><div class="ss sred">top tier</div></div>
+  </div>
+
+  <!-- Conversion stats -->
+  <div class="card">
+    <div class="ch"><div class="ct">Conversion Rates / معدلات التحويل</div></div>
+    <div class="cb" id="conv-stats"><div class="loading">Loading...</div></div>
+  </div>
+
+  <div class="ch" style="background:transparent;border:none;padding:0 0 10px;">
+    <div style="font-size:11px;color:#888;"></div>
+    <div style="display:flex;gap:7px;">
+      <button class="btn btn-p" onclick="document.getElementById('user-modal').classList.add('show')">+ Add User Manually</button>
+      <button class="btn" onclick="loadUsers()">Refresh</button>
+    </div>
+  </div>
+
+  <div class="card"><div class="cb" style="padding:0;">
+    <table><thead><tr>
+      <th>User ID / المستخدم</th>
+      <th>Name</th>
+      <th>Email / Phone</th>
+      <th>Current Tier / المستوى</th>
+      <th>Previous Tier</th>
+      <th>Daily Limit</th>
+      <th>Registered / تسجيل</th>
+      <th>Last Login</th>
+      <th>Upgraded</th>
+      <th>Actions</th>
+    </tr></thead>
+    <tbody id="users-tb"><tr><td colspan="10" class="loading">Loading...</td></tr></tbody></table>
+  </div></div>
+
+  <!-- Tier change history -->
+  <div class="card">
+    <div class="ch"><div class="ct">Tier Change History / سجل تغيير المستوى</div></div>
+    <div class="cb" style="padding:0;">
+      <table><thead><tr><th>User / المستخدم</th><th>From / من</th><th>To / إلى</th><th>Date / التاريخ</th><th>Method</th></tr></thead>
+      <tbody id="tier-history-tb"><tr><td colspan="5" class="loading">Loading...</td></tr></tbody></table>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- PAGE: NOTIFICATIONS -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="page" id="page-notifications">
+  <div class="ch" style="background:transparent;border:none;padding:0 0 12px;">
+    <div style="font-size:12px;color:#888;">Send to app, email, or SMS. Saved to Firebase for the app to deliver. / أرسل للتطبيق أو البريد أو SMS.</div>
+    <button class="btn btn-p" onclick="document.getElementById('notif-modal').classList.add('show')">+ Send Notification</button>
+  </div>
+  <div class="card"><div class="cb" style="padding:0;">
+    <table><thead><tr><th>Title / العنوان</th><th>Message / الرسالة</th><th>Target / الهدف</th><th>Channel / القناة</th><th>Sent / الوقت</th></tr></thead>
+    <tbody id="notif-tb"><tr><td colspan="5" class="loading">Loading...</td></tr></tbody></table>
+  </div></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- PAGE: ADD DEAL -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="page" id="page-add-deal">
+  <div style="max-width:640px;margin:0 auto;">
+    <div class="card">
+      <div class="ch">
+        <div class="ct">Add Deal Manually / إضافة صفقة يدوياً</div>
+        <div style="font-size:10px;color:#888;">Works for ANY site — Amazon, Noon, Jumia, or any other / يعمل لأي موقع</div>
+      </div>
+      <div class="cb">
+        <div class="fg"><label>Product URL * — paste from browser address bar / رابط المنتج</label>
+          <div style="display:flex;gap:7px;">
+            <input type="text" id="m-url" placeholder="https://www.amazon.eg/dp/... or any product link" style="flex:1;"/>
+            <button class="btn" onclick="autoDetectSite()">Detect Site</button>
+          </div>
+        </div>
+        <div class="fg-row">
+          <div class="fg"><label>Site *</label>
+            <select id="m-site">
+              <option value="amazon_eg">Amazon Egypt</option>
+              <option value="noon_eg">Noon Egypt</option>
+              <option value="jumia_eg">Jumia Egypt</option>
+              <option value="other">Other / أخرى</option>
+            </select>
+          </div>
+          <div class="fg"><label>Category *</label>
+            <select id="m-cat">
+              <option value="electronics">Electronics / إلكترونيات</option>
+              <option value="fashion">Fashion / موضة</option>
+              <option value="home">Home / منزل</option>
+              <option value="beauty">Beauty / جمال</option>
+              <option value="sports">Sports / رياضة</option>
+              <option value="toys">Toys / ألعاب</option>
+              <option value="automotive">Automotive / سيارات</option>
+              <option value="grocery">Grocery / بقالة</option>
+              <option value="books">Books / كتب</option>
+              <option value="general">General / عام</option>
+            </select>
+          </div>
+        </div>
+        <div class="fg"><label>Product Title (English) *</label>
+          <input type="text" id="m-title" placeholder="e.g. Sony WH-CH720N Noise Cancelling Headphones"/>
+        </div>
+        <div class="fg"><label>Product Title (Arabic) / اسم المنتج بالعربية</label>
+          <input type="text" id="m-title-ar" placeholder="مثال: سماعات سوني بإلغاء الضوضاء" dir="rtl"/>
+        </div>
+        <div class="fg-row">
+          <div class="fg"><label>Current Sale Price (EGP) * / السعر الحالي</label>
+            <input type="number" id="m-price" oninput="calcDiscount()" placeholder="4731"/>
+          </div>
+          <div class="fg"><label>Original Price (EGP) * / السعر الأصلي</label>
+            <input type="number" id="m-orig" oninput="calcDiscount()" placeholder="8640"/>
+          </div>
+        </div>
+        <div id="dp" style="display:none;border-radius:8px;padding:10px;margin-bottom:11px;">
+          <div style="font-size:12px;font-weight:600;" id="dp-text">—</div>
+          <div style="font-size:10px;margin-top:2px;color:#666;" id="dp-sub">—</div>
+        </div>
+        <div class="fg-row">
+          <div class="fg"><label>Rating (0-5) / التقييم</label>
+            <input type="number" id="m-rating" min="0" max="5" step="0.1" placeholder="4.5"/>
+          </div>
+          <div class="fg"><label>Review Count / عدد التقييمات</label>
+            <input type="number" id="m-reviews" placeholder="1250"/>
+          </div>
+        </div>
+        <div class="fg"><label>Product Image URL / رابط صورة المنتج (optional)</label>
+          <input type="text" id="m-img" placeholder="Right-click product image → Copy image address"/>
+        </div>
+        <div class="fg"><label>Coupon Code / كود الخصم (optional)</label>
+          <input type="text" id="m-coupon" placeholder="e.g. SAVE20 or خصم20"/>
+        </div>
+        <button class="btn btn-p" style="width:100%;padding:10px;font-size:12px;" onclick="addManualDeal()">
+          Save Deal + Auto-Check Kanbkam / حفظ + فحص كنبكام تلقائياً
+        </button>
+        <div style="margin-top:11px;padding:10px;background:#f8f8f8;border-radius:7px;font-size:10px;color:#888;line-height:1.7;">
+          <strong style="color:#444;">Image URL / رابط الصورة:</strong> Right-click product image → "Copy image address" → Paste above.<br>
+          <strong style="color:#444;">Kanbkam:</strong> We automatically check the real price history for Amazon products.
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="ch"><div class="ct">Recently Added / المضافة مؤخراً</div></div>
+      <div class="cb" style="padding:0;">
+        <table><thead><tr><th>Product</th><th>Discount</th><th>Price</th><th>Site</th><th>Verdict</th><th>Action</th></tr></thead>
+        <tbody id="manual-tb"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody></table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- PAGE: FAKE CHECKER -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="page" id="page-checker">
+  <div style="max-width:700px;margin:0 auto;">
+    <div class="card">
+      <div class="ch">
+        <div class="ct">Fake Discount Checker — كاشف الخصم المزيف</div>
+        <div style="font-size:10px;color:#888;">Powered by Kanbkam.com + local analysis / مدعوم من كنبكام</div>
+      </div>
+      <div class="cb">
+        <!-- URL method -->
+        <div style="background:#E6F1FB;border-radius:9px;padding:13px;margin-bottom:13px;">
+          <div style="font-size:12px;font-weight:600;color:#185FA5;margin-bottom:6px;">Paste Product URL — الصق رابط المنتج (Automatic)</div>
+          <div style="font-size:10px;color:#555;margin-bottom:9px;">Works for Amazon, Noon, Jumia, or any site / يعمل لأي موقع</div>
+          <div style="display:flex;gap:7px;">
+            <input type="text" id="c-url" placeholder="https://www.amazon.eg/dp/B0BS1QCFHX..." style="flex:1;padding:8px 11px;border:0.5px solid #b5d4f4;border-radius:7px;font-size:11px;outline:none;"/>
+            <button class="btn btn-p" onclick="analyzeFromUrl()">Analyze / تحليل</button>
+          </div>
+          <div id="url-status" style="font-size:10px;color:#888;margin-top:5px;display:none;"></div>
+        </div>
+        <!-- Manual method -->
+        <div style="background:#f8f8f8;border-radius:9px;padding:13px;margin-bottom:11px;">
+          <div style="font-size:12px;font-weight:600;color:#444;margin-bottom:6px;">Or Enter Manually — أو أدخل يدوياً</div>
+          <div class="fg"><label>Product Title (optional)</label><input type="text" id="c-title" placeholder="e.g. Sony WH-CH720N Headphones"/></div>
+          <div class="fg-row">
+            <div class="fg"><label>Current Sale Price (EGP) / السعر الحالي *</label><input type="number" id="c-price" placeholder="4731"/></div>
+            <div class="fg"><label>Original / Was Price (EGP) / السعر الأصلي *</label><input type="number" id="c-orig" placeholder="8640"/></div>
+          </div>
+          <div class="fg-row">
+            <div class="fg"><label>Category / الفئة</label>
+              <select id="c-cat">
+                <option value="electronics">Electronics / إلكترونيات</option>
+                <option value="fashion">Fashion / موضة</option>
+                <option value="home">Home / منزل</option>
+                <option value="beauty">Beauty / جمال</option>
+                <option value="sports">Sports / رياضة</option>
+                <option value="toys">Toys / ألعاب</option>
+                <option value="grocery">Grocery / بقالة</option>
+                <option value="books">Books / كتب</option>
+                <option value="general">General / عام</option>
+              </select>
+            </div>
+            <div class="fg"><label>Platform / المنصة</label>
+              <select id="c-platform">
+                <option value="amazon_eg">Amazon Egypt</option>
+                <option value="noon_eg">Noon Egypt</option>
+                <option value="jumia_eg">Jumia Egypt</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          </div>
+          <div class="fg"><label>Notes (optional) / ملاحظات اختيارية</label>
+            <textarea id="c-notes" placeholder="e.g. I saw this last week for EGP 28,000. Or: This appeared during Black Friday week..."></textarea>
+          </div>
+          <button class="btn btn-p" style="width:100%;padding:9px;" onclick="runChecker()">Analyze / تحليل</button>
+        </div>
+      </div>
+    </div>
+    <div id="checker-result" style="display:none;">
+      <div class="card">
+        <div class="ch">
+          <div class="ct">Analysis Result / نتيجة التحليل</div>
+          <button class="btn btn-sm btn-p" onclick="saveCheckerResult()">Save to DB / حفظ</button>
+        </div>
+        <div class="cb" id="checker-output"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- PAGE: COMPETITORS -->
+<!-- ═══════════════════════════════════════════════ -->
+<div class="page" id="page-competitors">
+  <div class="card">
+    <div class="ch"><div class="ct">Competitor Apps & Sites — المنافسون / What They Do vs. What We Do</div></div>
+    <div class="cb" id="competitors-content">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;">
+
+        <div style="border:0.5px solid #e8e8e8;border-radius:10px;padding:14px;">
+          <div style="font-weight:600;font-size:13px;margin-bottom:3px;">CamelCamelCamel</div>
+          <div style="font-size:10px;color:#888;margin-bottom:8px;">camelcamelcamel.com — Amazon price tracker</div>
+          <div style="font-size:11px;color:#444;line-height:1.7;margin-bottom:8px;">Tracks Amazon price history. Shows price charts. Sends email alerts. Desktop-only. No mobile app. No Egypt focus. Free only.</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">
+            <span class="badge bg">Price History</span><span class="badge bg">Email Alerts</span><span class="badge bgr">Desktop Only</span><span class="badge bgr">No Egypt</span>
+          </div>
+          <div style="font-size:10px;color:#888;"><strong>Our Advantage:</strong> Mobile app + Egypt focus + Arabic language + multiple stores</div>
+        </div>
+
+        <div style="border:0.5px solid #e8e8e8;border-radius:10px;padding:14px;">
+          <div style="font-weight:600;font-size:13px;margin-bottom:3px;">Honey (by PayPal)</div>
+          <div style="font-size:10px;color:#888;margin-bottom:8px;">joinhoney.com — Browser extension</div>
+          <div style="font-size:11px;color:#444;line-height:1.7;margin-bottom:8px;">Auto-applies coupon codes at checkout. Works on hundreds of sites. Browser extension only. Available worldwide. Free. No mobile app. No push notifications.</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">
+            <span class="badge bg">Coupon Codes</span><span class="badge bg">Auto-Apply</span><span class="badge bgr">Browser Only</span><span class="badge bgr">No Push Notif</span>
+          </div>
+          <div style="font-size:10px;color:#888;"><strong>Our Advantage:</strong> Mobile push notifications + Kanbkam fake checker + Egypt-specific</div>
+        </div>
+
+        <div style="border:0.5px solid #e8e8e8;border-radius:10px;padding:14px;">
+          <div style="font-weight:600;font-size:13px;margin-bottom:3px;">Keepa</div>
+          <div style="font-size:10px;color:#888;margin-bottom:8px;">keepa.com — Amazon price tracker (global)</div>
+          <div style="font-size:11px;color:#444;line-height:1.7;margin-bottom:8px;">Best price history tool for Amazon globally. Shows detailed charts. Has mobile app. Supports Amazon Egypt. Free tier limited. €15/month for full access. Very technical interface.</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">
+            <span class="badge bg">Price History</span><span class="badge bg">Mobile App</span><span class="badge bg">Amazon Egypt</span><span class="badge br">Paid €15/mo</span>
+          </div>
+          <div style="font-size:10px;color:#888;"><strong>Our Advantage:</strong> Arabic language + EGP pricing + Noon/Jumia support + simpler UX + local focus</div>
+        </div>
+
+        <div style="border:0.5px solid #e8e8e8;border-radius:10px;padding:14px;">
+          <div style="font-weight:600;font-size:13px;margin-bottom:3px;">Slickdeals</div>
+          <div style="font-size:10px;color:#888;margin-bottom:8px;">slickdeals.net — Community deals (USA)</div>
+          <div style="font-size:11px;color:#444;line-height:1.7;margin-bottom:8px;">User-submitted deals. Large community votes on deals. Push notifications. Mobile app. USA-only. English only. No price history verification. No Egypt.</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">
+            <span class="badge bg">Community</span><span class="badge bg">Mobile App</span><span class="badge bgr">USA Only</span><span class="badge bgr">No Egypt</span>
+          </div>
+          <div style="font-size:10px;color:#888;"><strong>Our Advantage:</strong> Automated scraping + Kanbkam verification + Egypt + Arabic</div>
+        </div>
+
+        <div style="border:0.5px solid #e8e8e8;border-radius:10px;padding:14px;">
+          <div style="font-weight:600;font-size:13px;margin-bottom:3px;">Kanbkam.com</div>
+          <div style="font-size:10px;color:#888;margin-bottom:8px;">kanbkam.com — Egyptian price tracker</div>
+          <div style="font-size:11px;color:#444;line-height:1.7;margin-bottom:8px;">Only Egyptian competitor. Tracks Amazon Egypt price history. Shows lowest/highest prices. Arabic first. Website only — no mobile app. No push notifications. No multi-store. Free.</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">
+            <span class="badge bg">Egypt Focus</span><span class="badge bg">Arabic</span><span class="badge bg">Price History</span><span class="badge bgr">Web Only</span><span class="badge bgr">Amazon Only</span>
+          </div>
+          <div style="font-size:10px;color:#888;"><strong>Our Advantage:</strong> Mobile app + push notifications + Noon/Jumia + instant alerts + Kanbkam integration</div>
+        </div>
+
+        <div style="border:0.5px solid #e8e8e8;border-radius:10px;padding:14px;">
+          <div style="font-weight:600;font-size:13px;margin-bottom:3px;">YallaCompare</div>
+          <div style="font-size:10px;color:#888;margin-bottom:8px;">yallacompare.com — Middle East comparison</div>
+          <div style="font-size:11px;color:#444;line-height:1.7;margin-bottom:8px;">Price comparison for financial products, insurance, and some electronics in UAE/Saudi/Egypt. Not focused on deals. More financial products than shopping deals.</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">
+            <span class="badge bg">Middle East</span><span class="badge bg">Arabic</span><span class="badge bgr">Financial Focus</span><span class="badge bgr">No Push</span>
+          </div>
+          <div style="font-size:10px;color:#888;"><strong>Our Advantage:</strong> Shopping deals focus + fake checker + mobile app</div>
+        </div>
+
+        <div style="border:0.5px solid #e8e8e8;border-radius:10px;padding:14px;border-color:#E24B4A;background:#fff9f9;">
+          <div style="font-weight:600;font-size:13px;margin-bottom:3px;color:#E24B4A;">DealHunter Egypt ← YOU</div>
+          <div style="font-size:10px;color:#888;margin-bottom:8px;">Your app — unique combination</div>
+          <div style="font-size:11px;color:#444;line-height:1.7;margin-bottom:8px;">The only Egyptian app combining: mobile-first + multiple stores (Amazon + Noon + Jumia + any site) + Kanbkam fake discount checker + Arabic/English + push notifications + Trial/Premium/VIP tiers.</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">
+            <span class="badge bg">Mobile App</span><span class="badge bg">Egypt Focus</span><span class="badge bg">Multi-Store</span><span class="badge bg">Kanbkam Check</span><span class="badge bg">Arabic + English</span><span class="badge bg">Push Notif</span><span class="badge bo">Unique in Egypt</span>
+          </div>
+          <div style="font-size:10px;color:#3B6D11;font-weight:500;">✅ No direct competitor in Egypt with this exact combination</div>
+        </div>
+
+      </div>
+
+      <!-- Feature comparison table -->
+      <div style="margin-top:18px;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:10px;">Feature Comparison / مقارنة الميزات</div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr>
+              <th>Feature / الميزة</th>
+              <th>DealHunter 🏆</th>
+              <th>Kanbkam</th>
+              <th>CamelCamelCamel</th>
+              <th>Keepa</th>
+              <th>Honey</th>
+              <th>Slickdeals</th>
+            </tr></thead>
+            <tbody>
+              <tr><td>Mobile App</td><td><span class="badge bg">✅ Yes</span></td><td><span class="badge br">❌ No</span></td><td><span class="badge br">❌ No</span></td><td><span class="badge bg">✅ Yes</span></td><td><span class="badge br">❌ No</span></td><td><span class="badge bg">✅ Yes</span></td></tr>
+              <tr><td>Egypt Focus</td><td><span class="badge bg">✅ Yes</span></td><td><span class="badge bg">✅ Yes</span></td><td><span class="badge br">❌ No</span></td><td><span class="badge bo">⚠️ Partial</span></td><td><span class="badge br">❌ No</span></td><td><span class="badge br">❌ No</span></td></tr>
+              <tr><td>Arabic Language</td><td><span class="badge bg">✅ Yes</span></td><td><span class="badge bg">✅ Yes</span></td><td><span class="badge br">❌ No</span></td><td><span class="badge br">❌ No</span></td><td><span class="badge br">❌ No</span></td><td><span class="badge br">❌ No</span></td></tr>
+              <tr><td>Push Notifications</td><td><span class="badge bg">✅ Yes</span></td><td><span class="badge br">❌ No</span></td><td><span class="badge bo">Email only</span></td><td><span class="badge bg">✅ Yes</span></td><td><span class="badge br">❌ No</span></td><td><span class="badge bg">✅ Yes</span></td></tr>
+              <tr><td>Fake Discount Check</td><td><span class="badge bg">✅ Auto</span></td><td><span class="badge bo">Manual</span></td><td><span class="badge bo">Manual</span></td><td><span class="badge bo">Manual</span></td><td><span class="badge br">❌ No</span></td><td><span class="badge br">❌ No</span></td></tr>
+              <tr><td>Multi-Store (Noon+)</td><td><span class="badge bg">✅ Yes</span></td><td><span class="badge br">❌ Amazon only</span></td><td><span class="badge br">❌ Amazon only</span></td><td><span class="badge br">❌ Amazon only</span></td><td><span class="badge bg">✅ Many</span></td><td><span class="badge bg">✅ Many</span></td></tr>
+              <tr><td>Coupon Codes</td><td><span class="badge bo">Coming soon</span></td><td><span class="badge br">❌ No</span></td><td><span class="badge br">❌ No</span></td><td><span class="badge br">❌ No</span></td><td><span class="badge bg">✅ Yes</span></td><td><span class="badge bg">✅ Yes</span></td></tr>
+              <tr><td>Price</td><td><span class="badge bg">Free + EGP plans</span></td><td><span class="badge bg">Free</span></td><td><span class="badge bg">Free</span></td><td><span class="badge br">€15/month</span></td><td><span class="badge bg">Free</span></td><td><span class="badge bg">Free</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ -->
+<!-- PAGE: TEAM MANAGEMENT -->
+<!-- ══════════════════════════════════════════════════ -->
+<div class="page" id="page-team">
+  <div class="card">
+    <div class="ch">
+      <div class="ct">Team Members & Admin Roles / فريق العمل والأدوار الإدارية</div>
+      <button class="btn btn-p btn-sm" onclick="openTeamModal()" id="add-team-btn" style="display:none;">+ Add Team Member</button>
+    </div>
+    <div class="cb" style="padding:0;">
+      <table><thead><tr><th>Email</th><th>Name / الاسم</th><th>Role</th><th>Permissions</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
+      <tbody id="team-tb"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody></table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ -->
+<!-- TEAM MEMBER MODAL -->
+<!-- ══════════════════════════════════════════════════ -->
+<div class="mo" id="team-modal">
+  <div class="md">
+    <h3 id="team-modal-title">Add Team Member</h3>
+    <div class="fg"><label>Email Address *</label><input type="email" id="tm-email" placeholder="admin@example.com"/></div>
+    <div class="fg"><label>Full Name *</label><input type="text" id="tm-name" placeholder="John Doe"/></div>
+    <div class="fg"><label>Role *</label>
+      <select id="tm-role">
+        <option value="owner">Owner (Full Access)</option>
+        <option value="editor">Editor (Manage Deals, Users, Notifications)</option>
+        <option value="viewer">Viewer (Read-Only)</option>
+      </select>
+    </div>
+    <div class="fg"><label>Status</label>
+      <select id="tm-status">
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+      </select>
+    </div>
+    <div class="fg"><label>Notes</label><textarea id="tm-notes" placeholder="Any notes about this team member..."></textarea></div>
+    <div class="ma">
+      <button class="btn" onclick="closeTeamModal()">Cancel</button>
+      <button class="btn btn-p" onclick="saveTeamMember()">Save Member</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ -->
+<!-- PERMISSION MODAL -->
+<!-- ══════════════════════════════════════════════════ -->
+<div class="mo" id="permission-modal">
+  <div class="md">
+    <h3>Manage Permissions for <span id="perm-user-name"></span></h3>
+    <p style="font-size:11px;color:#888;margin-bottom:13px;">Select which features this admin can access and manage</p>
+
+    <div style="max-height:400px;overflow-y:auto;border:0.5px solid #f0f0f0;border-radius:6px;padding:12px;margin-bottom:13px;">
+      <div style="display:grid;gap:10px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="perm-sources" value="sources"/> Manage Sources (add/edit/pause scraping)
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="perm-deals" value="deals"/> Manage Deals (feature/hide/delete)
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="perm-users" value="users"/> Manage Users (view/upgrade/add)
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="perm-notifications" value="notifications"/> Send Notifications
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="perm-checker" value="checker"/> Run Fake Checker
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="perm-competitors" value="competitors"/> View Competitors
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="perm-scraper" value="scraper_control"/> Pause Scraper (Emergency)
+        </label>
+      </div>
+    </div>
+
+    <div class="ma">
+      <button class="btn" onclick="closePermissionModal()">Cancel</button>
+      <button class="btn btn-p" onclick="savePermissions()">Save Permissions</button>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+<script src="firebase-config.js"></script>
+
+<script>
+// ════════════════════════════════════════════════════════════
+// AUTHENTICATION SYSTEM
+// ════════════════════════════════════════════════════════════
+
+firebase.initializeApp(FIREBASE_CONFIG);
+const auth = firebase.auth();
+const db = firebase.firestore();
+function loadMonitor() {
+    console.log("Dashboard monitor loaded");
+}
+// Current authenticated admin
+let currentAdmin = null;
+
+// Check auth on page load
+window.addEventListener('DOMContentLoaded', () => {
+  checkAuthentication();
+});
+
+// Check if user is authenticated
+function checkAuthentication() {
+  auth.onAuthStateChanged(async (user) => {
+    if (user) {
+      // User is logged in — check if they're an admin
+      try {
+        const adminDoc = await db.collection('admin_users').doc(user.email).get();
+        if (adminDoc.exists) {
+          currentAdmin = { uid: user.uid, email: user.email, ...adminDoc.data() };
+          localStorage.setItem('currentAdmin', JSON.stringify(currentAdmin));
+          showDashboard();
+          updateLastLogin(user.email);
+        } else {
+          // User logged in but not an admin
+          showError('Access denied: You are not registered as an admin.');
+          logout();
+        }
+      } catch (error) {
+        console.error('Auth error:', error);
+        showError('Error checking admin status.');
+        logout();
+      }
+    } else {
+      // No user logged in
+      currentAdmin = null;
+      localStorage.removeItem('currentAdmin');
+      showLoginPage();
+    }
+  });
+}
+
+// Show login page
+function showLoginPage() {
+  document.getElementById('login-container').classList.remove('hidden');
+  document.getElementById('topnav').style.display = 'none';
+  document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
+}
+
+// Show dashboard
+function showDashboard() {
+  document.getElementById('login-container').classList.add('hidden');
+  document.getElementById('signup-container').classList.add('hidden');
+  document.getElementById('topnav').style.display = 'flex';
+
+  // Display admin info
+  const admin = getCurrentAdmin();
+  if (admin) {
+    document.getElementById('admin-name').textContent = admin.name || admin.email;
+    document.getElementById('admin-role').textContent = admin.role.toUpperCase();
+
+    // Show "Add Team Member" button only for owners
+    if (admin.role === 'owner') {
+      document.getElementById('add-team-btn').style.display = 'block';
+    }
+  }
+
+  document.getElementById('page-monitor').classList.add('active');
+  document.getElementById('page-monitor').style.display = 'block';
+  loadMonitor();
+}
+
+// Toggle between login and signup
+function toggleSignup() {
+  document.getElementById('login-container').classList.toggle('hidden');
+  document.getElementById('signup-container').classList.toggle('hidden');
+}
+
+// Handle login
+async function handleLogin(event) {
+  event.preventDefault();
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const btn = document.getElementById('login-btn');
+  const errorDiv = document.getElementById('login-error');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="login-spinner"></span>Signing in...';
+
+  try {
+    await auth.signInWithEmailAndPassword(email, password);
+    // Auth state change handler will take it from here
+  } catch (error) {
+    errorDiv.textContent = error.message || 'Login failed. Check email and password.';
+    errorDiv.classList.add('show');
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
+  }
+}
+
+// Handle signup (first admin user only)
+async function handleSignup(event) {
+  event.preventDefault();
+  const name = document.getElementById('signup-name').value.trim();
+  const email = document.getElementById('signup-email').value.trim();
+  const password = document.getElementById('signup-password').value;
+  const btn = document.getElementById('signup-btn');
+  const errorDiv = document.getElementById('signup-error');
+
+  if (password.length < 8) {
+    errorDiv.textContent = 'Password must be at least 8 characters.';
+    errorDiv.classList.add('show');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="login-spinner"></span>Creating account...';
+
+  try {
+    // Create Firebase Auth user
+    const result = await auth.createUserWithEmailAndPassword(email, password);
+
+    // Create admin_users doc
+    await db.collection('admin_users').doc(email).set({
+      email: email,
+      name: name,
+      role: 'owner',
+      permissions: ['sources', 'deals', 'users', 'notifications', 'checker', 'competitors', 'scraper_control'],
+      status: 'active',
+      added_at: new Date().toISOString(),
+      added_by: 'signup',
+      last_login: new Date().toISOString(),
+      notes: 'First admin user (auto-created)'
+    });
+
+    // Success
+    errorDiv.classList.remove('show');
+    alert('Account created! You are now owner admin.');
+    // Auth state change handler will take it from here
+  } catch (error) {
+    errorDiv.textContent = error.message || 'Signup failed. Try another email.';
+    errorDiv.classList.add('show');
+    btn.disabled = false;
+    btn.textContent = 'Create Account';
+  }
+}
+
+// Logout
+function logout() {
+  auth.signOut().then(() => {
+    currentAdmin = null;
+    localStorage.removeItem('currentAdmin');
+    showLoginPage();
+  });
+}
+
+// Get current admin
+function getCurrentAdmin() {
+  return currentAdmin || JSON.parse(localStorage.getItem('currentAdmin') || 'null');
+}
+
+// Update last login
+async function updateLastLogin(email) {
+  try {
+    await db.collection('admin_users').doc(email).update({
+      last_login: new Date().toISOString()
+    });
+  } catch (e) {
+    console.error('Error updating last login:', e);
+  }
+}
+
+// Show error message
+function showError(msg) {
+  const errorDiv = document.getElementById('login-error');
+  if (errorDiv) {
+    errorDiv.textContent = msg;
+    errorDiv.classList.add('show');
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// END AUTHENTICATION SYSTEM
+// ════════════════════════════════════════════════════════════
+
+// ════════════════════════════════════════════════════════════
+// TEAM MANAGEMENT
+// ════════════════════════════════════════════════════════════
+
+let editingTeamEmail = null;
+
+// Open team member modal
+function openTeamModal() {
+  const admin = getCurrentAdmin();
+  if (admin.role !== 'owner') {
+    showToast('Only owners can manage team members');
+    return;
+  }
+  editingTeamEmail = null;
+  document.getElementById('team-modal-title').textContent = 'Add Team Member';
+  document.getElementById('tm-email').value = '';
+  document.getElementById('tm-email').disabled = false;
+  document.getElementById('tm-name').value = '';
+  document.getElementById('tm-role').value = 'editor';
+  document.getElementById('tm-status').value = 'active';
+  document.getElementById('tm-notes').value = '';
+  document.getElementById('team-modal').classList.add('show');
+}
+
+// Close team modal
+function closeTeamModal() {
+  document.getElementById('team-modal').classList.remove('show');
+}
+
+// Save team member
+async function saveTeamMember() {
+  const admin = getCurrentAdmin();
+  if (admin.role !== 'owner') {
+    showToast('Only owners can manage team members');
+    return;
+  }
+
+  const email = document.getElementById('tm-email').value.trim();
+  const name = document.getElementById('tm-name').value.trim();
+  const role = document.getElementById('tm-role').value;
+  const status = document.getElementById('tm-status').value;
+  const notes = document.getElementById('tm-notes').value.trim();
+
+  if (!email || !name) {
+    showToast('Email and name are required');
+    return;
+  }
+
+  try {
+    const permissions = role === 'owner'
+      ? ['sources', 'deals', 'users', 'notifications', 'checker', 'competitors', 'scraper_control']
+      : role === 'editor'
+      ? ['deals', 'users', 'notifications', 'checker']
+      : ['deals', 'checker'];
+
+    await db.collection('admin_users').doc(email).set({
+      email: email,
+      name: name,
+      role: role,
+      permissions: permissions,
+      status: status,
+      added_at: editingTeamEmail ? undefined : new Date().toISOString(),
+      added_by: editingTeamEmail ? undefined : admin.email,
+      notes: notes
+    }, { merge: true });
+
+    showToast(editingTeamEmail ? 'Team member updated' : 'Team member added');
+    closeTeamModal();
+    loadTeam();
+  } catch (error) {
+    showToast('Error: ' + error.message);
+  }
+}
+
+// Open permission modal
+function openPermissionModal(email, name) {
+  const admin = getCurrentAdmin();
+  if (admin.role !== 'owner') {
+    showToast('Only owners can manage permissions');
+    return;
+  }
+  editingTeamEmail = email;
+  document.getElementById('perm-user-name').textContent = name;
+
+  // Reset checkboxes
+  document.querySelectorAll('#permission-modal input[type="checkbox"]').forEach(cb => cb.checked = false);
+
+  // Load user permissions
+  db.collection('admin_users').doc(email).get().then(doc => {
+    if (doc.exists) {
+      const perms = doc.data().permissions || [];
+      perms.forEach(perm => {
+        const cb = document.querySelector(`#perm-${perm}`);
+        if (cb) cb.checked = true;
+      });
+    }
+    document.getElementById('permission-modal').classList.add('show');
+  });
+}
+
+// Close permission modal
+function closePermissionModal() {
+  document.getElementById('permission-modal').classList.remove('show');
+  editingTeamEmail = null;
+}
+
+// Save permissions
+async function savePermissions() {
+  const admin = getCurrentAdmin();
+  if (admin.role !== 'owner') {
+    showToast('Only owners can manage permissions');
+    return;
+  }
+
+  const permissions = [];
+  document.querySelectorAll('#permission-modal input[type="checkbox"]:checked').forEach(cb => {
+    permissions.push(cb.value);
+  });
+
+  try {
+    await db.collection('admin_users').doc(editingTeamEmail).update({
+      permissions: permissions
+    });
+    showToast('Permissions updated');
+    closePermissionModal();
+    loadTeam();
+  } catch (error) {
+    showToast('Error: ' + error.message);
+  }
+}
+
+// Load team members
+async function loadTeam() {
+  const admin = getCurrentAdmin();
+  if (!admin) return;
+
+  try {
+    const snapshot = await db.collection('admin_users').get();
+    const members = snapshot.docs.map(doc => doc.data());
+
+    if (members.length === 0) {
+      document.getElementById('team-tb').innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:#aaa;">No team members yet</td></tr>';
+      return;
+    }
+
+    document.getElementById('team-tb').innerHTML = members.map(m => `
+      <tr>
+        <td style="font-size:11px;color:#666;">${m.email}</td>
+        <td>${m.name}</td>
+        <td><span class="badge ${m.role === 'owner' ? 'bvi' : m.role === 'editor' ? 'bb' : 'bgr'}">${m.role.toUpperCase()}</span></td>
+        <td style="font-size:10px;">${m.permissions.slice(0,2).join(', ')}${m.permissions.length > 2 ? '...' : ''}</td>
+        <td><span class="badge ${m.status === 'active' ? 'bg' : 'bgr'}">${m.status}</span></td>
+        <td style="font-size:10px;color:#999;">${m.last_login ? new Date(m.last_login).toLocaleDateString() : '—'}</td>
+        <td>
+          ${admin.role === 'owner' ? `
+            <button class="btn btn-sm" onclick="openPermissionModal('${m.email}', '${m.name}')">Permissions</button>
+            ${m.role !== 'owner' && m.email !== admin.email ? `<button class="btn btn-sm btn-d" onclick="removeTeamMember('${m.email}')">Remove</button>` : ''}
+          ` : '—'}
+        </td>
+      </tr>
+    `).join('');
+  } catch (error) {
+    console.error('Error loading team:', error);
+    document.getElementById('team-tb').innerHTML = '<tr><td colspan="7" class="loading">Error loading team</td></tr>';
+  }
+}
+
+// Remove team member
+async function removeTeamMember(email) {
+  const admin = getCurrentAdmin();
+  if (admin.role !== 'owner') {
+    showToast('Only owners can remove team members');
+    return;
+  }
+
+  if (!confirm(`Remove ${email} from team?`)) return;
+
+  try {
+    await db.collection('admin_users').doc(email).delete();
+    showToast('Team member removed');
+    loadTeam();
+  } catch (error) {
+    showToast('Error: ' + error.message);
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// END TEAM MANAGEMENT
+// ════════════════════════════════════════════════════════════
+
+</script>
+
+<script>
+firebase.initializeApp(FIREBASE_CONFIG);
+const db = firebase.firestore();
+let allDeals = [];
+let activeCat = 'all';
+let lastCheckerResult = null;
+let editingSourceId = null;
+
+// ── HELPERS ────────────────────────────────────
+function ft(ts){if(!ts)return'—';try{const d=new Date(ts);return d.toLocaleDateString('en-EG')+' '+d.toLocaleTimeString('en-EG',{hour:'2-digit',minute:'2-digit'});}catch{return ts;}}
+function fp(p){if(!p&&p!==0)return'—';return'EGP '+Number(p).toLocaleString();}
+function sb(site,disp){
+  const m={amazon_eg:'bb',noon_eg:'bo',jumia_eg:'bg',manual:'bgr'};
+  const cls=m[site]||'bgr';
+  const label=disp||(site||'').replace('_eg',' Egypt').replace(/_/g,' ');
+  return`<span class="badge ${cls}">${label}</span>`;
+}
+function tb(tier){
+  const m={premium:'<span class="badge bpu">Premium</span>',vip:'<span class="badge bvi">VIP</span>',trial:'<span class="badge bo">Trial</span>',registered_free:'<span class="badge bb">Free</span>'};
+  return m[tier]||`<span class="badge bgr">${tier||'Free'}</span>`;
+}
+function vb(v){
+  const m={GENUINE:'v-genuine',SUSPICIOUS:'v-suspicious',FAKE:'v-fake',WAIT:'v-wait',UNKNOWN:'v-unknown'};
+  const cls=m[v]||'v-unknown';
+  const icons={GENUINE:'✅',SUSPICIOUS:'⚠️',FAKE:'❌',WAIT:'⏳',UNKNOWN:'❓'};
+  return v?`<span class="${cls}">${icons[v]||''} ${v}</span>`:'<span class="v-unknown">—</span>';
+}
+function stars(r){if(!r)return'—';const s=Math.round(r);return'★'.repeat(s)+'☆'.repeat(5-s)+` ${r}`;}
+function channelBadge(c){const m={in_app:'<span class="badge bb">In-App</span>',email:'<span class="badge bg">Email</span>',sms:'<span class="badge bo">SMS</span>',all_channels:'<span class="badge bpu">All</span>'};return m[c]||`<span class="badge bgr">${c||'—'}</span>`;}
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3500);}
+
+// Permission mapping for pages
+const PAGE_PERMISSIONS = {
+  monitor: null,  // Everyone can see monitor
+  deals: 'deals',
+  sources: 'sources',
+  users: 'users',
+  notifications: 'notifications',
+  'add-deal': 'deals',
+  checker: 'checker',
+  competitors: 'competitors',
+  team: 'owner'  // Only owners can manage team
+};
+
+function canAccessPage(pageName) {
+  const admin = getCurrentAdmin();
+  if (!admin) return false;
+
+  const requiredPerm = PAGE_PERMISSIONS[pageName];
+
+  // Owners can access everything
+  if (admin.role === 'owner') return true;
+
+  // No permission required
+  if (!requiredPerm) return true;
+
+  // Check if admin has permission
+  return admin.permissions && admin.permissions.includes(requiredPerm);
+}
+
+function showPage(name,btn){
+  // Check permission
+  if (!canAccessPage(name)) {
+    showToast('Access denied: You do not have permission to access this page');
+    return;
+  }
+
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  if(btn&&btn.classList)btn.classList.add('active');
+  const L={monitor:loadMonitor,deals:loadDeals,sources:loadSources,users:loadUsers,notifications:loadNotifs,'add-deal':loadManualDeals,checker:()=>{},competitors:()=>{},team:loadTeam};
+  if(L[name])L[name]();
+}
+function detectSiteFromUrl(url){
+  if(!url)return'other';
+  if(url.includes('amazon.eg'))return'amazon_eg';
+  if(url.includes('noon.com'))return'noon_eg';
+  if(url.includes('jumia'))return'jumia_eg';
+  return'other';
+}
+function detectCatFromTitle(t){
+  if(!t)return'general';
+  t=t.toLowerCase();
+  if(/phone|mobile|iphone|samsung|laptop|tablet|headphone|earphone|speaker|camera|tv |gaming|playstation|xbox|smartwatch|router|ssd|keyboard|mouse/.test(t))return'electronics';
+  if(/dress|shirt|shoes|bag|perfume|jeans|jacket|sneaker|sandal|handbag|wallet|belt|hat|suit/.test(t))return'fashion';
+  if(/sofa|kitchen|blender|vacuum|refrigerator|washing|oven|microwave|curtain|pillow|mattress|fan|heater/.test(t))return'home';
+  if(/cream|serum|shampoo|makeup|skincare|lotion|vitamin|face wash|nail|lipstick|hair dryer|trimmer/.test(t))return'beauty';
+  if(/gym|sport|fitness|yoga|bicycle|football|tennis|treadmill|dumbbell|protein/.test(t))return'sports';
+  if(/toy|baby|kids|children|doll|lego|puzzle|stroller/.test(t))return'toys';
+  if(/food|grocery|snack|juice|rice|coffee|tea|chocolate|biscuit|oil|sugar/.test(t))return'grocery';
+  if(/book|novel|textbook|stationery|pen|notebook/.test(t))return'books';
+  if(/car|auto|tire|wheel|motor oil|spare part/.test(t))return'automotive';
+  return'general';
+}
+async function genId(site,url,price){
+  const raw=site+'_'+url+'_'+price;
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(raw));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('').substring(0,32);
+}
+
+// ── MONITOR ────────────────────────────────────
+async function loadMonitor(){
+  document.getElementById('ts').textContent='Updated: '+new Date().toLocaleTimeString();
+  try{
+    const snap=await db.collection('deals').get();
+    const deals=snap.docs.map(d=>({id:d.id,...d.data()}));
+
+    // Load analytics
+    let clicks=0,buys=0;
+    deals.forEach(d=>{clicks+=d.click_count||0;buys+=d.buy_click_count||0;});
+    document.getElementById('s-total').textContent=deals.length;
+    document.getElementById('s-clicks').textContent=clicks;
+    document.getElementById('s-buys').textContent=buys;
+
+    const uSnap=await db.collection('users').get();
+    document.getElementById('s-users').textContent=uSnap.size;
+
+    // Load ALL sources
+    const cSnap=await db.collection('admin').get();
+    const customSrcs=cSnap.docs.map(doc=>({docId:doc.id,...doc.data()})).filter(s=>s.site_name&&s.site_url);
+
+    const allSrcs=[
+      {id:'amazon_eg',    site_name:'Amazon Egypt',   site_name_ar:'أمازون مصر', site_url:'https://www.amazon.eg',                    status:'active',frequency_minutes:3},
+      {id:'noon_eg',      site_name:'Noon Egypt',     site_name_ar:'نون مصر',    site_url:'https://www.noon.com/egypt-en',             status:'active',frequency_minutes:3},
+      {id:'jumia_eg',     site_name:'Jumia Egypt',    site_name_ar:'جوميا مصر',  site_url:'https://www.jumia.com.eg/',                 status:'active',frequency_minutes:3},
+      {id:'btech_eg',     site_name:'B.Tech Egypt',   site_name_ar:'بي تك',      site_url:'https://btech.com/',                       status:'active',frequency_minutes:3},
+      {id:'carrefour_eg', site_name:'Carrefour Egypt',site_name_ar:'كارفور',     site_url:'https://www.carrefouregypt.com/',           status:'active',frequency_minutes:3},
+      {id:'sharaf_dg_eg', site_name:'Sharaf DG Egypt',site_name_ar:'شرف دي جي', site_url:'https://www.sharafdg.com/en/eg/deals',      status:'active',frequency_minutes:3},
+      {id:'hyperone_eg',  site_name:'HyperOne Egypt', site_name_ar:'هايبر ون',   site_url:'https://www.hyperone.com.eg/offers/',      status:'active',frequency_minutes:3},
+      {id:'sahla_eg',     site_name:'Sahla Egypt',    site_name_ar:'سهلة',       site_url:'https://sahlaapp.com/',                    status:'active',frequency_minutes:3},
+      ...customSrcs.map(s=>({...s,id:s.id||s.docId}))
+    ];
+
+    // Per-source deal counts and last deal time
+    const siteCounts={},siteLastDeal={},siteFakeCount={};
+    deals.forEach(d=>{
+      const s=d.site||'unknown';
+      siteCounts[s]=(siteCounts[s]||0)+1;
+      if(!siteLastDeal[s]||new Date(d.timestamp)>new Date(siteLastDeal[s]))siteLastDeal[s]=d.timestamp;
+      if(d.fake_verdict==='SUSPICIOUS'||d.fake_verdict==='FAKE')siteFakeCount[s]=(siteFakeCount[s]||0)+1;
+    });
+
+    // Dynamic source stat cards
+    const statsDiv=document.getElementById('source-stats');
+    statsDiv.innerHTML=allSrcs.map(s=>`
+      <div class="sc">
+        <div class="sl">${s.site_name}</div>
+        <div class="sv">${siteCounts[s.id]||0}</div>
+        <div class="ss">${siteFakeCount[s.id]?`<span style="color:#E24B4A;">${siteFakeCount[s.id]} suspicious</span>`:'deals'}</div>
+      </div>`).join('');
+
+    // Scraper status table
+    document.getElementById('scraper-tb').innerHTML=allSrcs.map(s=>{
+      const cnt=siteCounts[s.id]||0;
+      const last=siteLastDeal[s.id];
+      const fake=siteFakeCount[s.id]||0;
+      // GREEN = has deals. ORANGE = active but no deals yet. RED = paused/error
+      const dotCls=cnt>0?'dg':(s.status==='active'?'dy':'dr');
+      const badgeCls=cnt>0?'bg':(s.status==='active'?'bo':'br');
+      return`<tr>
+        <td><span class="dot ${dotCls}"></span><strong>${s.site_name}</strong><br><span style="font-size:9px;color:#aaa;">${s.site_name_ar||''}</span></td>
+        <td><a href="${s.site_url}" target="_blank" style="color:#185FA5;font-size:10px;">${s.site_url}</a></td>
+        <td><span class="badge ${badgeCls}">${s.status||'active'}</span>${cnt===0&&s.status==='active'?'<br><span style="font-size:9px;color:#EF9F27;">No deals scraped yet</span>':''}</td>
+        <td>${cnt} <span style="font-size:9px;color:#aaa;">deals</span></td>
+        <td style="font-size:10px;color:#888;">${last?ft(last):'No deals yet'}</td>
+        <td>${fake>0?`<span style="font-size:10px;color:#E24B4A;">${fake} suspicious</span>`:'<span style="font-size:10px;color:#3B6D11;">—</span>'}</td>
+      </tr>`;
+    }).join('');
+
+    // Category chart
+    const cats={};deals.forEach(d=>{const c=d.category||'general';cats[c]=(cats[c]||0)+1;});
+    const maxC=Math.max(...Object.values(cats),1);
+    const cc={electronics:'#E24B4A',fashion:'#185FA5',home:'#854F0B',beauty:'#993556',sports:'#3B6D11',toys:'#7F77DD',grocery:'#639922',books:'#5F5E5A',automotive:'#0F6E56',general:'#888'};
+    document.getElementById('cat-chart').innerHTML=Object.entries(cats).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:11px;">
+        <span style="width:80px;color:#888;font-size:10px;text-transform:capitalize;">${c}</span>
+        <div class="pt" style="flex:1;"><div class="pf" style="width:${Math.round(n/maxC*100)}%;background:${cc[c]||'#888'};"></div></div>
+        <span style="width:24px;text-align:right;font-weight:500;font-size:10px;">${n}</span>
+      </div>`).join('')||'<div class="empty"><div class="et">No deals yet</div></div>';
+
+    // Site chart
+    document.getElementById('site-chart').innerHTML=allSrcs.map(s=>{
+      const n=siteCounts[s.id]||0;
+      const pct=deals.length>0?Math.round(n/deals.length*100):0;
+      return`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:11px;">
+        <span style="width:90px;color:#888;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.site_name}</span>
+        <div class="pt" style="flex:1;"><div class="pf" style="width:${pct}%;background:#E24B4A;"></div></div>
+        <span style="width:28px;text-align:right;font-weight:500;font-size:10px;">${n}</span>
+      </div>`;
+    }).join('')||'<div class="empty"><div class="et">No data</div></div>';
+
+    // Latest 10 deals
+    const latest=deals.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp)).slice(0,10);
+    document.getElementById('latest-tb').innerHTML=latest.map(d=>`
+      <tr>
+        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;" title="${d.title}">${d.title}</td>
+        <td>${sb(d.site,d.site_display)}</td>
+        <td style="text-transform:capitalize;font-size:10px;">${d.category||'—'}</td>
+        <td><span class="disc">${d.discount_percent}% OFF</span></td>
+        <td style="font-weight:600;color:#E24B4A;font-size:11px;">${fp(d.current_price)}</td>
+        <td>${vb(d.fake_verdict)}</td>
+        <td style="color:#aaa;font-size:10px;">${ft(d.timestamp)}</td>
+      </tr>`).join('')||'<tr><td colspan="7"><div class="empty"><div class="et">No deals yet — add manually or wait for scraper</div></div></td></tr>';
+
+  }catch(e){toast('Monitor error: '+e.message);}
+}
+
+// ── DEALS ──────────────────────────────────────
+function setCat(cat,el){
+  activeCat=cat;
+  document.querySelectorAll('.cat-tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  filterDeals();
+}
+async function loadDeals(){
+  document.getElementById('deals-tb').innerHTML='<tr><td colspan="13" class="loading">Loading...</td></tr>';
+  try{
+    // Update site filter with custom sources
+    const cSnap=await db.collection('admin').get();
+    const custom=cSnap.docs.map(d=>({docId:d.id,...d.data()})).filter(s=>s.site_name);
+    const sel=document.getElementById('df-site');
+    while(sel.options.length>3)sel.remove(3);
+    custom.forEach(s=>{const o=document.createElement('option');o.value=s.id||s.docId;o.textContent=s.site_name;sel.appendChild(o);});
+
+    const snap=await db.collection('deals').orderBy('timestamp','desc').limit(500).get();
+    allDeals=snap.docs.map(doc=>({id:doc.id,...doc.data()}));
+    renderDeals(allDeals);
+  }catch(e){document.getElementById('deals-tb').innerHTML='<tr><td colspan="13" class="loading">Error: '+e.message+'</td></tr>';}
+}
+function renderDeals(deals){
+  const filtered=deals.filter(d=>activeCat==='all'||d.category===activeCat);
+  document.getElementById('dc').textContent=filtered.length+' deals';
+  if(!filtered.length){
+    document.getElementById('deals-tb').innerHTML='<tr><td colspan="13"><div class="empty"><div class="ei">📦</div><div class="et">No deals found. Use + Add Deal to add manually.</div></div></td></tr>';
+    return;
+  }
+  document.getElementById('deals-tb').innerHTML=filtered.map(d=>`
+    <tr>
+      <td>${d.image_url?`<img src="${d.image_url}" class="dimg" onerror="this.style.display='none'"/>`:'<div class="dimp">🛍️</div>'}</td>
+      <td style="max-width:180px;">
+        <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;" title="${d.title}">${d.title}</div>
+        ${d.title_ar?`<div style="font-size:9px;color:#888;direction:rtl;">${d.title_ar}</div>`:''}
+        <div style="font-size:9px;color:#aaa;">${ft(d.timestamp)}</div>
+        ${d.coupon_code?`<span style="font-size:9px;background:#EAF3DE;color:#3B6D11;padding:1px 5px;border-radius:4px;">🏷 ${d.coupon_code}</span>`:''}
+      </td>
+      <td>${sb(d.site,d.site_display)}</td>
+      <td style="text-transform:capitalize;font-size:10px;">${d.category||'—'}</td>
+      <td><span class="disc">${d.discount_percent}% OFF</span></td>
+      <td style="font-weight:600;color:#E24B4A;font-size:11px;">${fp(d.current_price)}</td>
+      <td style="color:#aaa;text-decoration:line-through;font-size:10px;">${fp(d.original_price)}</td>
+      <td><div class="stars" title="${d.rating||0} stars">${stars(d.rating)}</div><div style="font-size:9px;color:#aaa;">${(d.review_count||0).toLocaleString()} reviews</div></td>
+      <td>
+        ${vb(d.fake_verdict)}
+        ${d.kanbkam&&d.kanbkam.lowest_price?`<div style="font-size:9px;color:#888;margin-top:2px;">Low: ${fp(d.kanbkam.lowest_price)}</div>`:''}
+        ${d.kanbkam&&d.kanbkam.kanbkam_url?`<a href="${d.kanbkam.kanbkam_url}" target="_blank" style="font-size:9px;color:#185FA5;">Kanbkam ↗</a>`:''}
+      </td>
+      <td style="font-size:10px;color:#888;">${d.lowest_price_ever?fp(d.lowest_price_ever):'—'}</td>
+      <td>${d.hidden?'<span class="badge br">Hidden</span>':'<span class="badge bg">Live</span>'}</td>
+      <td style="font-size:10px;color:#888;">${(d.click_count||0)} / ${(d.buy_click_count||0)}</td>
+      <td>
+        <div style="display:flex;gap:3px;flex-wrap:wrap;">
+          <button class="btn btn-sm" onclick="window.open('${d.product_url}','_blank')">View</button>
+          <button class="btn btn-sm ${d.featured?'btn-p':''}" onclick="toggleFeat('${d.id}',${!!d.featured})">${d.featured?'Unpin':'Pin'}</button>
+          <button class="btn btn-sm btn-d" onclick="toggleHide('${d.id}',${!!d.hidden})">${d.hidden?'Show':'Hide'}</button>
+          <button class="btn btn-sm btn-d" onclick="delDeal('${d.id}')">Del</button>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+function filterDeals(){
+  const s=document.getElementById('ds').value.toLowerCase();
+  const site=document.getElementById('df-site').value;
+  const minD=parseInt(document.getElementById('df-disc').value);
+  const verdict=document.getElementById('df-verdict').value;
+  const filtered=allDeals.filter(d=>{
+    if(activeCat!=='all'&&d.category!==activeCat)return false;
+    if(s&&!d.title.toLowerCase().includes(s))return false;
+    if(site!=='all'&&d.site!==site)return false;
+    if(d.discount_percent<minD)return false;
+    if(verdict!=='all'&&d.fake_verdict!==verdict)return false;
+    return true;
+  });
+  document.getElementById('dc').textContent=filtered.length+' deals';
+  if(!filtered.length){document.getElementById('deals-tb').innerHTML='<tr><td colspan="13"><div class="empty"><div class="ei">📦</div><div class="et">No deals match filters</div></div></td></tr>';return;}
+  renderDeals(allDeals);
+  // Re-apply filter without recursion
+  const full=allDeals.filter(d=>{
+    if(activeCat!=='all'&&d.category!==activeCat)return false;
+    if(s&&!d.title.toLowerCase().includes(s))return false;
+    if(site!=='all'&&d.site!==site)return false;
+    if(d.discount_percent<minD)return false;
+    if(verdict!=='all'&&d.fake_verdict!==verdict)return false;
+    return true;
+  });
+  document.getElementById('dc').textContent=full.length+' deals';
+  document.getElementById('deals-tb').innerHTML=full.map(d=>`
+    <tr>
+      <td>${d.image_url?`<img src="${d.image_url}" class="dimg" onerror="this.style.display='none'"/>`:'<div class="dimp">🛍️</div>'}</td>
+      <td style="max-width:180px;"><div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;">${d.title}</div><div style="font-size:9px;color:#aaa;">${ft(d.timestamp)}</div></td>
+      <td>${sb(d.site,d.site_display)}</td>
+      <td style="text-transform:capitalize;font-size:10px;">${d.category||'—'}</td>
+      <td><span class="disc">${d.discount_percent}% OFF</span></td>
+      <td style="font-weight:600;color:#E24B4A;font-size:11px;">${fp(d.current_price)}</td>
+      <td style="color:#aaa;text-decoration:line-through;font-size:10px;">${fp(d.original_price)}</td>
+      <td><div class="stars">${stars(d.rating)}</div></td>
+      <td>${vb(d.fake_verdict)}${d.kanbkam&&d.kanbkam.lowest_price?`<div style="font-size:9px;color:#888;">Low: ${fp(d.kanbkam.lowest_price)}</div>`:''}</td>
+      <td style="font-size:10px;color:#888;">${d.lowest_price_ever?fp(d.lowest_price_ever):'—'}</td>
+      <td>${d.hidden?'<span class="badge br">Hidden</span>':'<span class="badge bg">Live</span>'}</td>
+      <td style="font-size:10px;color:#888;">${(d.click_count||0)} / ${(d.buy_click_count||0)}</td>
+      <td><div style="display:flex;gap:3px;">
+        <button class="btn btn-sm" onclick="window.open('${d.product_url}','_blank')">View</button>
+        <button class="btn btn-sm ${d.featured?'btn-p':''}" onclick="toggleFeat('${d.id}',${!!d.featured})">${d.featured?'Unpin':'Pin'}</button>
+        <button class="btn btn-sm btn-d" onclick="toggleHide('${d.id}',${!!d.hidden})">${d.hidden?'Show':'Hide'}</button>
+        <button class="btn btn-sm btn-d" onclick="delDeal('${d.id}')">Del</button>
+      </div></td>
+    </tr>`).join('');
+}
+async function toggleFeat(id,f){await db.collection('deals').doc(id).update({featured:!f});toast(f?'Unpinned':'Pinned to top');loadDeals();}
+async function toggleHide(id,h){await db.collection('deals').doc(id).update({hidden:!h});toast(h?'Now visible':'Hidden from users');loadDeals();}
+async function delDeal(id){if(!confirm('Delete permanently?'))return;await db.collection('deals').doc(id).delete();toast('Deleted');loadDeals();}
+
+// ── SOURCES ────────────────────────────────────
+function openSrcModal(){
+  editingSourceId=null;
+  document.getElementById('src-modal-title').textContent='Add New Scraping Source';
+  document.getElementById('sn-save-btn').textContent='Save Source';
+  document.getElementById('sn-save-btn').onclick=saveSource;
+  ['sn-name','sn-name-ar','sn-url','sn-notes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('sn-status').value='active';
+  document.getElementById('sn-freq').value='3';
+  document.getElementById('src-modal').classList.add('show');
+}
+function closeSrcModal(){document.getElementById('src-modal').classList.remove('show');editingSourceId=null;}
+
+async function loadSources(){
+  try{
+    const dSnap=await db.collection('deals').get();
+    const deals=dSnap.docs.map(d=>d.data());
+    const siteCounts={};
+    deals.forEach(d=>{siteCounts[d.site]=(siteCounts[d.site]||0)+1;});
+
+    const cSnap=await db.collection('admin').get();
+    const custom=cSnap.docs.map(doc=>({docId:doc.id,...doc.data()})).filter(s=>s.site_name&&s.site_url);
+
+    const defaults=[
+      {docId:'__amz',    id:'amazon_eg',    site_name:'Amazon Egypt',   site_name_ar:'أمازون مصر', site_url:'https://www.amazon.eg',               status:'active',frequency_minutes:3,isDefault:true},
+      {docId:'__noon',   id:'noon_eg',      site_name:'Noon Egypt',     site_name_ar:'نون مصر',    site_url:'https://www.noon.com/egypt-en',        status:'active',frequency_minutes:3,isDefault:true},
+      {docId:'__jumia',  id:'jumia_eg',     site_name:'Jumia Egypt',    site_name_ar:'جوميا مصر',  site_url:'https://www.jumia.com.eg/',            status:'active',frequency_minutes:3,isDefault:true},
+      {docId:'__btech',  id:'btech_eg',     site_name:'B.Tech Egypt',   site_name_ar:'بي تك',      site_url:'https://btech.com/',                  status:'active',frequency_minutes:3,isDefault:true},
+      {docId:'__crf',    id:'carrefour_eg', site_name:'Carrefour Egypt',site_name_ar:'كارفور',     site_url:'https://www.carrefouregypt.com/',      status:'active',frequency_minutes:3,isDefault:true},
+      {docId:'__shrf',   id:'sharaf_dg_eg', site_name:'Sharaf DG Egypt',site_name_ar:'شرف دي جي', site_url:'https://www.sharafdg.com/en/eg/deals', status:'active',frequency_minutes:3,isDefault:true},
+      {docId:'__hyp',    id:'hyperone_eg',  site_name:'HyperOne Egypt', site_name_ar:'هايبر ون',   site_url:'https://www.hyperone.com.eg/offers/', status:'active',frequency_minutes:3,isDefault:true},
+      {docId:'__sahla',  id:'sahla_eg',     site_name:'Sahla Egypt',    site_name_ar:'سهلة',       site_url:'https://sahlaapp.com/',               status:'active',frequency_minutes:3,isDefault:true},
+    ];
+    const all=[...defaults,...custom.map(s=>({...s,id:s.id||s.docId,isDefault:false}))];
+
+    document.getElementById('src-tb').innerHTML=all.map(s=>`
+      <tr>
+        <td style="font-weight:500;">${s.site_name}<br><span style="font-size:9px;color:#aaa;direction:rtl;">${s.site_name_ar||''}</span></td>
+        <td><a href="${s.site_url}" target="_blank" style="color:#185FA5;font-size:10px;">${s.site_url}</a></td>
+        <td><span class="badge ${s.status==='active'?'bg':s.status==='paused'?'br':'bgr'}">${s.status||'active'}</span></td>
+        <td>${s.frequency_minutes||3} min</td>
+        <td>${siteCounts[s.id]||0}</td>
+        <td style="font-size:10px;color:#aaa;">${s.last_scraped?ft(s.last_scraped):'—'}</td>
+        <td style="font-size:10px;color:#888;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.notes||'—'}</td>
+        <td>${s.isDefault
+          ?'<span style="font-size:9px;color:#aaa;">Default</span>'
+          :`<div style="display:flex;gap:3px;">
+              <button class="btn btn-sm" onclick="editSource('${s.docId}')">Edit</button>
+              <button class="btn btn-sm btn-d" onclick="delSource('${s.docId}')">Delete</button>
+            </div>`
+        }</td>
+      </tr>`).join('');
+
+    const recent=deals.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp)).slice(0,30);
+    document.getElementById('act-log').innerHTML=recent.map(d=>
+      `[${ft(d.timestamp)}] ${(d.site_display||d.site||'').toUpperCase()}: ${d.title.substring(0,55)} | ${d.discount_percent}% OFF | EGP ${(d.current_price||0).toLocaleString()} | ${d.fake_emoji||''} ${d.fake_verdict||''}`
+    ).join('\n')||'No activity yet';
+  }catch(e){toast('Sources error: '+e.message);}
+}
+async function saveSource(){
+  const name=document.getElementById('sn-name').value.trim();
+  const nameAr=document.getElementById('sn-name-ar').value.trim();
+  const url=document.getElementById('sn-url').value.trim();
+  const status=document.getElementById('sn-status').value;
+  const freq=parseInt(document.getElementById('sn-freq').value);
+  const notes=document.getElementById('sn-notes').value.trim();
+  if(!name||!url){toast('Please fill site name and URL');return;}
+  const siteId=name.toLowerCase().replace(/[^a-z0-9]/g,'_');
+  const data={id:siteId,site_name:name,site_name_ar:nameAr,site_url:url,status,frequency_minutes:freq,notes,updated_at:new Date().toISOString()};
+  if(editingSourceId){
+    await db.collection('admin').doc(editingSourceId).update(data);
+    toast('Source updated: '+name);
+  }else{
+    data.created_at=new Date().toISOString();
+    await db.collection('admin').add(data);
+    toast('Source added: '+name+' — now visible in Monitor');
+  }
+  closeSrcModal();
+  loadSources();
+}
+async function editSource(docId){
+  try{
+    const doc=await db.collection('admin').doc(docId).get();
+    const s=doc.data();
+    editingSourceId=docId;
+    document.getElementById('src-modal-title').textContent='Edit Source / تعديل المصدر';
+    document.getElementById('sn-save-btn').textContent='Update Source';
+    document.getElementById('sn-save-btn').onclick=saveSource;
+    document.getElementById('sn-name').value=s.site_name||'';
+    document.getElementById('sn-name-ar').value=s.site_name_ar||'';
+    document.getElementById('sn-url').value=s.site_url||'';
+    document.getElementById('sn-status').value=s.status||'active';
+    document.getElementById('sn-freq').value=s.frequency_minutes||3;
+    document.getElementById('sn-notes').value=s.notes||'';
+    document.getElementById('src-modal').classList.add('show');
+  }catch(e){toast('Error: '+e.message);}
+}
+async function delSource(docId){
+  if(!confirm('Delete this source? Its deals will remain in the database.'))return;
+  await db.collection('admin').doc(docId).delete();
+  toast('Source deleted');
+  loadSources();
+}
+
+// ── USERS ──────────────────────────────────────
+async function loadUsers(){
+  try{
+    const snap=await db.collection('users').get();
+    const users=snap.docs.map(doc=>({id:doc.id,...doc.data()}));
+    const free=users.filter(u=>u.tier==='registered_free').length;
+    const trial=users.filter(u=>u.tier==='trial').length;
+    const prem=users.filter(u=>u.tier==='premium').length;
+    const vip=users.filter(u=>u.tier==='vip').length;
+    document.getElementById('u-total').textContent=users.length;
+    document.getElementById('u-free').textContent=free;
+    document.getElementById('u-trial').textContent=trial;
+    document.getElementById('u-prem').textContent=prem;
+    document.getElementById('u-vip').textContent=vip;
+
+    // Conversion stats
+    const total=users.length||1;
+    document.getElementById('conv-stats').innerHTML=`
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
+        ${[
+          ['Free → Trial',free,trial,'#185FA5'],
+          ['Free → Premium',free,prem,'#7F77DD'],
+          ['Free → VIP',free,vip,'#E24B4A'],
+          ['Trial → Premium',trial,prem,'#854F0B'],
+          ['Trial → VIP',trial,vip,'#993556'],
+          ['Premium → VIP',prem,vip,'#3B6D11'],
+        ].map(([label,from,to,color])=>`
+          <div style="background:#f8f8f8;border-radius:9px;padding:11px;">
+            <div style="font-size:10px;color:#888;margin-bottom:4px;">${label}</div>
+            <div style="font-size:16px;font-weight:600;color:${color};">${from>0?Math.round(to/from*100):0}%</div>
+            <div style="font-size:10px;color:#aaa;">${to} of ${from} users</div>
+          </div>`).join('')}
+      </div>`;
+
+    document.getElementById('users-tb').innerHTML=users.length?users.map(u=>`
+      <tr>
+        <td style="font-family:monospace;font-size:9px;color:#888;">${u.id.substring(0,14)}...</td>
+        <td style="font-size:11px;">${u.name||u.display_name||'—'}</td>
+        <td style="font-size:10px;">${u.email||u.phone||'—'}</td>
+        <td>${tb(u.tier)}</td>
+        <td>${u.previous_tier?tb(u.previous_tier):'—'}</td>
+        <td style="font-size:10px;">${u.daily_deal_limit||'—'}</td>
+        <td style="font-size:10px;">${ft(u.created_at)}</td>
+        <td style="font-size:10px;">${ft(u.last_login)}</td>
+        <td style="font-size:10px;">${ft(u.tier_upgraded_at)}</td>
+        <td>
+          <select onchange="changeUserTier('${u.id}',this.value,'${u.tier}')" style="padding:3px;font-size:10px;border:0.5px solid #ddd;border-radius:5px;">
+            <option value="">Change tier...</option>
+            <option value="registered_free">Free</option>
+            <option value="trial">Trial</option>
+            <option value="premium">Premium</option>
+            <option value="vip">VIP</option>
+          </select>
+        </td>
+      </tr>`).join(''):
+      '<tr><td colspan="10"><div class="empty"><div class="ei">👤</div><div class="et">No registered users yet — they appear here when people sign up in the app</div></div></td></tr>';
+
+    // Tier change history
+    try{
+      const histSnap=await db.collection('tier_history').orderBy('changed_at','desc').limit(50).get();
+      const history=histSnap.docs.map(d=>({id:d.id,...d.data()}));
+      document.getElementById('tier-history-tb').innerHTML=history.length?history.map(h=>`
+        <tr>
+          <td style="font-family:monospace;font-size:9px;color:#888;">${(h.user_id||'').substring(0,14)}...</td>
+          <td>${tb(h.from_tier)}</td>
+          <td>${tb(h.to_tier)}</td>
+          <td style="font-size:10px;">${ft(h.changed_at)}</td>
+          <td style="font-size:10px;color:#888;">${h.method||'—'}</td>
+        </tr>`).join(''):
+        '<tr><td colspan="5"><div class="empty"><div class="et">No tier changes recorded yet</div></div></td></tr>';
+    }catch(e){
+      document.getElementById('tier-history-tb').innerHTML='<tr><td colspan="5"><div class="empty"><div class="et">Tier history will appear here</div></div></td></tr>';
+    }
+  }catch(e){toast('Users error: '+e.message);}
+}
+async function changeUserTier(userId,newTier,oldTier){
+  if(!newTier)return;
+  if(newTier===oldTier){toast('User is already on this tier');return;}
+  const limits={registered_free:50,trial:100,premium:500,vip:99999};
+  const delays={registered_free:30,trial:15,premium:5,vip:0};
+  try{
+    await db.collection('users').doc(userId).update({
+      tier:newTier,
+      previous_tier:oldTier,
+      daily_deal_limit:limits[newTier]||50,
+      delay_minutes:delays[newTier]||30,
+      tier_upgraded_at:new Date().toISOString()
+    });
+    // Log to tier history
+    await db.collection('tier_history').add({
+      user_id:userId,
+      from_tier:oldTier,
+      to_tier:newTier,
+      changed_at:new Date().toISOString(),
+      method:'admin_manual'
+    });
+    toast('User tier changed: '+oldTier+' → '+newTier);
+    loadUsers();
+  }catch(e){toast('Error: '+e.message);}
+}
+async function saveUser(){
+  const email=document.getElementById('nu-email').value.trim();
+  const phone=document.getElementById('nu-phone').value.trim();
+  const name=document.getElementById('nu-name').value.trim();
+  const tier=document.getElementById('nu-tier').value;
+  const limit=parseInt(document.getElementById('nu-limit').value);
+  const notes=document.getElementById('nu-notes').value.trim();
+  if(!email&&!phone){toast('Please enter email or phone');return;}
+  const limits={registered_free:50,trial:100,premium:500,vip:99999};
+  const delays={registered_free:30,trial:15,premium:5,vip:0};
+  const userId='manual_'+Date.now();
+  await db.collection('users').doc(userId).set({
+    id:userId,email,phone,name,tier,
+    daily_deal_limit:limits[tier]||50,
+    delay_minutes:delays[tier]||30,
+    notes,created_at:new Date().toISOString(),
+    last_login:null,previous_tier:null,tier_upgraded_at:null,
+    added_by:'admin_manual'
+  });
+  document.getElementById('user-modal').classList.remove('show');
+  toast('User added: '+(name||email||phone));
+  loadUsers();
+}
+
+// ── NOTIFICATIONS ──────────────────────────────
+async function loadNotifs(){
+  try{
+    const snap=await db.collection('notifications').orderBy('sent_at','desc').get();
+    const ns=snap.docs.map(d=>({id:d.id,...d.data()}));
+    document.getElementById('notif-tb').innerHTML=ns.length?ns.map(n=>`
+      <tr>
+        <td style="font-weight:500;font-size:11px;">${n.title||'—'}<br>${n.title_ar?`<span style="font-size:9px;color:#aaa;direction:rtl;">${n.title_ar}</span>`:''}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;" title="${n.message||''}">${n.message||'—'}</td>
+        <td><span class="badge ${n.target==='vip'?'bvi':n.target==='premium'?'bpu':n.target==='trial'?'bo':'bb'}">${n.target||'all'}</span></td>
+        <td>${channelBadge(n.channel)}</td>
+        <td style="font-size:10px;color:#aaa;">${ft(n.sent_at)}</td>
+      </tr>`).join(''):
+      '<tr><td colspan="5"><div class="empty"><div class="ei">🔔</div><div class="et">No notifications sent yet</div></div></td></tr>';
+  }catch(e){toast('Notifs error: '+e.message);}
+}
+async function saveNotif(){
+  const title=document.getElementById('nt-title').value.trim();
+  const titleAr=document.getElementById('nt-title-ar').value.trim();
+  const msg=document.getElementById('nt-msg').value.trim();
+  const msgAr=document.getElementById('nt-msg-ar').value.trim();
+  const target=document.getElementById('nt-target').value;
+  const channel=document.getElementById('nt-channel').value;
+  const user=document.getElementById('nt-user').value.trim();
+  if(!title&&!titleAr){toast('Please enter a title');return;}
+  if(!msg&&!msgAr){toast('Please enter a message');return;}
+  await db.collection('notifications').add({
+    title,title_ar:titleAr,message:msg,message_ar:msgAr,
+    target,channel,specific_user:user||null,
+    type:'manual_push',sent_at:new Date().toISOString()
+  });
+  document.getElementById('notif-modal').classList.remove('show');
+  ['nt-title','nt-title-ar','nt-msg','nt-msg-ar','nt-user'].forEach(id=>document.getElementById(id).value='');
+  toast('Notification saved and queued for delivery');
+  loadNotifs();
+}
+
+// ── ADD DEAL MANUALLY ──────────────────────────
+function calcDiscount(){
+  const price=parseFloat(document.getElementById('m-price').value);
+  const orig=parseFloat(document.getElementById('m-orig').value);
+  const dp=document.getElementById('dp');
+  if(price>0&&orig>0&&orig>price){
+    const disc=Math.round((orig-price)/orig*100);
+    document.getElementById('dp-text').textContent=disc+'% OFF — User saves EGP '+(orig-price).toLocaleString();
+    document.getElementById('dp-sub').textContent=disc>=40?'✅ Qualifies (40%+ minimum)':'⚠️ Below 40% minimum — will not show to users';
+    dp.style.display='block';
+    dp.style.background=disc>=40?'#EAF3DE':'#FAEEDA';
+  }else{dp.style.display='none';}
+}
+function autoDetectSite(){
+  const url=document.getElementById('m-url').value.trim();
+  if(!url){toast('Paste a URL first');return;}
+  const site=detectSiteFromUrl(url);
+  document.getElementById('m-site').value=site;
+  const cat=detectCatFromTitle(url);
+  if(cat!=='general')document.getElementById('m-cat').value=cat;
+  toast('Detected: '+(site==='amazon_eg'?'Amazon Egypt':site==='noon_eg'?'Noon Egypt':site));
+}
+async function addManualDeal(){
+  const title=document.getElementById('m-title').value.trim();
+  const titleAr=document.getElementById('m-title-ar').value.trim();
+  const url=document.getElementById('m-url').value.trim();
+  const price=parseFloat(document.getElementById('m-price').value);
+  const orig=parseFloat(document.getElementById('m-orig').value);
+  const img=document.getElementById('m-img').value.trim();
+  const site=document.getElementById('m-site').value;
+  const cat=document.getElementById('m-cat').value;
+  const rating=parseFloat(document.getElementById('m-rating').value)||0;
+  const reviews=parseInt(document.getElementById('m-reviews').value)||0;
+  const coupon=document.getElementById('m-coupon').value.trim();
+  if(!title){toast('Enter product title');return;}
+  if(!url){toast('Enter product URL');return;}
+  if(!price||price<=0){toast('Enter current price');return;}
+  if(!orig||orig<=0){toast('Enter original price');return;}
+  if(orig<=price){toast('Original must be higher than current');return;}
+  const disc=Math.round((orig-price)/orig*100);
+  if(disc<40){toast('Discount is '+disc+'% — minimum is 40%');return;}
+  const siteNames={amazon_eg:'Amazon Egypt',noon_eg:'Noon Egypt',jumia_eg:'Jumia Egypt',other:'Other'};
+  const dealId=await genId(site,url,price);
+  // Run local fake check
+  const fakeResult=localFakeCheck(price,orig,cat,site);
+  const deal={
+    deal_id:dealId,title,title_ar:titleAr,site,site_display:siteNames[site]||site,
+    category:cat,current_price:price,original_price:orig,discount_percent:disc,
+    currency:'EGP',image_url:img,product_url:url,
+    availability:'in_stock',timestamp:new Date().toISOString(),
+    rating,review_count:reviews,coupon_code:coupon,
+    verified:true,hidden:false,featured:false,source:'manual',
+    kanbkam:fakeResult,
+    fake_verdict:fakeResult.verdict,fake_verdict_ar:fakeResult.verdict_ar,
+    fake_emoji:fakeResult.emoji,fake_score:fakeResult.fake_score,
+    lowest_price_ever:0,click_count:0,buy_click_count:0
+  };
+  try{
+    await db.collection('deals').doc(dealId).set(deal);
+    toast('Deal saved! '+disc+'% OFF — '+fakeResult.emoji+' '+fakeResult.verdict);
+    ['m-title','m-title-ar','m-url','m-price','m-orig','m-img','m-rating','m-reviews','m-coupon'].forEach(id=>document.getElementById(id).value='');
+    document.getElementById('dp').style.display='none';
+    loadManualDeals();
+  }catch(e){toast('Error: '+e.message);}
+}
+async function loadManualDeals(){
+  try{
+    const snap=await db.collection('deals').where('source','==','manual').orderBy('timestamp','desc').limit(10).get();
+    const deals=snap.docs.map(d=>d.data());
+    document.getElementById('manual-tb').innerHTML=deals.length?deals.map(d=>`
+      <tr>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;">${d.title}</td>
+        <td><span class="disc">${d.discount_percent}% OFF</span></td>
+        <td style="font-weight:600;color:#E24B4A;font-size:11px;">${fp(d.current_price)}</td>
+        <td>${sb(d.site,d.site_display)}</td>
+        <td>${vb(d.fake_verdict)}</td>
+        <td><a href="${d.product_url}" target="_blank" style="font-size:10px;color:#185FA5;">View ↗</a></td>
+      </tr>`).join(''):
+      '<tr><td colspan="6"><div class="empty"><div class="et">No manual deals yet — add one above</div></div></td></tr>';
+  }catch(e){
+    document.getElementById('manual-tb').innerHTML='<tr><td colspan="6"><div class="empty"><div class="et">Add your first deal above</div></div></td></tr>';
+  }
+}
+
+// ── LOCAL FAKE CHECK (instant, no API) ─────────
+function localFakeCheck(price,orig,cat,platform){
+  const ratio=orig/price;
+  const disc=Math.round((orig-price)/orig*100);
+  const maxD={electronics:70,fashion:80,home:75,beauty:70,sports:65,toys:70,grocery:50,books:55,general:70};
+  const mx=maxD[cat]||70;
+  let suspicion=0;
+  if(disc>mx)suspicion+=30;
+  if(ratio>3)suspicion+=35;
+  else if(ratio>2)suspicion+=18;
+  if(orig%1000===0||orig%500===0)suspicion+=10;
+  if(platform==='noon_eg')suspicion+=8;
+  if(platform==='amazon_eg'&&disc>60)suspicion+=10;
+  suspicion=Math.min(suspicion,100);
+  const score=100-suspicion;
+  if(score>=70)return{verdict:'GENUINE',verdict_ar:'خصم حقيقي',emoji:'✅',fake_score:suspicion,kanbkam_checked:false,lowest_price:0,highest_price:0,kanbkam_url:''};
+  if(score>=40)return{verdict:'SUSPICIOUS',verdict_ar:'مشبوه',emoji:'⚠️',fake_score:suspicion,kanbkam_checked:false,lowest_price:0,highest_price:0,kanbkam_url:''};
+  return{verdict:'FAKE',verdict_ar:'خصم مزيف',emoji:'❌',fake_score:suspicion,kanbkam_checked:false,lowest_price:0,highest_price:0,kanbkam_url:''};
+}
+
+// ── FAKE CHECKER PAGE ──────────────────────────
+function analyzeDiscount(title,price,orig,cat,platform,notes){
+  const disc=Math.round((orig-price)/orig*100);
+  const ratio=orig/price;
+  const checks=[];let suspicion=0;
+  const maxD={electronics:70,fashion:80,home:75,beauty:70,sports:65,toys:70,automotive:60,grocery:50,books:55,general:70};
+  const mx=maxD[cat]||70;
+  if(disc>mx){checks.push({icon:'🚨',label:'Discount too high for category / الخصم مرتفع جداً',detail:`${disc}% exceeds normal max of ${mx}% for ${cat}.`,flag:'red'});suspicion+=30;}
+  else if(disc>mx-10){checks.push({icon:'⚠️',label:'Discount near category maximum',detail:`${disc}% is on the high end for ${cat}.`,flag:'yellow'});suspicion+=12;}
+  else{checks.push({icon:'✅',label:'Discount is realistic / الخصم منطقي',detail:`${disc}% is within normal range for ${cat}.`,flag:'green'});}
+  if(ratio>3){checks.push({icon:'🚨',label:`Price ratio suspicious (${ratio.toFixed(1)}x) / نسبة سعر مشبوهة`,detail:`Original is ${ratio.toFixed(1)}x the sale price. Ratios above 3x strongly suggest inflation.`,flag:'red'});suspicion+=35;}
+  else if(ratio>2){checks.push({icon:'⚠️',label:`High price ratio (${ratio.toFixed(1)}x)`,detail:`Verify this price on other platforms.`,flag:'yellow'});suspicion+=18;}
+  else{checks.push({icon:'✅',label:`Price ratio looks reasonable (${ratio.toFixed(1)}x)`,detail:`Normal ratio.`,flag:'green'});}
+  if(orig%1000===0||orig%500===0){checks.push({icon:'⚠️',label:'Original price is suspiciously round / السعر الأصلي رقم مريب',detail:`EGP ${orig.toLocaleString()} is a very round number. Real prices are usually irregular.`,flag:'yellow'});suspicion+=10;}
+  else{checks.push({icon:'✅',label:'Original price looks organic / السعر الأصلي يبدو طبيعياً',detail:`EGP ${orig.toLocaleString()} is not a suspicious round number.`,flag:'green'});}
+  if(platform==='amazon_eg'&&disc>60){checks.push({icon:'⚠️',label:'Amazon Egypt: High discount — verify history / أمازون: خصم مرتفع',detail:`Amazon sometimes inflates reference prices during sale events.`,flag:'yellow'});suspicion+=10;}
+  if(platform==='noon_eg'){checks.push({icon:'⚠️',label:'Noon Egypt: Verify original price / نون: تحقق من السعر الأصلي',detail:`Noon is known to sometimes show inflated "was" prices.`,flag:'yellow'});suspicion+=8;}
+  if(notes){
+    const n=notes.toLowerCase();
+    if(/saw|last week|cheaper|كنت|كان/.test(n)){checks.push({icon:'🚨',label:'You saw it cheaper before / رأيته أرخص من قبل',detail:`This is the strongest signal of a fake discount.`,flag:'red'});suspicion+=40;}
+    if(/black friday|ramadan|رمضان|11\.11|sale event/.test(n)){checks.push({icon:'⚠️',label:'Sale event — inflation common / موسم تخفيضات',detail:`Platforms often inflate prices before major sale events.`,flag:'yellow'});suspicion+=15;}
+  }
+  suspicion=Math.min(suspicion,100);
+  const score=100-suspicion;
+  let verdict,vClass,vColor,vText,vTextAr;
+  if(score>=70){verdict='GENUINE';vClass='fdc-g';vColor='#3B6D11';vText='This discount appears genuine.';vTextAr='يبدو هذا الخصم حقيقياً.';}
+  else if(score>=40){verdict='SUSPICIOUS';vClass='fdc-y';vColor='#854F0B';vText='This discount has suspicious elements. Verify independently.';vTextAr='هذا الخصم مشبوه. تحقق منه بشكل مستقل.';}
+  else{verdict='LIKELY FAKE';vClass='fdc-r';vColor='#A32D2D';vText='Multiple signals indicate a likely fake discount.';vTextAr='مؤشرات متعددة تشير إلى أن هذا خصم مزيف.';}
+  return{disc,ratio,score,verdict,vClass,vColor,vText,vTextAr,checks,savings:Math.round(orig-price)};
+}
+function renderCheckerResult(res,title,price,orig,platform,kanbkamData){
+  const cmap={green:'#3B6D11',yellow:'#854F0B',red:'#A32D2D'};
+  const recs=['Search this product on Google Shopping to compare prices.'];
+  if(platform==='amazon_eg')recs.push('Check CamelCamelCamel.com or Keepa.com for Amazon price history.');
+  recs.push('Our Kanbkam integration verifies the real price history for Amazon Egypt products automatically.');
+  recs.push('The Safqa feature in DealHunter app will automatically track and verify price histories for you.');
+  document.getElementById('checker-output').innerHTML=`
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding-bottom:16px;border-bottom:0.5px solid #f0f0f0;">
+      <div class="fdc-score ${res.vClass}">${res.score}</div>
+      <div>
+        <div style="font-size:16px;font-weight:700;color:${res.vColor};margin-bottom:3px;">${res.verdict}</div>
+        <div style="font-size:11px;color:#666;max-width:380px;line-height:1.6;">${res.vText}</div>
+        <div style="font-size:11px;color:${res.vColor};direction:rtl;margin-top:2px;">${res.vTextAr}</div>
+      </div>
+    </div>
+    ${kanbkamData?`
+    <div style="background:#EAF3DE;border-radius:9px;padding:12px;margin-bottom:14px;">
+      <div style="font-size:12px;font-weight:600;color:#3B6D11;margin-bottom:6px;">📊 Kanbkam Price History / تاريخ كنبكام</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">
+        <div><div style="font-size:9px;color:#888;">Lowest Ever / أقل سعر</div><div style="font-size:15px;font-weight:700;color:#3B6D11;">${fp(kanbkamData.lowest_price)}</div></div>
+        <div><div style="font-size:9px;color:#888;">Current / الحالي</div><div style="font-size:15px;font-weight:700;color:#E24B4A;">${fp(price)}</div></div>
+        <div><div style="font-size:9px;color:#888;">Highest Ever / أعلى سعر</div><div style="font-size:15px;font-weight:700;color:#A32D2D;">${fp(kanbkamData.highest_price)}</div></div>
+      </div>
+      ${kanbkamData.suggested_wait_price?`<div style="margin-top:8px;font-size:11px;color:#3B6D11;">💡 Wait for price to drop to <strong>${fp(kanbkamData.suggested_wait_price)}</strong> / انتظر حتى يصل إلى <strong>${fp(kanbkamData.suggested_wait_price)}</strong></div>`:''}
+      ${kanbkamData.kanbkam_url?`<div style="margin-top:5px;"><a href="${kanbkamData.kanbkam_url}" target="_blank" style="font-size:10px;color:#185FA5;">View on Kanbkam / عرض على كنبكام ↗</a></div>`:''}
+    </div>`:``}
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:9px;margin-bottom:14px;">
+      <div style="background:#f8f8f8;border-radius:8px;padding:10px;text-align:center;"><div style="font-size:9px;color:#aaa;">CLAIMED DISCOUNT / الخصم المعلن</div><div style="font-size:17px;font-weight:700;color:#E24B4A;">${res.disc}%</div></div>
+      <div style="background:#f8f8f8;border-radius:8px;padding:10px;text-align:center;"><div style="font-size:9px;color:#aaa;">YOU SAVE / توفير</div><div style="font-size:14px;font-weight:700;">EGP ${res.savings.toLocaleString()}</div></div>
+      <div style="background:#f8f8f8;border-radius:8px;padding:10px;text-align:center;"><div style="font-size:9px;color:#aaa;">PRICE RATIO</div><div style="font-size:17px;font-weight:700;color:${res.ratio>2?'#E24B4A':'#222'};">${res.ratio.toFixed(1)}x</div></div>
+    </div>
+    <div style="font-size:12px;font-weight:600;margin-bottom:9px;">Detailed Analysis / التحليل التفصيلي</div>
+    <div style="margin-bottom:14px;">${res.checks.map(c=>`
+      <div class="fdc-row">
+        <div style="font-size:13px;flex-shrink:0;">${c.icon}</div>
+        <div>
+          <div style="font-size:11px;font-weight:500;color:${cmap[c.flag]||'#222'};">${c.label}</div>
+          <div style="font-size:10px;color:#888;margin-top:1px;line-height:1.5;">${c.detail}</div>
+        </div>
+      </div>`).join('')}</div>
+    <div style="background:#f0f4ff;border-radius:8px;padding:11px;">
+      <div style="font-size:11px;font-weight:600;margin-bottom:6px;">What to do / ماذا تفعل</div>
+      ${recs.map(r=>`<div style="font-size:10px;color:#555;margin-bottom:4px;display:flex;gap:5px;"><span style="flex-shrink:0;">→</span><span>${r}</span></div>`).join('')}
+    </div>`;
+  document.getElementById('checker-result').style.display='block';
+  document.getElementById('checker-result').scrollIntoView({behavior:'smooth'});
+}
+async function analyzeFromUrl(){
+  const url=document.getElementById('c-url').value.trim();
+  if(!url){toast('Paste a product URL first');return;}
+  const status=document.getElementById('url-status');
+  status.style.display='block';
+  status.innerHTML='<span class="spin"></span> Fetching product page...';
+  try{
+    const proxy='https://api.allorigins.win/get?url='+encodeURIComponent(url);
+    const resp=await fetch(proxy,{signal:AbortSignal.timeout(15000)});
+    const data=await resp.json();
+    const html=data.contents;
+    if(!html)throw new Error('Empty response');
+    const parser=new DOMParser();
+    const doc=parser.parseFromString(html,'text/html');
+    const platform=detectSiteFromUrl(url);
+    let title='',currentPrice=0,originalPrice=0,asin='';
+    if(platform==='amazon_eg'){
+      title=doc.querySelector('#productTitle')?.textContent?.trim()||doc.querySelector('h1')?.textContent?.trim()||'';
+      const pw=doc.querySelector('.a-price-whole')?.textContent?.replace(/[^0-9]/g,'')||'';
+      currentPrice=pw?parseFloat(pw):0;
+      const origEl=doc.querySelector('.a-price.a-text-price .a-offscreen');
+      if(origEl)originalPrice=parseFloat(origEl.textContent.replace(/[^0-9.]/g,''))||0;
+      // Extract ASIN from URL
+      const asinMatch=url.match(/\/dp\/([A-Z0-9]{10})/);
+      asin=asinMatch?asinMatch[1]:'';
+    }else{
+      title=doc.querySelector('h1')?.textContent?.trim()||'';
+      const pt=doc.body?.textContent||'';
+      const pm=[...pt.matchAll(/(?:EGP|ج\.م)[^\d]*(\d[\d,]*)/gi)];
+      const prices=pm.map(m=>parseFloat(m[1].replace(/,/g,''))).filter(p=>p>50&&p<1000000);
+      if(prices.length>=2){prices.sort((a,b)=>a-b);currentPrice=prices[0];originalPrice=prices[prices.length-1];}
+      else if(prices.length===1)currentPrice=prices[0];
+    }
+    if(title)document.getElementById('c-title').value=title;
+    if(currentPrice>0)document.getElementById('c-price').value=Math.round(currentPrice);
+    if(originalPrice>currentPrice)document.getElementById('c-orig').value=Math.round(originalPrice);
+    if(platform!=='other')document.getElementById('c-platform').value=platform;
+    if(title)document.getElementById('c-cat').value=detectCatFromTitle(title);
+
+    // Run Kanbkam check if Amazon + ASIN
+    let kanbkamData=null;
+    if(platform==='amazon_eg'&&asin&&currentPrice>0){
+      status.innerHTML='<span class="spin"></span> Checking Kanbkam for real price history / جاري فحص كنبكام...';
+      try{
+        const kUrl=`https://api.allorigins.win/get?url=${encodeURIComponent('https://www.kanbkam.com/eg/ar/search?q='+asin)}`;
+        const kResp=await fetch(kUrl,{signal:AbortSignal.timeout(12000)});
+        const kData=await kResp.json();
+        const kHtml=kData.contents||'';
+        const kDoc=parser.parseFromString(kHtml,'text/html');
+        const kText=kDoc.body?.textContent||'';
+        const lmatch=kText.match(/أقل\s*سعر[\s\S]{0,50}?(\d[\d,]+)/);
+        const hmatch=kText.match(/أعلى\s*سعر[\s\S]{0,50}?(\d[\d,]+)/);
+        let lo=0,hi=0;
+        if(lmatch)lo=parseFloat(lmatch[1].replace(',',''));
+        if(hmatch)hi=parseFloat(hmatch[1].replace(',',''));
+        if(lo>0&&hi>0){
+          kanbkamData={lowest_price:lo,highest_price:hi,kanbkam_url:`https://www.kanbkam.com/eg/ar/${asin}`,suggested_wait_price:Math.round(lo*1.05)};
+          status.innerHTML=`✅ Kanbkam found! Lowest: EGP ${lo.toLocaleString()} / High: EGP ${hi.toLocaleString()}`;
+        }else{
+          status.innerHTML='ℹ️ Product found but price data incomplete on Kanbkam';
+        }
+      }catch(ke){
+        status.innerHTML='ℹ️ Kanbkam check skipped ('+ke.message+')';
+      }
+    }
+
+    if(currentPrice>0&&originalPrice>currentPrice){
+      setTimeout(()=>runChecker(kanbkamData),400);
+    }else if(currentPrice>0){
+      status.innerHTML='⚠️ Found current price. Enter original price manually then click Analyze.';
+    }else{
+      status.innerHTML='⚠️ Could not extract prices. Please enter them manually below.';
+    }
+  }catch(e){
+    if(e.name==='TimeoutError')status.innerHTML='⏱ Page timeout. Enter prices manually.';
+    else status.innerHTML='⚠️ Could not fetch page. Enter prices manually.';
+  }
+}
+function runChecker(kanbkamOverride){
+  const price=parseFloat(document.getElementById('c-price').value);
+  const orig=parseFloat(document.getElementById('c-orig').value);
+  const cat=document.getElementById('c-cat').value;
+  const platform=document.getElementById('c-platform').value;
+  const notes=document.getElementById('c-notes').value.trim();
+  const title=document.getElementById('c-title').value.trim();
+  const url=document.getElementById('c-url').value.trim();
+  if(!price||!orig){toast('Please enter both current and original price');return;}
+  if(orig<=price){toast('Original price must be higher than current');return;}
+  const res=analyzeDiscount(title,price,orig,cat,platform,notes);
+  lastCheckerResult={...res,title,price,orig,cat,platform,url};
+  renderCheckerResult(res,title,price,orig,platform,kanbkamOverride||null);
+}
+async function saveCheckerResult(){
+  if(!lastCheckerResult){toast('Run an analysis first');return;}
+  const r=lastCheckerResult;
+  await db.collection('fake_checks').add({
+    title:r.title||'Unknown',url:r.url||'',
+    current_price:r.price,original_price:r.orig,
+    discount_percent:r.disc,category:r.cat,platform:r.platform,
+    verdict:r.verdict,score:r.score,checked_at:new Date().toISOString()
+  });
+  toast('Analysis saved to database');
+}
+
+// ── AUTO REFRESH ───────────────────────────────
+setInterval(()=>{if(document.getElementById('page-monitor').classList.contains('active'))loadMonitor();},60000);
+loadMonitor();
+</script>
+</body>
+</html>

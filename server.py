@@ -1761,6 +1761,120 @@ def log_webhook(event_id, event_type, status, response_code, payload):
         print(f"Error logging webhook: {e}")
 
 
+# ============ ADMIN API ENDPOINTS (FOR DASHBOARD) ============
+
+@app.route('/api/v1/admin/tiers', methods=['GET'])
+@require_auth
+def admin_get_tiers():
+    """Get all tier configurations for admin"""
+    try:
+        tiers_snap = db.collection('tier_config').stream()
+        tiers = []
+        for doc in tiers_snap:
+            tier_data = doc.to_dict()
+            tiers.append({
+                'name': doc.id,
+                'daily_limit': tier_data.get('daily_limit', 0),
+                'price': tier_data.get('price', 0),
+                'features': tier_data.get('features', []),
+                'status': tier_data.get('status', 'active')
+            })
+        return jsonify({'tiers': sorted(tiers, key=lambda x: x['price'])}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/groups', methods=['GET'])
+@require_auth
+def admin_get_groups():
+    """Get all user groups for admin"""
+    try:
+        groups_snap = db.collection('user_groups').stream()
+        groups = []
+        for doc in groups_snap:
+            group_data = doc.to_dict()
+            groups.append({
+                'id': doc.id,
+                'name': group_data.get('name', 'Unknown'),
+                'admin_email': group_data.get('owner_id', 'unknown'),
+                'member_count': group_data.get('member_count', 0),
+                'tier': group_data.get('tier', 'N/A'),
+                'created_at': group_data.get('created_at', '').isoformat() if hasattr(group_data.get('created_at', ''), 'isoformat') else str(group_data.get('created_at', ''))
+            })
+        return jsonify({'groups': groups}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/offers', methods=['GET'])
+@require_auth
+def admin_get_offers():
+    """Get all special offers for admin"""
+    try:
+        offers_snap = db.collection('special_offers').stream()
+        offers = []
+        for doc in offers_snap:
+            offer_data = doc.to_dict()
+            offers.append({
+                'id': doc.id,
+                'type': offer_data.get('type', 'discount'),
+                'value': offer_data.get('value', 0),
+                'target_type': offer_data.get('target_type', 'tier'),
+                'target_value': offer_data.get('target_value', 'all'),
+                'description': offer_data.get('description', ''),
+                'created_at': offer_data.get('created_at', '').isoformat() if hasattr(offer_data.get('created_at', ''), 'isoformat') else str(offer_data.get('created_at', ''))
+            })
+        return jsonify({'offers': offers}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/team', methods=['GET'])
+@require_auth
+def admin_get_team():
+    """Get all team members for admin"""
+    try:
+        team_snap = db.collection('admin_users').stream()
+        team = []
+        for doc in team_snap:
+            member_data = doc.to_dict()
+            team.append({
+                'email': doc.id,
+                'name': member_data.get('name', 'Unknown'),
+                'role': member_data.get('role', 'viewer'),
+                'permissions': member_data.get('permissions', []),
+                'status': member_data.get('status', 'active'),
+                'last_login': member_data.get('last_login', '').isoformat() if hasattr(member_data.get('last_login', ''), 'isoformat') else str(member_data.get('last_login', ''))
+            })
+        return jsonify({'team': team}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/check-auth', methods=['GET'])
+@require_auth
+def admin_check_auth():
+    """Check if user is authenticated admin"""
+    try:
+        user_email = request.current_user.get('email')
+        admin_doc = db.collection('admin_users').document(user_email).get()
+
+        if not admin_doc.exists:
+            return jsonify({'is_admin': False, 'reason': 'Not in admin_users collection'}), 200
+
+        admin_data = admin_doc.to_dict()
+        return jsonify({
+            'is_admin': True,
+            'email': user_email,
+            'name': admin_data.get('name'),
+            'role': admin_data.get('role'),
+            'permissions': admin_data.get('permissions', []),
+            'status': admin_data.get('status')
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ============ HEALTH CHECK ENDPOINT ============
 
 @app.route('/', methods=['GET', 'POST', 'HEAD'])

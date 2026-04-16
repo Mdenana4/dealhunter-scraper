@@ -1,0 +1,15 @@
+Phase 3    Noon/HyperOne/Sahla — needs special solution            JavaScript sites need different approach	
+
+Phase 4    Admin permission system (3 levels)                      Foundation for everything admin
+
+Phase 5    User control — groups, membership gifts, pricing         Builds on permission system
+
+Phase 6    Points system + custom offers                            Builds on user control
+ 
+Phase 7    Advertising system + purchase tracking                   Final business layer
+
+Phase 8     Excel export + analytics                                Reports on everything above
+
+Phase 9     Language toggle EN/A 				     RWorks across the whole app
+
+Phase 10     Hosted web app                                        After everything is tested

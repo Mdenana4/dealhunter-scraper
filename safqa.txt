@@ -1,0 +1,266 @@
+in CMD show that 
+
+D:\Python\Panadas\dealhunter>python fake_checker.py
+=======================================================
+Testing Fake Discount Checker
+Product: Oraimo FreePods 3 earbuds
+Amazon claims: Was EGP 1,099 → Now EGP 899 (18% OFF)
+=======================================================
+    Checking price history: Oraimo FreePods 3 OEB-E104DC True Wirele...
+    [KANBKAM] Found: Low=EGP 3,218 High=EGP 7,000
+    [SAFQA] Not found for this product
+
+=======================================================
+RESULT:
+Verdict: ✅ GENUINE
+Verdict (AR): خصم حقيقي — قريب من أقل سعر تاريخي
+Lowest price ever: EGP 3,218
+Highest price ever: EGP 7,000
+Rule A triggered: False
+Rule B triggered: False
+Source used: kanbkam
+Coupon codes: []
+Wait for price: EGP 3,379
+
+Reason: GENUINE (source: kanbkam):
+Current EGP 899 is near historical low EGP 3,218. Great deal!
+=======================================================
+
+D:\Python\Panadas\dealhunter>git add fake_checker.py scraper.py
+
+D:\Python\Panadas\dealhunter>git commit -m "add Safqa + Kanbkam combined fake checker, coupon codes"
+[main 81621ea] add Safqa + Kanbkam combined fake checker, coupon codes
+ 2 files changed, 1714 insertions(+), 608 deletions(-)
+ create mode 100644 fake_checker.py
+
+D:\Python\Panadas\dealhunter>git push
+Enumerating objects: 6, done.
+Counting objects: 100% (6/6), done.
+Delta compression using up to 8 threads
+Compressing objects: 100% (4/4), done.
+Writing objects: 100% (4/4), 18.47 KiB | 4.62 MiB/s, done.
+Total 4 (delta 2), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (2/2), completed with 2 local objects.
+To https://github.com/Mdenana4/dealhunter-scraper.git
+   764a5a5..81621ea  main -> main
+
+D:\Python\Panadas\dealhunter>python fake_checker.py
+=======================================================
+Testing Fake Discount Checker
+Product: Oraimo FreePods 3 earbuds
+Amazon claims: Was EGP 1,099 → Now EGP 899 (18% OFF)
+=======================================================
+    Checking price history: Oraimo FreePods 3 OEB-E104DC True Wirele...
+    [KANBKAM] Found: Low=EGP 3,218 High=EGP 7,000
+    [SAFQA] Not found for this product
+
+=======================================================
+RESULT:
+Verdict: ✅ GENUINE
+Verdict (AR): خصم حقيقي — قريب من أقل سعر تاريخي
+Lowest price ever: EGP 3,218
+Highest price ever: EGP 7,000
+Rule A triggered: False
+Rule B triggered: False
+Source used: kanbkam
+Coupon codes: []
+Wait for price: EGP 3,379
+
+Reason: GENUINE (source: kanbkam):
+Current EGP 899 is near historical low EGP 3,218. Great deal!
+=======================================================
+
+D:\Python\Panadas\dealhunter>python fake_checker.py
+=======================================================
+Testing Fake Discount Checker
+Product: Oraimo FreePods 3 earbuds
+Amazon claims: Was EGP 1,099 → Now EGP 899 (18% OFF)
+=======================================================
+    Checking price history: Oraimo FreePods 3 OEB-E104DC True Wirele...
+    [KANBKAM] Found: Low=EGP 3,218 High=EGP 7,000
+    [SAFQA] Not found for this product
+
+=======================================================
+RESULT:
+Verdict: ✅ GENUINE
+Verdict (AR): خصم حقيقي — قريب من أقل سعر تاريخي
+Lowest price ever: EGP 3,218
+Highest price ever: EGP 7,000
+Rule A triggered: False
+Rule B triggered: False
+Source used: kanbkam
+Coupon codes: []
+Wait for price: EGP 3,379
+
+Reason: GENUINE (source: kanbkam):
+Current EGP 899 is near historical low EGP 3,218. Great deal!
+=======================================================
+
+D:\Python\Panadas\dealhunter>git add fake_checker.py scraper.py
+warning: in the working copy of 'scraper.py', LF will be replaced by CRLF the next time Git touches it
+
+D:\Python\Panadas\dealhunter>git commit -m "add Safqa + Kanbkam combined fake checker, coupon codes"
+[main 4e15126] add Safqa + Kanbkam combined fake checker, coupon codes
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+D:\Python\Panadas\dealhunter>git push
+Enumerating objects: 5, done.
+Counting objects: 100% (5/5), done.
+Delta compression using up to 8 threads
+Compressing objects: 100% (3/3), done.
+Writing objects: 100% (3/3), 350 bytes | 350.00 KiB/s, done.
+Total 3 (delta 2), reused 0 (delta 0), pack-reused 0 (from 0)
+remote: Resolving deltas: 100% (2/2), completed with 2 local objects.
+To https://github.com/Mdenana4/dealhunter-scraper.git
+   81621ea..4e15126  main -> main
+
+***************************************************************************************************************************************************************
+
+error in render after change the code for "scraper and fake_checker and server " 
+
+so you can give me fully fixed code for all of admin.html need update also give fully fixed code 
+
+
+==> Downloading cache...
+==> Cloning from https://github.com/Mdenana4/dealhunter-scraper
+==> Checking out commit 4e151265150e581f48f9367b13c6f430520b4569 in branch main
+==> Downloaded 104MB in 2s. Extraction took 2s.
+==> Using Python version 3.14.3 (default)
+Menu
+==> Docs on specifying a Python version: https://render.com/docs/python-version
+==> Installing Python version 3.14.3...
+==> Using Poetry version 2.1.3 (default)
+==> Docs on specifying a Poetry version: https://render.com/docs/poetry-version
+==> Running build command 'pip install -r requirements.txt'...
+Collecting requests==2.31.0 (from -r requirements.txt (line 1))
+  Using cached requests-2.31.0-py3-none-any.whl.metadata (4.6 kB)
+Collecting firebase-admin==6.4.0 (from -r requirements.txt (line 2))
+  Using cached firebase_admin-6.4.0-py3-none-any.whl.metadata (1.5 kB)
+Collecting beautifulsoup4==4.12.3 (from -r requirements.txt (line 3))
+  Using cached beautifulsoup4-4.12.3-py3-none-any.whl.metadata (3.8 kB)
+Collecting schedule==1.2.1 (from -r requirements.txt (line 4))
+  Using cached schedule-1.2.1-py2.py3-none-any.whl.metadata (3.3 kB)
+Collecting lxml==5.1.0 (from -r requirements.txt (line 5))
+  Using cached lxml-5.1.0-cp314-cp314-linux_x86_64.whl
+Collecting python-dotenv==1.0.1 (from -r requirements.txt (line 6))
+  Using cached python_dotenv-1.0.1-py3-none-any.whl.metadata (23 kB)
+Collecting charset-normalizer<4,>=2 (from requests==2.31.0->-r requirements.txt (line 1))
+  Using cached charset_normalizer-3.4.7-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (40 kB)
+Collecting idna<4,>=2.5 (from requests==2.31.0->-r requirements.txt (line 1))
+  Using cached idna-3.11-py3-none-any.whl.metadata (8.4 kB)
+Collecting urllib3<3,>=1.21.1 (from requests==2.31.0->-r requirements.txt (line 1))
+  Using cached urllib3-2.6.3-py3-none-any.whl.metadata (6.9 kB)
+Collecting certifi>=2017.4.17 (from requests==2.31.0->-r requirements.txt (line 1))
+  Using cached certifi-2026.2.25-py3-none-any.whl.metadata (2.5 kB)
+Collecting cachecontrol>=0.12.6 (from firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached cachecontrol-0.14.4-py3-none-any.whl.metadata (3.1 kB)
+Collecting google-api-python-client>=1.7.8 (from firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_api_python_client-2.194.0-py3-none-any.whl.metadata (7.0 kB)
+Collecting google-cloud-storage>=1.37.1 (from firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_cloud_storage-3.10.1-py3-none-any.whl.metadata (15 kB)
+Collecting pyjwt>=2.5.0 (from pyjwt[crypto]>=2.5.0->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached pyjwt-2.12.1-py3-none-any.whl.metadata (4.1 kB)
+Collecting google-api-core<3.0.0dev,>=1.22.1 (from google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_api_core-2.30.3-py3-none-any.whl.metadata (3.1 kB)
+Collecting google-cloud-firestore>=2.9.1 (from firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_cloud_firestore-2.26.0-py3-none-any.whl.metadata (10 kB)
+Collecting soupsieve>1.2 (from beautifulsoup4==4.12.3->-r requirements.txt (line 3))
+  Using cached soupsieve-2.8.3-py3-none-any.whl.metadata (4.6 kB)
+Collecting googleapis-common-protos<2.0.0,>=1.63.2 (from google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached googleapis_common_protos-1.74.0-py3-none-any.whl.metadata (9.2 kB)
+Collecting protobuf<8.0.0,>=4.25.8 (from google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached protobuf-7.34.1-cp310-abi3-manylinux2014_x86_64.whl.metadata (595 bytes)
+Collecting proto-plus<2.0.0,>=1.22.3 (from google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached proto_plus-1.27.2-py3-none-any.whl.metadata (2.2 kB)
+Collecting google-auth<3.0.0,>=2.14.1 (from google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_auth-2.49.2-py3-none-any.whl.metadata (6.2 kB)
+Collecting grpcio<2.0.0,>=1.33.2 (from google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached grpcio-1.80.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (3.8 kB)
+Collecting grpcio-status<2.0.0,>=1.33.2 (from google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached grpcio_status-1.80.0-py3-none-any.whl.metadata (1.3 kB)
+Collecting pyasn1-modules>=0.2.1 (from google-auth<3.0.0,>=2.14.1->google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached pyasn1_modules-0.4.2-py3-none-any.whl.metadata (3.5 kB)
+Collecting cryptography>=38.0.3 (from google-auth<3.0.0,>=2.14.1->google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached cryptography-46.0.7-cp311-abi3-manylinux_2_34_x86_64.whl.metadata (5.7 kB)
+Collecting typing-extensions~=4.12 (from grpcio<2.0.0,>=1.33.2->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting protobuf<8.0.0,>=4.25.8 (from google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl.metadata (593 bytes)
+Collecting msgpack<2.0.0,>=0.5.2 (from cachecontrol>=0.12.6->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached msgpack-1.1.2-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (8.1 kB)
+Collecting cffi>=2.0.0 (from cryptography>=38.0.3->google-auth<3.0.0,>=2.14.1->google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached cffi-2.0.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.6 kB)
+Collecting pycparser (from cffi>=2.0.0->cryptography>=38.0.3->google-auth<3.0.0,>=2.14.1->google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached pycparser-3.0-py3-none-any.whl.metadata (8.2 kB)
+Collecting httplib2<1.0.0,>=0.19.0 (from google-api-python-client>=1.7.8->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached httplib2-0.31.2-py3-none-any.whl.metadata (2.2 kB)
+Collecting google-auth-httplib2<1.0.0,>=0.2.0 (from google-api-python-client>=1.7.8->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_auth_httplib2-0.3.1-py3-none-any.whl.metadata (3.0 kB)
+Collecting uritemplate<5,>=3.0.1 (from google-api-python-client>=1.7.8->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached uritemplate-4.2.0-py3-none-any.whl.metadata (2.6 kB)
+Collecting pyparsing<4,>=3.1 (from httplib2<1.0.0,>=0.19.0->google-api-python-client>=1.7.8->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached pyparsing-3.3.2-py3-none-any.whl.metadata (5.8 kB)
+Collecting google-cloud-core<3.0.0,>=1.4.1 (from google-cloud-firestore>=2.9.1->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_cloud_core-2.5.1-py3-none-any.whl.metadata (2.8 kB)
+Collecting google-resumable-media<3.0.0,>=2.7.2 (from google-cloud-storage>=1.37.1->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_resumable_media-2.8.2-py3-none-any.whl.metadata (2.2 kB)
+Collecting google-crc32c<2.0.0,>=1.1.3 (from google-cloud-storage>=1.37.1->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached google_crc32c-1.8.0-cp314-cp314-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl.metadata (1.7 kB)
+Collecting pyasn1<0.7.0,>=0.6.1 (from pyasn1-modules>=0.2.1->google-auth<3.0.0,>=2.14.1->google-api-core<3.0.0dev,>=1.22.1->google-api-core[grpc]<3.0.0dev,>=1.22.1; platform_python_implementation != "PyPy"->firebase-admin==6.4.0->-r requirements.txt (line 2))
+  Using cached pyasn1-0.6.3-py3-none-any.whl.metadata (8.4 kB)
+Using cached requests-2.31.0-py3-none-any.whl (62 kB)
+Using cached firebase_admin-6.4.0-py3-none-any.whl (120 kB)
+Using cached beautifulsoup4-4.12.3-py3-none-any.whl (147 kB)
+Using cached schedule-1.2.1-py2.py3-none-any.whl (11 kB)
+Using cached python_dotenv-1.0.1-py3-none-any.whl (19 kB)
+Using cached charset_normalizer-3.4.7-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (215 kB)
+Using cached google_api_core-2.30.3-py3-none-any.whl (173 kB)
+Using cached google_auth-2.49.2-py3-none-any.whl (240 kB)
+Using cached googleapis_common_protos-1.74.0-py3-none-any.whl (300 kB)
+Using cached grpcio-1.80.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (6.8 MB)
+Using cached grpcio_status-1.80.0-py3-none-any.whl (14 kB)
+Using cached idna-3.11-py3-none-any.whl (71 kB)
+Using cached proto_plus-1.27.2-py3-none-any.whl (50 kB)
+Using cached protobuf-6.33.6-cp39-abi3-manylinux2014_x86_64.whl (323 kB)
+Using cached typing_extensions-4.15.0-py3-none-any.whl (44 kB)
+Using cached urllib3-2.6.3-py3-none-any.whl (131 kB)
+Using cached cachecontrol-0.14.4-py3-none-any.whl (22 kB)
+Using cached msgpack-1.1.2-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (419 kB)
+Using cached certifi-2026.2.25-py3-none-any.whl (153 kB)
+Using cached cryptography-46.0.7-cp311-abi3-manylinux_2_34_x86_64.whl (4.5 MB)
+Using cached cffi-2.0.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (219 kB)
+Using cached google_api_python_client-2.194.0-py3-none-any.whl (15.0 MB)
+Using cached google_auth_httplib2-0.3.1-py3-none-any.whl (9.5 kB)
+Using cached httplib2-0.31.2-py3-none-any.whl (91 kB)
+Using cached pyparsing-3.3.2-py3-none-any.whl (122 kB)
+Using cached uritemplate-4.2.0-py3-none-any.whl (11 kB)
+Using cached google_cloud_firestore-2.26.0-py3-none-any.whl (416 kB)
+Using cached google_cloud_core-2.5.1-py3-none-any.whl (29 kB)
+Using cached google_cloud_storage-3.10.1-py3-none-any.whl (324 kB)
+Using cached google_crc32c-1.8.0-cp314-cp314-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl (33 kB)
+Using cached google_resumable_media-2.8.2-py3-none-any.whl (81 kB)
+Using cached pyasn1_modules-0.4.2-py3-none-any.whl (181 kB)
+Using cached pyasn1-0.6.3-py3-none-any.whl (83 kB)
+Using cached pyjwt-2.12.1-py3-none-any.whl (29 kB)
+Using cached soupsieve-2.8.3-py3-none-any.whl (37 kB)
+Using cached pycparser-3.0-py3-none-any.whl (48 kB)
+Installing collected packages: urllib3, uritemplate, typing-extensions, soupsieve, schedule, python-dotenv, pyparsing, pyjwt, pycparser, pyasn1, protobuf, msgpack, lxml, idna, google-crc32c, charset-normalizer, certifi, requests, pyasn1-modules, proto-plus, httplib2, grpcio, googleapis-common-protos, google-resumable-media, cffi, beautifulsoup4, grpcio-status, cryptography, cachecontrol, google-auth, google-auth-httplib2, google-api-core, google-cloud-core, google-api-python-client, google-cloud-storage, google-cloud-firestore, firebase-admin
+Successfully installed beautifulsoup4-4.12.3 cachecontrol-0.14.4 certifi-2026.2.25 cffi-2.0.0 charset-normalizer-3.4.7 cryptography-46.0.7 firebase-admin-6.4.0 google-api-core-2.30.3 google-api-python-client-2.194.0 google-auth-2.49.2 google-auth-httplib2-0.3.1 google-cloud-core-2.5.1 google-cloud-firestore-2.26.0 google-cloud-storage-3.10.1 google-crc32c-1.8.0 google-resumable-media-2.8.2 googleapis-common-protos-1.74.0 grpcio-1.80.0 grpcio-status-1.80.0 httplib2-0.31.2 idna-3.11 lxml-5.1.0 msgpack-1.1.2 proto-plus-1.27.2 protobuf-6.33.6 pyasn1-0.6.3 pyasn1-modules-0.4.2 pycparser-3.0 pyjwt-2.12.1 pyparsing-3.3.2 python-dotenv-1.0.1 requests-2.31.0 schedule-1.2.1 soupsieve-2.8.3 typing-extensions-4.15.0 uritemplate-4.2.0 urllib3-2.6.3
+[notice] A new release of pip is available: 25.3 -> 26.0.1
+[notice] To update, run: pip install --upgrade pip
+==> Uploading build...
+==> Uploaded in 14.3s. Compression took 3.7s
+==> Build successful 🎉
+==> Deploying...
+==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+==> No open ports detected, continuing to scan...
+==> Docs on specifying a port: https://render.com/docs/web-services#port-binding
+==> Running 'python server.py'
+Traceback (most recent call last):
+  File "/opt/render/project/src/server.py", line 7, in <module>
+    from scraper import run_scraper, INTERVAL
+  File "/opt/render/project/src/scraper.py", line 608
+    kb = check_price_history(
+IndentationError: unexpected indent
+==> Exited with status 1
+==> Common ways to troubleshoot your deploy: https://render.com/docs/troubleshooting-deploys

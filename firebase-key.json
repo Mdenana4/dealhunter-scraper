@@ -1,1 +1,13 @@
-
+{
+  "type": "service_account",
+  "project_id": "dealhunter-egypt-70d29",
+  "private_key_id": "5ea930ce0988d7db3eac44e8c9efd971e287d108",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDRCBe68IukHtUX\ne1TYouw4zY/h8bZDsc9bAdDtSXnBG4NLf1I/r79pUf9a0qdmjTYsBKtDmMIKgzo9\ntjhRJxGklme1wYO5czryFbQFtgOK0qg+AIb7Kq6eH7t2Qo/Fi7tNIUkJRIIyUpy5\nQ/sOmefqvO8SdKblUuc5R8J50lTuMy1XJ3Aliw1lzb+c2Fef2D/L25W/0qSPVfOd\nAtB9gjMVX8n5r6dP8XNV3wt9fYM83iqjaYqWrCneQ+O5lo27kw8UdKzheCCNo5pa\n9imhmiY1vXYx7ILTD9mboen0Pt4MT8JKK6Cy5KQbcSMA7jvbyTm78NEKbZKVKkq0\nbeoqc8dnAgMBAAECggEALxNjAMNet4oIFJ8+dwGOMKa+4jRFB47ac5T/oAj9pitT\nkOOuOtCSS55fY21wrOxdiGFOzszu2l4+dhp9KW2ikA4dcjYQO+pDGrUfk2+v8YpK\nwJfuzk8I/2yHE/Wemm9DMfYulCs9JScsy56PQnUP4XJGZ0IlOh1HHMPX/QaNAQ3W\nIMxdvXbJXZLyjIi56zA4n2sK9RbC063rL7WfEShoEU1LlacrGsM4grE+640Oyz5P\nAjLAZLO9xOQM1zVeZAhjxup02aSy08ywurW8BP06I4IAG3Hu6AkbaVJ9AC05bhnx\nVaSqkKXxYbD745TsRX9ouc9CU8X4pjHpGIRGnJIqVQKBgQD2OXMeDZOQ21wX22sX\nHwhNmjdAUDtUr1QOHWIaQHAagrgNWzVxMfseMx2/xz1tApgaz35coLUv6Bz2F1s8\ncORW4peCdQVbulgMJpcmuba1bsbk7ws5HpR3FdYYKBWKIFwjpQssep8s/4tvkwob\nGwlfwgdgwpGiSUzumRwTL5h3YwKBgQDZVKBs8j3OG2FJ00l/HoaZLZ11bRBI1Ybj\nx3keHsLceDucjKspmp8/mo8+2HsJIsLV7k3g2Mekn336Q8/WyZJoUR15uN5VOHVJ\nVsQ0k8v4igvCvy45IfQEwhIqDa+gXyqajNgWiQl+yB2gr+ZeMrf9i+liWi/3eWTG\nIvHnVrN5LQKBgDB98gEKNXTC7uk36mhcUTtPUvBUnMq52PkKqmZ3KFzgP7VJsEXB\nzS4ObR52888DQseM89r0P5rWwNVqlipaJW5DJAmqWErPcUW7V+tlielDjuJJfdFb\nB2xInaiWRF+2rc7LU18IK08maOSpdcUO1xLH2MIir6Hhg8g92TyiFAn3AoGBAI40\nA2yF7M7pt3TY3WRiEuwznq3xGRCvNr3gDW4Z7qLXwRmkKXLli4HQnh4fBBJsPlRA\nw5B2B9u9yG5y5JHD/xpmyQSWZFQaxxOfxG4qrvIHUb6x3YrgnoxmeAAwSFSFMJlD\nwzirnhzo0AoOTowgX6d1XtZN8MjbE4dZ4jLe1jxZAoGBANhz3t3xT6SEJiM+2DMe\n9ZbRzp3V0zbk/n3Vxc+7alJMtEKxGUSgGifQ7a8sswFknL5qk5DotnEAFvNlixFh\nz7TgnbxyJADV7QYa0nuZO/hAeOPJVZJITOAk+7dI6eO3rEhCYJK7K9gGFYJMFX7F\n7DyfJJcRnsrPfxi9Us2MlEWr\n-----END PRIVATE KEY-----\n",
+  "client_email": "firebase-adminsdk-fbsvc@dealhunter-egypt-70d29.iam.gserviceaccount.com",
+  "client_id": "113054116748774574544",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40dealhunter-egypt-70d29.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

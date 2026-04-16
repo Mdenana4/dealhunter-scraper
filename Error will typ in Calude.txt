@@ -1,0 +1,622 @@
+never change the current requirement and current interface and current logic of the code just fix issues and add more features
+
+those my sites
+https://www.kanbkam.com/eg/ar/home
+file:///D:/Python/Panadas/dealhunter/admin.html
+https://dealhunter-scraper.onrender.com/
+https://dealhunter-scraper.onrender.com/
+https://dashboard.render.com/web/srv-d7cnfijeo5us73fekul0/logs?r=1h
+https://dashboard.render.com/web/srv-d7cnfijeo5us73fekul0
+https://console.firebase.google.com/u/0/project/dealhunter-egypt-70d29/firestore/databases/-default-/data/~2Fdeals~2F8e764c6d29052ccffd54dd635dd0ba81
+https://console.firebase.google.com/u/0/project/dealhunter-egypt-70d29/firestore/databases/-default-/data/~2Fdeals~2Fcc5e0e76820c09ac778ea1f275146eba
+https://dashboard.uptimerobot.com/monitors/802820944
+https://dashboard.uptimerobot.com/monitors/802820944
+https://stats.uptimerobot.com/8TA0oKhgOH
+https://stats.uptimerobot.com/8TA0oKhgOH
+https://github.com/Mdenana4/dealhunter-scraper
+
+
+Language " English and Arabic"  
+
+first Fake Discount Checker
+all this to need to be automated from the app
+
+you can use the below site " kanbkam " to check the if it fake discount or not + plus if you can get from the site itself to compare 
+and view it to the user 
+https://www.kanbkam.com/eg/ar/home  
+need to make Auto-check all new deals no need to set  " always ON "
+also if you have any other sites like kanbkam you can use it for bring the accurate discount for the user 
+all this must be automatically in the back for the user 
+
+for example this link " https://www.amazon.eg/dp/B0BS1QCFHX?language=en_AE&th=1 " 
+for Sony WH-CH720N Noise Cancelling Wireless Headphones : Bluetooth Over The Ear Headset With Mic For Phone-Call-Black
+on amazon 
+-45% EGP4,731.64 
+List Price: EGP 8,640.00List
+
+but on kanbkam
+https://www.kanbkam.com/eg/ar/sony-whch720n-noise-cancelling-wireless-headphones-bluetooth-over-the-ear-headset-with-mic-for-phonecallblack-B0BS1QCFHX
+
+السعر الحالي ,جيد
+4,732جنية مصرى
+أقل سعر
+3,218
+أعلى سعر
+7,000
+
+أقل سعر
+أعلى سعر
+سعر حاليا
+also when the price changed 
+
+all this to need to be automated 
+i need to appear this to the user to and to be automated appear in the deals tab so the user know this discount fake or not 
+
+
+also in Monitor TAB inside it in the  top their is tabs 
+Total Deals Amazon Deals Noon Deals Total Users but the other sources not exist 
+
+
+Scraper Status — All Sources all added 
+if i add later any other sites it can be work automatically appear in the search for discount as Amazon and noon   
+but only Amazon Egypt is green others source is in orange "Noon Egypt , HyperOne , sahla " all in orange 
+Status for all is active 
+but Status is active for Amazon is also Green but for other Status is active but also in orange 
+still same issue no offer appears only 2 in amazon no change 
+still only 2 offers from Amazon only no any other offers from Amazon or any other sites 
+
+also i need to add tab search in Deals by Category —in any site added 
+also if i need to add any user manual by email or mobile number 
+
+in admin dashboard in users tab
+more details 
+Conversion
+free → premium
+free → VIP
+premium → VIP
+or from any type of registration to another type 
+when they make registration and when they change the registration type 
+
+also i need to add this in admin and user dashboard 
+Customer review rating for this product
+also Seller rating from customer side 
+
++ Send Notification
+to
+on app 
+or 
+mobile number
+or email 
+
+plus the exist requirement no need to change " Title , Message ,Target" ----> in the Target "  All Users , VIP Only , Premium Only , Trial Users 
+
+
+Trial Users 
+Premium Users
+VIP Only
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+i tried in CMD  "python scraper.py "  this appear 
+
+D:\>CD D:\Python\Panadas\dealhunter
+
+D:\Python\Panadas\dealhunter>python scraper.py
+Connecting to Firebase...
+Firebase key loaded from file.
+Connected to Firebase successfully!
+DealHunter Egypt Scraper v3
+Min discount: 40% | Interval: 3 min
+
+D:\Python\Panadas\dealhunter\scraper.py:439: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+=======================================================
+  SCRAPE CYCLE: 2026-04-11 18:48:39 UTC
+=======================================================
+
+[AMAZON RSS] Checking official deal feeds...
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/electronics/ref=zg_bs_electro...
+  HTTP 404 — skipping
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/computers/ref=zg_bs_computers...
+  HTTP 404 — skipping
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/mobile/ref=zg_bs_mobile_rss?i...
+  HTTP 404 — skipping
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/fashion/ref=zg_bs_fashion_rss...
+  HTTP 404 — skipping
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/home/ref=zg_bs_home_rss?ie=UT...
+  HTTP 404 — skipping
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/beauty/ref=zg_bs_beauty_rss?i...
+  HTTP 404 — skipping
+[AMAZON RSS] Done. 0 items saved.
+
+[AMAZON] Scraping simple search pages...
+  Fetching: https://www.amazon.eg/s?k=samsung+galaxy&language=en_AE...
+  104 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=iphone&language=en_AE...
+  101 products with ASIN found
+D:\Python\Panadas\dealhunter\scraper.py:366: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  "timestamp": datetime.utcnow().isoformat(),
+  SAME:    Iphone Apps Book Vol. 1: The Essential Dictionary
+  Fetching: https://www.amazon.eg/s?k=laptop+sale&language=en_AE...
+  92 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=nike+shoes&language=en_AE...
+  74 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=adidas&language=en_AE...
+  78 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=headphones&language=en_AE...
+  131 products with ASIN found
+  SAME:    Sony WH-CH720N Noise Cancelling Wireless Headphone
+  Fetching: https://www.amazon.eg/s?k=smart+watch&language=en_AE...
+  119 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=air+conditioner&language=en_AE...
+  118 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=perfume&language=en_AE...
+  120 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=tablet&language=en_AE...
+  104 products with ASIN found
+[AMAZON] Simple search done. 2 deals saved.
+
+[MANUAL] Checking for admin-added deals...
+[MANUAL] 0 manual deals processed.
+
+  TOTAL THIS CYCLE: 2 items
+  Next run in 3 minutes
+=======================================================
+
+
+=======================================================
+  SCRAPE CYCLE: 2026-04-11 18:52:22 UTC
+=======================================================
+
+[AMAZON RSS] Checking official deal feeds...
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/electronics/ref=zg_bs_electro...
+  HTTP 404 — skipping
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/computers/ref=zg_bs_computers...
+  HTTP 404 — skipping
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/mobile/ref=zg_bs_mobile_rss?i...
+  HTTP 404 — skipping
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/fashion/ref=zg_bs_fashion_rss...
+  HTTP 404 — skipping
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/home/ref=zg_bs_home_rss?ie=UT...
+  HTTP 404 — skipping
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/beauty/ref=zg_bs_beauty_rss?i...
+  HTTP 404 — skipping
+[AMAZON RSS] Done. 0 items saved.
+
+[AMAZON] Scraping simple search pages...
+  Fetching: https://www.amazon.eg/s?k=samsung+galaxy&language=en_AE...
+  105 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=iphone&language=en_AE...
+  100 products with ASIN found
+  SAME:    Iphone Apps Book Vol. 1: The Essential Dictionary
+  Fetching: https://www.amazon.eg/s?k=laptop+sale&language=en_AE...
+  93 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=nike+shoes&language=en_AE...
+  74 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=adidas&language=en_AE...
+  78 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=headphones&language=en_AE...
+  125 products with ASIN found
+  SAME:    Sony WH-CH720N Noise Cancelling Wireless Headphone
+  Fetching: https://www.amazon.eg/s?k=smart+watch&language=en_AE...
+  119 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=air+conditioner&language=en_AE...
+  115 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=perfume&language=en_AE...
+  120 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=tablet&language=en_AE...
+  98 products with ASIN found
+[AMAZON] Simple search done. 2 deals saved.
+
+[MANUAL] Checking for admin-added deals...
+[MANUAL] 0 manual deals processed.
+
+  TOTAL THIS CYCLE: 2 items
+  Next run in 3 minutes
+=======================================================
+
+
+=======================================================
+  SCRAPE CYCLE: 2026-04-11 18:56:06 UTC
+=======================================================
+
+[AMAZON RSS] Checking official deal feeds...
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/electronics/ref=zg_bs_electro...
+  HTTP 404 — skipping
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/computers/ref=zg_bs_computers...
+  HTTP 404 — skipping
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/mobile/ref=zg_bs_mobile_rss?i...
+  HTTP 404 — skipping
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/fashion/ref=zg_bs_fashion_rss...
+  HTTP 404 — skipping
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/home/ref=zg_bs_home_rss?ie=UT...
+  HTTP 404 — skipping
+  Fetching RSS: https://www.amazon.eg/gp/rss/bestsellers/beauty/ref=zg_bs_beauty_rss?i...
+  HTTP 404 — skipping
+[AMAZON RSS] Done. 0 items saved.
+
+[AMAZON] Scraping simple search pages...
+  Fetching: https://www.amazon.eg/s?k=samsung+galaxy&language=en_AE...
+  105 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=iphone&language=en_AE...
+  100 products with ASIN found
+  SAME:    Iphone Apps Book Vol. 1: The Essential Dictionary
+  Fetching: https://www.amazon.eg/s?k=laptop+sale&language=en_AE...
+  93 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=nike+shoes&language=en_AE...
+  74 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=adidas&language=en_AE...
+  74 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=headphones&language=en_AE...
+  131 products with ASIN found
+  SAME:    Sony WH-CH720N Noise Cancelling Wireless Headphone
+  Fetching: https://www.amazon.eg/s?k=smart+watch&language=en_AE...
+  122 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=air+conditioner&language=en_AE...
+  118 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=perfume&language=en_AE...
+  120 products with ASIN found
+  Fetching: https://www.amazon.eg/s?k=tablet&language=en_AE...
+  100 products with ASIN found
+[AMAZON] Simple search done. 2 deals saved.
+
+[MANUAL] Checking for admin-added deals...
+[MANUAL] 0 manual deals processed.
+
+  TOTAL THIS CYCLE: 2 items
+  Next run in 3 minutes
+=======================================================
+What Your App Does (Simple Version)
+You built an app that:
+Finds deals from Amazon Egypt, Noon, HyperOne, Sahla
+Shows discounts (40% off, 50% off, etc.)
+Saves money for people shopping online
+🔴 CURRENT PROBLEMS (What's Broken)
+Problem 1: Only 2 Deals Showing
+What you see:
+plain
+Copy
+[AMAZON] Simple search done. 2 deals saved.
+Why this happens:
+Your app finds 100+ products
+But says "SAME" and skips them
+Only saves 2 new ones
+Real example from your logs:
+plain
+Copy
+Found: 131 headphones
+"SAME": Sony headphones (skipped)
+Saved: Only 2 deals
+What should happen:
+Save ALL deals above 40% discount
+Don't skip just because you saw them before
+Problem 2: RSS Feeds Broken
+What you see:
+plain
+Copy
+HTTP 404 — skipping
+HTTP 404 — skipping
+What this means:
+Amazon Egypt doesn't have RSS feeds
+Your app is trying to use links that don't exist
+Like trying to open a door that isn't there
+Fix:
+Stop using RSS
+Use only the search pages (those are working)
+Problem 3: Other Stores Not Working
+What you see:
+Table
+Store	Status	Color
+Amazon Egypt	Active	🟢 Green
+Noon Egypt	Active	🟠 Orange
+HyperOne	Active	🟠 Orange
+Sahla	Active	🟠 Orange
+What this means:
+Status says "Active" but color is orange
+Scraper not finding any deals from these stores
+Only Amazon is actually working
+Problem 4: Old Code Warning
+What you see:
+plain
+Copy
+DeprecationWarning: datetime.datetime.utcnow() is deprecated
+What this means:
+Your code uses old Python commands
+Will stop working in future
+Need to update to new commands
+🟢 NEW FEATURES YOU WANT
+Feature 1: Fake Discount Checker
+The Problem:
+Amazon says: "Was EGP 8,640 → Now EGP 4,732 (45% OFF)"
+But Kanbkam (price history site) shows:
+Lowest price ever: EGP 3,218
+Highest price ever: EGP 7,000
+Current price: EGP 4,732
+The Truth:
+Amazon raised the price to EGP 8,640 yesterday, then "discounted" it to EGP 4,732 today. Fake discount!
+What your app should do:
+Find a deal on Amazon
+Automatically check Kanbkam
+Compare prices
+Show user the real discount
+Display to user:
+plain
+Copy
+🎧 Sony Headphones
+Amazon says: 45% OFF ❌
+
+REAL HISTORY:
+• Lowest ever: EGP 3,218 ✅
+• Highest ever: EGP 7,000
+• Current: EGP 4,732
+FAKE DISCOUNT CHECKER (Your Special Feature)
+How it works automatically:
+Table
+Step	What Happens
+1. Scraper finds deal	Amazon says: "Was EGP 8,640 → Now EGP 4,732 (45% off)"
+2. Auto-check Kanbkam	App checks Kanbkam.com for same product
+3. Compare prices	Kanbkam shows: Lowest was EGP 3,218, Highest EGP 7,000
+4. Calculate REAL discount	Current price EGP 4,732 vs Lowest EGP 3,218 = NOT a good deal
+5. Show user	Display: "⚠️ Fake Discount - Price was lower before!"
+Visual Display in Deals Tab:
+plain
+Copy
+┌─────────────────────────────────────┐
+│  🎧 Sony Headphones                 │
+│  Amazon: EGP 4,732 (was EGP 8,640)   │
+│  ❌ Amazon claims: 45% OFF           │
+│                                     │
+│  📊 REAL PRICE HISTORY (from Kanbkam)│
+│  • Lowest ever: EGP 3,218 ✅        │
+│  • Highest ever: EGP 7,000           │
+│  • Current: EGP 4,732               │
+│                                     │
+│  ⚠️ VERDICT: NOT a real discount    │
+│     Price has been lower before!      │
+│                                     │
+│  💡 Wait for price to drop to       │
+│     EGP 3,500 or lower              │
+└─────────────────────────────────────┘
+⚠️ NOT a good deal! 
+Wait for price to drop below EGP 3,500
+Important: This happens automatically - no button to press
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Feature 3: Admin Dashboard - See User Changes
+New table showing:
+plain
+Copy
+User: Ahmed
+Started as: Free Trial
+Changed to: Premium
+Date changed: April 10, 2026
+
+User: Sara
+Started as: Free Trial  
+Changed to: VIP
+Date changed: April 9, 2026
+
+User: Mohamed
+Started as: Premium
+Changed to: VIP
+Date changed: April 11, 2026
+Why this helps you:
+See which plan is most popular
+See when people upgrade
+Track your money
+Feature 4: Send Notifications
+Three ways to reach users:
+In-app (pop-up inside app) - FREE
+Email - Cheap
+SMS - Expensive
+Who to send to:
+All users
+VIP only
+Premium only
+Trial users
+
+Example View:
+plain
+Copy
+┌─────────────┬─────────────┬──────────────┬─────────────┐
+│   User      │  Started    │  Current     │  Upgraded   │
+├─────────────┼─────────────┼──────────────┼─────────────┤
+│ Ahmed       │ Free Trial  │ Premium      │ 2026-04-10  │
+│ Sara        │ Free Trial  │ VIP          │ 2026-04-09  │
+│ Mohamed     │ Premium     │ VIP          │ 2026-04-11  │
+│ Fatima      │ Free Trial  │ Free Trial   │ --          │
+└─────────────┴─────────────┴──────────────┴─────────────┘
+I'll explain everything in a super simple, clear way. No technical jargon.
+🛒 Your App: DealHunter Egypt
+What Your App Does (Simple Version)
+You built an app that:
+Finds deals from Amazon Egypt, Noon, HyperOne, Sahla
+Shows discounts (40% off, 50% off, etc.)
+Saves money for people shopping online
+🔴 CURRENT PROBLEMS (What's Broken)
+Problem 1: Only 2 Deals Showing
+What you see:
+plain
+Copy
+[AMAZON] Simple search done. 2 deals saved.
+Why this happens:
+Your app finds 100+ products
+But says "SAME" and skips them
+Only saves 2 new ones
+Real example from your logs:
+plain
+Copy
+Found: 131 headphones
+"SAME": Sony headphones (skipped)
+Saved: Only 2 deals
+What should happen:
+Save ALL deals above 40% discount
+Don't skip just because you saw them before
+Problem 2: RSS Feeds Broken
+What you see:
+plain
+Copy
+HTTP 404 — skipping
+HTTP 404 — skipping
+What this means:
+Amazon Egypt doesn't have RSS feeds
+Your app is trying to use links that don't exist
+Like trying to open a door that isn't there
+Fix:
+Stop using RSS
+Use only the search pages (those are working)
+Problem 3: Other Stores Not Working
+What you see:
+Table
+Store	Status	Color
+Amazon Egypt	Active	🟢 Green
+Noon Egypt	Active	🟠 Orange
+HyperOne	Active	🟠 Orange
+Sahla	Active	🟠 Orange
+What this means:
+Status says "Active" but color is orange
+Scraper not finding any deals from these stores
+Only Amazon is actually working
+Problem 4: Old Code Warning
+What you see:
+plain
+Copy
+DeprecationWarning: datetime.datetime.utcnow() is deprecated
+What this means:
+Your code uses old Python commands
+Will stop working in future
+Need to update to new commands
+🟢 NEW FEATURES YOU WANT
+Feature 1: Fake Discount Checker
+The Problem:
+Amazon says: "Was EGP 8,640 → Now EGP 4,732 (45% OFF)"
+But Kanbkam (price history site) shows:
+Lowest price ever: EGP 3,218
+Highest price ever: EGP 7,000
+Current price: EGP 4,732
+The Truth:
+Amazon raised the price to EGP 8,640 yesterday, then "discounted" it to EGP 4,732 today. Fake discount!
+What your app should do:
+Find a deal on Amazon
+Automatically check Kanbkam
+Compare prices
+Show user the real discount
+Display to user:
+plain
+Copy
+🎧 Sony Headphones
+Amazon says: 45% OFF ❌
+
+REAL HISTORY:
+• Lowest ever: EGP 3,218 ✅
+• Highest ever: EGP 7,000
+• Current: EGP 4,732
+
+⚠️ NOT a good deal! 
+Wait for price to drop below EGP 3,500
+Important: This happens automatically - no button to press
+Feature 2: Three Types of Users
+Table
+User Type	Price	What They Get
+Trial	FREE	7 days only. Day 1 = full access. Days 2-7 = only 5 deals, 30 minutes late
+Premium	Pay monthly	All deals, all stores, search by category, email alerts
+VIP	Pay more	Everything + customer ratings + seller ratings + instant SMS alerts
+Feature 3: Admin Dashboard - See User Changes
+New table showing:
+plain
+Copy
+User: Ahmed
+Started as: Free Trial
+Changed to: Premium
+Date changed: April 10, 2026
+
+User: Sara
+Started as: Free Trial  
+Changed to: VIP
+Date changed: April 9, 2026
+
+User: Mohamed
+Started as: Premium
+Changed to: VIP
+Date changed: April 11, 2026
+Why this helps you:
+See which plan is most popular
+See when people upgrade
+Track your money
+Feature 4: Send Notifications
+Three ways to reach users:
+In-app (pop-up inside app) - FREE
+Email - Cheap
+SMS - Expensive
+Who to send to:
+All users
+VIP only
+Premium only
+Trial users
+Feature 5: Search by Category
+Current: Just see all deals mixed together
+New: Tabs for:
+Electronics
+Fashion
+Home
+Beauty
+etc.
+📊 HOW THE FAKE DISCOUNT CHECKER WORKS (Step by Step)
+plain
+Copy
+STEP 1: Your scraper finds a product
+        ↓
+STEP 2: App takes the product ID (ASIN)
+        ↓
+STEP 3: App visits Kanbkam.com automatically
+        ↓
+STEP 4: Kanbkam shows price history
+        • Lowest price: EGP 3,218
+        • Highest price: EGP 7,000
+        • Current: EGP 4,732
+        ↓
+STEP 5: App calculates:
+        Amazon claims: 45% off
+        Real discount: Current vs Lowest = NOT a deal
+        ↓
+STEP 6: Show result to user in Deals tab
+This runs automatically every time a new deal is found
+
+
+SUMMARY: WHAT NEEDS FIXING
+Table
+Priority	Problem	Fix
+1	Only 2 deals showing	Save all deals, don't skip "same" ones
+2	RSS 404 errors	Remove RSS, use search only
+3	Noon/HyperOne/Sahla not working	Fix their scrapers
+4	Code warnings	Update datetime commands
+5	Add fake discount checker	Connect to Kanbkam automatically
+6	Add user tiers	Trial/Premium/VIP system
+7	Add admin tracking	See user upgrades
+8	Add notifications	In-app, email, SMS
+
+Later i need to feature for the user he can  add user can add coupon codes to get more discount 
+also if the user use the link from our app i can get money from the site Takes commission
+
+for admin dashboard make the app can search for most site the user use it to buy online  so i can add them in the app so the user can find more discounts  
+for admin dashboard make i need to appear how many user use the app 
+for admin dashboard make i need to appear how many user use click on the link for the discount
+for admin dashboard make i need to appear how many user use click on the link for the discount and buy already bought the product
+
+
+also i need to ask you if their any " app , mobile app , website, plugin in , anything " like this app in the world anywhere 
+if their any give me all the details about it how it work , how the requirement for the user , all the features inside it ,  how the budget , feedback from the customer " need everything about it 
+
+i found those 
+CamelCamelCamel,Honey,Slickdeals,YallaCompare,Keepa,PriceHistory if you found any other tell me
+
+so i can put " features, requirement, which access should i give for the users per Registertion type and how much each one should pay  
+
+later i will tell you features for each Registertion type and the fees so we can set it 
+
+Trial Users 
+Premium Users
+VIP Users
+
