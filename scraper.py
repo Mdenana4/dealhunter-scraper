@@ -1795,7 +1795,13 @@ def run_scraper():
     total += scrape_btech()
     total += scrape_carrefour()
     total += scrape_sharaf_dg()
-    total += scrape_noon()
+    try:
+        noon_total = scrape_noon()
+        total += noon_total
+    except Exception as e:
+        print(f"\n❌ [NOON] CRITICAL ERROR: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
     total += scrape_hyperone()
     total += scrape_sahla()
     total += scrape_custom_sources()
