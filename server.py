@@ -1875,6 +1875,261 @@ def admin_check_auth():
         return jsonify({'error': str(e)}), 500
 
 
+# ============ PHASE 2: ADMIN USERS MANAGEMENT ============
+
+@app.route('/api/v1/admin/users', methods=['GET'])
+@require_auth
+@check_permission('users')
+def admin_get_users():
+    """Get all users for admin (Phase 2)"""
+    try:
+        users_snap = db.collection('users').stream()
+        users = []
+        for doc in users_snap:
+            user_data = doc.to_dict()
+            users.append({
+                'id': doc.id,
+                'email': user_data.get('email', ''),
+                'name': user_data.get('name'),
+                'tier': user_data.get('tier', 'free'),
+                'daily_deal_limit': user_data.get('daily_deal_limit', 50),
+                'registered_at': user_data.get('registered_at', '').isoformat() if hasattr(user_data.get('registered_at', ''), 'isoformat') else str(user_data.get('registered_at', '')),
+                'last_login': user_data.get('last_login', '').isoformat() if hasattr(user_data.get('last_login', ''), 'isoformat') else str(user_data.get('last_login', '')),
+                'is_active': user_data.get('is_active', True),
+                'group_name': user_data.get('group_name'),
+                'stripe_customer_id': user_data.get('stripe_customer_id'),
+            })
+        return jsonify({'data': users}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/users/<user_id>', methods=['PUT'])
+@require_auth
+@check_permission('users')
+def admin_update_user(user_id):
+    """Update user details (Phase 2)"""
+    try:
+        data = request.get_json()
+
+        updates = {}
+        if 'name' in data:
+            updates['name'] = data['name']
+        if 'tier' in data:
+            updates['tier'] = data['tier']
+        if 'daily_deal_limit' in data:
+            updates['daily_deal_limit'] = int(data['daily_deal_limit'])
+        if 'is_active' in data:
+            updates['is_active'] = data['is_active']
+
+        # Log who made the change
+        updates['edited_by'] = request.current_user.get('email')
+        updates['edited_at'] = datetime.datetime.now()
+
+        db.collection('users').document(user_id).update(updates)
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============ PHASE 2: ADMIN DEALS MANAGEMENT ============
+
+@app.route('/api/v1/admin/deals', methods=['GET'])
+@require_auth
+@check_permission('deals')
+def admin_get_deals():
+    """Get all deals for admin (Phase 2)"""
+    try:
+        deals_snap = db.collection('deals').stream()
+        deals = []
+        for doc in deals_snap:
+            deal_data = doc.to_dict()
+            deals.append({
+                'id': doc.id,
+                'title': deal_data.get('title', ''),
+                'source': deal_data.get('source', ''),
+                'current_price': float(deal_data.get('current_price', 0)),
+                'original_price': float(deal_data.get('original_price', 0)) if deal_data.get('original_price') else None,
+                'discount_percent': deal_data.get('discount_percent'),
+                'image_url': deal_data.get('image_url'),
+                'product_url': deal_data.get('product_url'),
+                'status': deal_data.get('status', 'active'),
+                'verdict': deal_data.get('verdict', 'genuine'),
+                'featured': deal_data.get('featured', False),
+                'hidden': deal_data.get('hidden', False),
+                'views': deal_data.get('views', 0),
+                'rating': float(deal_data.get('rating', 0)) if deal_data.get('rating') else None,
+                'reviews': deal_data.get('reviews'),
+                'added_at': deal_data.get('added_at', '').isoformat() if hasattr(deal_data.get('added_at', ''), 'isoformat') else str(deal_data.get('added_at', '')),
+                'updated_at': deal_data.get('updated_at', '').isoformat() if hasattr(deal_data.get('updated_at', ''), 'isoformat') else str(deal_data.get('updated_at', '')),
+            })
+        return jsonify({'data': deals}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/deals/<deal_id>', methods=['PUT'])
+@require_auth
+@check_permission('deals')
+def admin_update_deal(deal_id):
+    """Update deal details (Phase 2)"""
+    try:
+        data = request.get_json()
+
+        updates = {}
+        if 'title' in data:
+            updates['title'] = data['title']
+        if 'current_price' in data:
+            updates['current_price'] = float(data['current_price'])
+        if 'original_price' in data:
+            updates['original_price'] = float(data['original_price'])
+        if 'discount_percent' in data:
+            updates['discount_percent'] = int(data['discount_percent'])
+        if 'verdict' in data:
+            updates['verdict'] = data['verdict']  # 'genuine', 'suspicious', 'fake'
+
+        # Log who made the change
+        updates['edited_by'] = request.current_user.get('email')
+        updates['updated_at'] = datetime.datetime.now()
+
+        db.collection('deals').document(deal_id).update(updates)
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/deals/<deal_id>', methods=['DELETE'])
+@require_auth
+@check_permission('deals')
+def admin_delete_deal(deal_id):
+    """Delete deal (Phase 2)"""
+    try:
+        db.collection('deals').document(deal_id).delete()
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/deals/<deal_id>/visibility', methods=['PATCH'])
+@require_auth
+@check_permission('deals')
+def admin_toggle_deal_visibility(deal_id):
+    """Toggle deal visibility (hide/show) (Phase 2)"""
+    try:
+        data = request.get_json()
+        hidden = data.get('hidden', False)
+
+        db.collection('deals').document(deal_id).update({
+            'hidden': hidden,
+            'updated_by': request.current_user.get('email'),
+            'updated_at': datetime.datetime.now()
+        })
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/deals/<deal_id>/featured', methods=['PATCH'])
+@require_auth
+@check_permission('deals')
+def admin_toggle_deal_featured(deal_id):
+    """Toggle deal featured status (Phase 2)"""
+    try:
+        data = request.get_json()
+        featured = data.get('featured', False)
+
+        db.collection('deals').document(deal_id).update({
+            'featured': featured,
+            'updated_by': request.current_user.get('email'),
+            'updated_at': datetime.datetime.now()
+        })
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/deals/<deal_id>/verdict', methods=['PATCH'])
+@require_auth
+@check_permission('deals')
+def admin_set_deal_verdict(deal_id):
+    """Set deal fraud verdict (Phase 2)"""
+    try:
+        data = request.get_json()
+        verdict = data.get('verdict', 'genuine')  # 'genuine', 'suspicious', 'fake'
+
+        db.collection('deals').document(deal_id).update({
+            'verdict': verdict,
+            'verdict_set_by': request.current_user.get('email'),
+            'verdict_set_at': datetime.datetime.now()
+        })
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============ PHASE 2: ADMIN NOTIFICATIONS ============
+
+@app.route('/api/v1/admin/notifications', methods=['GET'])
+@require_auth
+@check_permission('notifications')
+def admin_get_notifications():
+    """Get notification history (Phase 2)"""
+    try:
+        notif_snap = db.collection('notifications').order_by('sent_at', direction='DESCENDING').stream()
+        notifications = []
+        for doc in notif_snap:
+            notif_data = doc.to_dict()
+            notifications.append({
+                'id': doc.id,
+                'title': notif_data.get('title', ''),
+                'message': notif_data.get('message', ''),
+                'target_type': notif_data.get('target_type', 'all'),
+                'target_tier': notif_data.get('target_tier'),
+                'target_group': notif_data.get('target_group'),
+                'sent_count': notif_data.get('sent_count', 0),
+                'sent_at': notif_data.get('sent_at', '').isoformat() if hasattr(notif_data.get('sent_at', ''), 'isoformat') else str(notif_data.get('sent_at', '')),
+                'sent_by': notif_data.get('sent_by', ''),
+            })
+        return jsonify({'data': notifications}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/permissions', methods=['GET'])
+@require_auth
+def admin_get_permissions():
+    """Get available permissions (Phase 2)"""
+    try:
+        user_email = request.current_user.get('email')
+        admin_doc = db.collection('admin_users').document(user_email).get()
+
+        available_permissions = [
+            'sources',
+            'deals',
+            'users',
+            'notifications',
+            'checker',
+            'competitors',
+            'scraper_control'
+        ]
+
+        current_permissions = []
+        if admin_doc.exists:
+            admin_data = admin_doc.to_dict()
+            current_permissions = admin_data.get('permissions', [])
+
+        return jsonify({
+            'permissions': available_permissions,
+            'current_admin': {
+                'email': user_email,
+                'role': admin_doc.to_dict().get('role') if admin_doc.exists else 'viewer',
+                'permissions': current_permissions,
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ============ HEALTH CHECK ENDPOINT ============
 
 @app.route('/', methods=['GET', 'POST', 'HEAD'])
