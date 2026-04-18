@@ -18,13 +18,16 @@ on:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        timeout-minutes: 5
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
+        timeout-minutes: 10
 
       - name: Install linting tools
         run: |
@@ -40,13 +43,16 @@ jobs:
 
   test-dependencies:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        timeout-minutes: 5
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
+        timeout-minutes: 10
 
       - name: Install dependencies
         run: |
@@ -59,13 +65,16 @@ jobs:
 
   syntax-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        timeout-minutes: 5
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
+        timeout-minutes: 10
 
       - name: Check Python syntax
         run: |
