@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../providers/deals_provider.dart';
 import '../../services/permission_service.dart';
+import '../../models/deal.dart';
 
 class DealsListScreen extends ConsumerStatefulWidget {
   const DealsListScreen({Key? key}) : super(key: key);
@@ -245,7 +246,7 @@ class _DealsListScreenState extends ConsumerState<DealsListScreen> {
                               cells: [
                                 // Image
                                 DataCell(
-                                  deal.imageUrl.isNotEmpty
+                                  (deal.imageUrl?.isNotEmpty ?? false)
                                       ? Container(
                                           width: 40,
                                           height: 40,
@@ -253,7 +254,7 @@ class _DealsListScreenState extends ConsumerState<DealsListScreen> {
                                             borderRadius:
                                                 BorderRadius.circular(4),
                                             image: DecorationImage(
-                                              image: NetworkImage(deal.imageUrl),
+                                              image: NetworkImage(deal.imageUrl!),
                                               fit: BoxFit.cover,
                                             ),
                                           ),

@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../providers/users_provider.dart';
 import '../../services/permission_service.dart';
-import '../../models/admin_user.dart';
+import '../../models/user.dart';
 
 class UsersListScreen extends ConsumerStatefulWidget {
   const UsersListScreen({Key? key}) : super(key: key);

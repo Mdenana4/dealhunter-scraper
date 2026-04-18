@@ -68,8 +68,8 @@ class DealModel {
   }
 
   String get site => source;
-  bool? get isFeatured => featured;
-  String? get fakeVerdict => verdict;
+  bool get isFeatured => featured;
+  String get fakeVerdict => verdict;
 
   // Convert to JSON for Firestore
   Map<String, dynamic> toJson() {
