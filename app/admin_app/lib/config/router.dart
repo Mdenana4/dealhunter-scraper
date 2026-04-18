@@ -55,16 +55,16 @@ final adminRouterProvider = GoRouter(
           builder: (context, state) => const NotificationsScreen(),
         ),
 
-        // Diagnostics
-        GoRoute(
-          path: 'diagnostics',
-          name: 'diagnostics',
-          builder: (context, state) => const DiagnosticsScreen(),
-        ),
-
         // Additional routes can be added here for other screens
         // (Sources, Analytics, Settings, Audit Log, etc.)
       ],
+    ),
+
+    // Diagnostics (top-level route)
+    GoRoute(
+      path: '/diagnostics',
+      name: 'diagnostics',
+      builder: (context, state) => const DiagnosticsScreen(),
     ),
   ],
 
