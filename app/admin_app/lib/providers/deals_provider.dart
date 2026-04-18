@@ -136,7 +136,7 @@ final dealAnalyticsProvider = FutureProvider.family<Map<String, dynamic>,
 final searchDealsProvider = FutureProvider.family<List<DealModel>, String>(
     (ref, query) async {
   if (query.isEmpty) {
-    return ref.watch(dealsProvider);
+    return await ref.watch(dealsProvider.future);
   }
 
   final dio = ref.watch(dioProvider);

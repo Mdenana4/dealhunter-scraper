@@ -128,7 +128,7 @@ final userReferralsProvider = FutureProvider.family<Map<String, dynamic>,
 final searchUsersProvider = FutureProvider.family<List<UserModel>, String>(
     (ref, query) async {
   if (query.isEmpty) {
-    return ref.watch(usersProvider);
+    return await ref.watch(usersProvider.future);
   }
 
   final dio = ref.watch(dioProvider);
