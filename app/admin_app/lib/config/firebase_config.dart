@@ -21,7 +21,6 @@ class FirebaseConfig {
   static const String messagingSenderId = '97738565887';
   static const String projectId = 'dealhunter-admin-prod';
   static const String authDomain = 'dealhunter-admin-prod.firebaseapp.com';
-  static const String databaseUrl = 'https://dealhunter-admin-prod.firebaseio.com';
   static const String storageBucket = 'dealhunter-admin-prod.firebasestorage.app';
 
   /// Initialize Firebase in main.dart:
@@ -34,7 +33,6 @@ class FirebaseConfig {
   ///     messagingSenderId: FirebaseConfig.messagingSenderId,
   ///     projectId: FirebaseConfig.projectId,
   ///     authDomain: FirebaseConfig.authDomain,
-  ///     databaseUrl: FirebaseConfig.databaseUrl,
   ///     storageBucket: FirebaseConfig.storageBucket,
   ///   ),
   /// );

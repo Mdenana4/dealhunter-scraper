@@ -17,7 +17,6 @@ void main() async {
         messagingSenderId: FirebaseConfig.messagingSenderId,
         projectId: FirebaseConfig.projectId,
         authDomain: FirebaseConfig.authDomain,
-        databaseUrl: FirebaseConfig.databaseUrl,
         storageBucket: FirebaseConfig.storageBucket,
       ),
     );
