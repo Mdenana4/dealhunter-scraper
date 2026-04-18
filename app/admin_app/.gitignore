@@ -1,0 +1,103 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be committed to version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+/build/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# iOS/macOS
+**/ios/**/*.mode1v3
+**/ios/**/*.mode2v3
+**/ios/**/*.moved-aside
+**/ios/**/*.pbxuser
+**/ios/**/*.perspectivev3
+**/ios/**/*sync/
+**/ios/**/.sconsign.dblite
+**/ios/**/.tags*
+**/ios/**/.vscode/*
+**/ios/**/.idea/*
+**/ios/**/flutter/Flutter.framework/*
+**/ios/**/flutter/Flutter.podspec
+**/ios/**/flutter/Generated.xcconfig
+**/ios/**/flutter/ephemeral/
+**/ios/**/Flutter/Flutter.framework
+**/ios/**/Flutter/Flutter.podspec
+**/ios/**/Flutter/Generated.xcconfig
+**/ios/**/Flutter/ephemeral/
+**/ios/**/Flutter/app.flx
+**/ios/**/Flutter/app.zip
+**/ios/**/Flutter/flutter_assets/
+**/ios/**/Flutter/flutter_export_environment.sh
+**/ios/**/ServiceDefinitions.json
+**/ios/**/Runner/GeneratedPluginRegistrant.*
+
+# Coverage
+coverage/
+
+# Exceptions to above rules.
+!/packages/flutter_tools/test/data/dart_dependencies_test/**/.packages
+
+# Web
+lib/generated_plugin_registrant.dart
+
+# Windows
+windows/flutter/generated_plugins.cmake
+windows/flutter/generated_password_hash.exe
+windows/flutter/generated/
+windows/flutter/.dart_tool/
+windows/flutter/Debug/
+windows/flutter/Release/
+
+# Linux
+linux/flutter/generated_plugins.cmake
+linux/flutter/generated_plugin_registrant.cc
+linux/flutter/generated/
+linux/flutter/.dart_tool/
+linux/flutter/build/
+
+# Coverage
+coverage/
+
+# Symbols
+app.*.symbols
+
+# Obfuscation
+app.*.map.json
