@@ -106,19 +106,6 @@ class MyApp extends StatelessWidget {
         ),
       ),
       routerConfig: adminRouterProvider,
-      home: const _InitialRoute(),
     );
-  }
-}
-
-/// Handles initial route decision based on authentication state
-class _InitialRoute extends ConsumerWidget {
-  const _InitialRoute({Key? key}) : super(key: key);
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // TODO: Check authentication state from auth provider
-    // For now, return null to let GoRouter handle routing
-    return const SizedBox.expand();
   }
 }

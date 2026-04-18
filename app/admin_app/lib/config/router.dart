@@ -8,6 +8,7 @@ import '../screens/users/users_list_screen.dart';
 import '../screens/deals/deals_list_screen.dart';
 import '../screens/team/team_screen.dart';
 import '../screens/notifications/notifications_screen.dart';
+import '../screens/diagnostics/diagnostics_screen.dart';
 
 /// GoRouter configuration for admin app navigation
 final adminRouterProvider = GoRouter(
@@ -52,6 +53,13 @@ final adminRouterProvider = GoRouter(
           path: 'notifications',
           name: 'notifications',
           builder: (context, state) => const NotificationsScreen(),
+        ),
+
+        // Diagnostics
+        GoRoute(
+          path: 'diagnostics',
+          name: 'diagnostics',
+          builder: (context, state) => const DiagnosticsScreen(),
         ),
 
         // Additional routes can be added here for other screens
@@ -102,6 +110,8 @@ extension GoRouterExtension on GoRouter {
   void goToTeam() => go('/team');
 
   void goToNotifications() => go('/notifications');
+
+  void goToDiagnostics() => go('/diagnostics');
 
   void goToLogin() => go('/login');
 }
