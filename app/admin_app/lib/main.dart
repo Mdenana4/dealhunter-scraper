@@ -106,7 +106,6 @@ class MyApp extends StatelessWidget {
         ),
       ),
       routerConfig: adminRouterProvider,
-      home: const _InitialRoute(),
     );
   }
 }

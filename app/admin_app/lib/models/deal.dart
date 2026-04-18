@@ -1,132 +1,67 @@
-// lib/models/deal.dart
-
 class DealModel {
   final String id;
   final String title;
-  final String source; // 'amazon', 'jumia', 'noon'
-  final double currentPrice;
+  final String description;
+  final double price;
   final double? originalPrice;
-  final int? discountPercent;
+  final String? source;
   final String? imageUrl;
-  final String? productUrl;
-  final String status; // 'active', 'hidden', 'expired'
-  final String verdict; // 'genuine', 'suspicious', 'fake'
-  final bool featured;
-  final bool hidden;
-  final int views;
-  final double? rating;
-  final int? reviews;
-  final DateTime addedAt;
+  final String? fakeVerdict;
+  final bool? isFeatured;
+  final bool? isActive;
+  final DateTime? createdAt;
   final DateTime? updatedAt;
 
   DealModel({
     required this.id,
     required this.title,
-    required this.source,
-    required this.currentPrice,
+    required this.description,
+    required this.price,
     this.originalPrice,
-    this.discountPercent,
+    this.source,
     this.imageUrl,
-    this.productUrl,
-    required this.status,
-    required this.verdict,
-    required this.featured,
-    required this.hidden,
-    required this.views,
-    this.rating,
-    this.reviews,
-    required this.addedAt,
+    this.fakeVerdict,
+    this.isFeatured,
+    this.isActive,
+    this.createdAt,
     this.updatedAt,
   });
 
-  // Convert from Firestore document
-  factory DealModel.fromJson(Map<String, dynamic> json, String docId) {
+  factory DealModel.fromJson(Map<String, dynamic> json) {
     return DealModel(
-      id: docId,
-      title: json['title'] as String,
-      source: json['source'] as String? ?? 'unknown',
-      currentPrice: (json['current_price'] as num?)?.toDouble() ?? 0.0,
-      originalPrice: (json['original_price'] as num?)?.toDouble(),
-      discountPercent: json['discount_percent'] as int?,
-      imageUrl: json['image_url'] as String?,
-      productUrl: json['product_url'] as String?,
-      status: json['status'] as String? ?? 'active',
-      verdict: json['verdict'] as String? ?? 'genuine',
-      featured: json['featured'] as bool? ?? false,
-      hidden: json['hidden'] as bool? ?? false,
-      views: json['views'] as int? ?? 0,
-      rating: (json['rating'] as num?)?.toDouble(),
-      reviews: json['reviews'] as int?,
-      addedAt: json['added_at'] is DateTime
-          ? json['added_at'] as DateTime
-          : DateTime.parse(json['added_at'] as String? ?? DateTime.now().toIso8601String()),
-      updatedAt: json['updated_at'] != null
-          ? json['updated_at'] is DateTime
-              ? json['updated_at'] as DateTime
-              : DateTime.parse(json['updated_at'] as String)
+      id: json['id'] as String,
+      title: json['title'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      price: (json['price'] as num?)?.toDouble() ?? 0.0,
+      originalPrice: (json['originalPrice'] as num?)?.toDouble(),
+      source: json['source'] as String?,
+      imageUrl: json['imageUrl'] as String?,
+      fakeVerdict: json['fakeVerdict'] as String?,
+      isFeatured: json['isFeatured'] as bool?,
+      isActive: json['isActive'] as bool?,
+      createdAt: json['createdAt'] != null
+          ? DateTime.parse(json['createdAt'] as String)
+          : null,
+      updatedAt: json['updatedAt'] != null
+          ? DateTime.parse(json['updatedAt'] as String)
           : null,
     );
   }
 
-  // Convert to JSON for Firestore
   Map<String, dynamic> toJson() {
     return {
+      'id': id,
       'title': title,
+      'description': description,
+      'price': price,
+      'originalPrice': originalPrice,
       'source': source,
-      'current_price': currentPrice,
-      'original_price': originalPrice,
-      'discount_percent': discountPercent,
-      'image_url': imageUrl,
-      'product_url': productUrl,
-      'status': status,
-      'verdict': verdict,
-      'featured': featured,
-      'hidden': hidden,
-      'views': views,
-      'rating': rating,
-      'reviews': reviews,
-      'added_at': addedAt.toIso8601String(),
-      'updated_at': updatedAt?.toIso8601String(),
+      'imageUrl': imageUrl,
+      'fakeVerdict': fakeVerdict,
+      'isFeatured': isFeatured,
+      'isActive': isActive,
+      'createdAt': createdAt?.toIso8601String(),
+      'updatedAt': updatedAt?.toIso8601String(),
     };
-  }
-
-  DealModel copyWith({
-    String? id,
-    String? title,
-    String? source,
-    double? currentPrice,
-    double? originalPrice,
-    int? discountPercent,
-    String? imageUrl,
-    String? productUrl,
-    String? status,
-    String? verdict,
-    bool? featured,
-    bool? hidden,
-    int? views,
-    double? rating,
-    int? reviews,
-    DateTime? addedAt,
-    DateTime? updatedAt,
-  }) {
-    return DealModel(
-      id: id ?? this.id,
-      title: title ?? this.title,
-      source: source ?? this.source,
-      currentPrice: currentPrice ?? this.currentPrice,
-      originalPrice: originalPrice ?? this.originalPrice,
-      discountPercent: discountPercent ?? this.discountPercent,
-      imageUrl: imageUrl ?? this.imageUrl,
-      productUrl: productUrl ?? this.productUrl,
-      status: status ?? this.status,
-      verdict: verdict ?? this.verdict,
-      featured: featured ?? this.featured,
-      hidden: hidden ?? this.hidden,
-      views: views ?? this.views,
-      rating: rating ?? this.rating,
-      reviews: reviews ?? this.reviews,
-      addedAt: addedAt ?? this.addedAt,
-      updatedAt: updatedAt ?? this.updatedAt,
-    );
   }
 }
