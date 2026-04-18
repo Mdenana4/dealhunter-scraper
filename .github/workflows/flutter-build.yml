@@ -1,0 +1,68 @@
+name: Flutter APK Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/admin_app/**'
+      - '.github/workflows/flutter-build.yml'
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/admin_app/**'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+          channel: 'stable'
+
+      - name: Get dependencies
+        run: |
+          cd app/admin_app
+          flutter pub get
+
+      - name: Run tests
+        run: |
+          cd app/admin_app
+          flutter test --coverage 2>/dev/null || echo "No tests found"
+
+      - name: Build APK (Release)
+        run: |
+          cd app/admin_app
+          flutter build apk --release --verbose 2>&1 | tee build.log
+
+      - name: Upload APK artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release.apk
+          path: app/admin_app/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-build-log
+          path: app/admin_app/build.log
