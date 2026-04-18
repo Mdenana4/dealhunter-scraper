@@ -12,7 +12,7 @@ import '../screens/diagnostics/diagnostics_screen.dart';
 
 /// GoRouter configuration for admin app navigation
 final adminRouterProvider = GoRouter(
-  initialLocation: '/login',
+  initialLocation: '/',
   routes: [
     // Authentication routes
     GoRoute(
