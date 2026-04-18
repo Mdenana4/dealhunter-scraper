@@ -25,11 +25,10 @@ class UserModel {
     this.stripeCustomerId,
   });
 
-  // Convert from Firestore document
-  factory UserModel.fromJson(Map<String, dynamic> json, String docId) {
+  factory UserModel.fromJson(Map<String, dynamic> json, [String? docId]) {
     return UserModel(
-      id: docId,
-      email: json['email'] as String,
+      id: docId ?? json['id'] as String? ?? 'unknown',
+      email: json['email'] as String? ?? '',
       name: json['name'] as String?,
       tier: json['tier'] as String? ?? 'free',
       dailyDealLimit: json['daily_deal_limit'] as int? ?? 50,

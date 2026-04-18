@@ -39,11 +39,10 @@ class DealModel {
     this.updatedAt,
   });
 
-  // Convert from Firestore document
-  factory DealModel.fromJson(Map<String, dynamic> json, String docId) {
+  factory DealModel.fromJson(Map<String, dynamic> json, [String? docId]) {
     return DealModel(
-      id: docId,
-      title: json['title'] as String,
+      id: docId ?? json['id'] as String? ?? 'unknown',
+      title: json['title'] as String? ?? '',
       source: json['source'] as String? ?? 'unknown',
       currentPrice: (json['current_price'] as num?)?.toDouble() ?? 0.0,
       originalPrice: (json['original_price'] as num?)?.toDouble(),
@@ -67,6 +66,10 @@ class DealModel {
           : null,
     );
   }
+
+  String get site => source;
+  bool? get isFeatured => featured;
+  String? get fakeVerdict => verdict;
 
   // Convert to JSON for Firestore
   Map<String, dynamic> toJson() {
