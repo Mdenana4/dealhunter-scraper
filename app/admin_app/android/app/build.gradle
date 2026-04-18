@@ -29,6 +29,7 @@ if (flutterVersionName == null) {
 }
 
 android {
+    namespace "com.example.admin_app"
     compileSdkVersion 34
 
     lintOptions {
