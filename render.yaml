@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: dealhunter-scraper
+    runtime: docker
+    region: ohio
+    plan: free
+
+    # Build settings
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+
+    # Environment variables - configure in Render dashboard
+    envVars:
+      - key: FLASK_ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: 3.11
+
+    # Auto-deploy on push
+    autoDeploy: true
+
+    # Health check
+    healthCheckPath: /health
+
+    # Service configuration
+    maxInstances: 1
+    minInstances: 1
+
+    # Logs
+    logging:
+      captureStdout: true
+      captureStderr: true
