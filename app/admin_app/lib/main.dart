@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'config/router.dart';
+import 'config/firebase_config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -10,12 +11,14 @@ void main() async {
   // Initialize Firebase
   try {
     await Firebase.initializeApp(
-      options: const FirebaseOptions(
-        apiKey: 'YOUR_API_KEY',
-        appId: 'YOUR_APP_ID',
-        messagingSenderId: 'YOUR_MESSAGING_SENDER_ID',
-        projectId: 'YOUR_PROJECT_ID',
-        // Add other options as needed
+      options: FirebaseOptions(
+        apiKey: FirebaseConfig.apiKey,
+        appId: FirebaseConfig.appId,
+        messagingSenderId: FirebaseConfig.messagingSenderId,
+        projectId: FirebaseConfig.projectId,
+        authDomain: FirebaseConfig.authDomain,
+        databaseUrl: FirebaseConfig.databaseUrl,
+        storageBucket: FirebaseConfig.storageBucket,
       ),
     );
     print('✓ Firebase initialized successfully');

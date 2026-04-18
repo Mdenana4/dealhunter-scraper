@@ -45,7 +45,11 @@ android {
 
     buildTypes {
         release {
+            // For development/testing: use debug key
+            // For production: create a proper signing key and keystore
             signingConfig signingConfigs.debug
+            minifyEnabled false
+            shrinkResources false
         }
     }
 }
