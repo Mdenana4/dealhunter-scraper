@@ -20,16 +20,12 @@ app.config['JSON_SORT_KEYS'] = False
 # Initialize Firebase Admin SDK
 db = None
 try:
-    # Check if app already initialized
     try:
         firebase_admin.get_app()
         db = firestore.client()
         print("✓ Firebase Admin SDK already initialized")
     except ValueError:
-        # App not initialized yet, initialize it
         print("  Initializing Firebase Admin SDK...")
-
-        # Try environment variable with JSON content first
         firebase_json = os.environ.get('FIREBASE_CREDENTIALS_JSON')
         if firebase_json:
             print(f"  Found FIREBASE_CREDENTIALS_JSON environment variable")
@@ -45,7 +41,6 @@ try:
             except Exception as e:
                 print(f"  ✗ Failed to initialize: {e}")
                 raise
-        # Try file path
         elif os.path.exists('./firebase-credentials.json'):
             print(f"  Found firebase-credentials.json file")
             firebase_admin.initialize_app(
@@ -53,7 +48,6 @@ try:
             )
             db = firestore.client()
             print(f"✓ Firebase Admin SDK initialized with file")
-        # Try FIREBASE_CREDENTIALS_PATH env var
         elif os.environ.get('FIREBASE_CREDENTIALS_PATH'):
             print(f"  Found FIREBASE_CREDENTIALS_PATH environment variable")
             firebase_admin.initialize_app(
@@ -90,11 +84,9 @@ def require_auth(f):
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
         if not token:
             return jsonify({'error': 'Missing authorization token'}), 401
-
         decoded = verify_id_token(token)
         if not decoded:
             return jsonify({'error': 'Invalid token'}), 401
-
         request.current_user = decoded
         return f(*args, **kwargs)
     return decorated_function
@@ -107,26 +99,21 @@ def require_admin(f):
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
         if not token:
             return jsonify({'error': 'Missing authorization token'}), 401
-
         decoded = verify_id_token(token)
         if not decoded:
             return jsonify({'error': 'Invalid token'}), 401
-
         try:
             admin_doc = db.collection('admin_users').document(decoded['email']).get()
             if not admin_doc.exists:
                 return jsonify({'error': 'Not authorized as admin'}), 403
-
             admin_data = admin_doc.to_dict()
             if admin_data.get('role') != 'owner':
                 return jsonify({'error': 'Owner role required'}), 403
-
             request.current_user = decoded
             request.current_admin = admin_data
             return f(*args, **kwargs)
         except Exception as e:
             return jsonify({'error': f'Auth check failed: {str(e)}'}), 500
-
     return decorated_function
 
 
@@ -138,35 +125,26 @@ def check_permission(required_permission):
             token = request.headers.get('Authorization', '').replace('Bearer ', '')
             if not token:
                 return jsonify({'error': 'Missing authorization token'}), 401
-
             decoded = verify_id_token(token)
             if not decoded:
                 return jsonify({'error': 'Invalid token'}), 401
-
             try:
                 admin_doc = db.collection('admin_users').document(decoded['email']).get()
                 if not admin_doc.exists:
                     return jsonify({'error': 'Not authorized as admin'}), 403
-
                 admin_data = admin_doc.to_dict()
-
-                # Owner role has all permissions
                 if admin_data.get('role') == 'owner':
                     request.current_user = decoded
                     request.current_admin = admin_data
                     return f(*args, **kwargs)
-
-                # Check if required permission in permissions array
                 permissions = admin_data.get('permissions', [])
                 if required_permission not in permissions:
                     return jsonify({'error': f'Permission "{required_permission}" required'}), 403
-
                 request.current_user = decoded
                 request.current_admin = admin_data
                 return f(*args, **kwargs)
             except Exception as e:
                 return jsonify({'error': f'Auth check failed: {str(e)}'}), 500
-
         return decorated_function
     return decorator
 
@@ -177,24 +155,157 @@ def check_permission(required_permission):
 def user_dashboard():
     """Serve user dashboard"""
     try:
-        # Try multiple possible paths
         paths = [
             'user-dashboard.html',
             './user-dashboard.html',
             os.path.join(os.path.dirname(__file__), 'user-dashboard.html')
         ]
-
         for path in paths:
             if os.path.exists(path):
                 with open(path, 'r', encoding='utf-8') as f:
                     return f.read(), 200, {'Content-Type': 'text/html'}
-
-        print(f"ERROR: user-dashboard.html not found in paths: {paths}")
-        print(f"Current directory: {os.getcwd()}")
-        print(f"Files in current dir: {os.listdir('.')[:10]}")
         return jsonify({'error': 'User dashboard not found', 'cwd': os.getcwd()}), 404
     except Exception as e:
-        print(f"ERROR serving dashboard: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============ PUBLIC DEALS API ============
+
+@app.route('/api/v1/deals', methods=['GET'])
+def get_deals():
+    """Public endpoint to get all deals"""
+    try:
+        category = request.args.get('category', '')
+        limit = int(request.args.get('limit', 50))
+
+        deals_snap = db.collection('deals').stream()
+        deals = []
+
+        for doc in deals_snap:
+            deal_data = doc.to_dict()
+            if deal_data.get('hidden', False):
+                continue
+            if category and deal_data.get('category', '').lower() != category.lower():
+                continue
+            deals.append({
+                'id': doc.id,
+                'title': deal_data.get('title', ''),
+                'source': deal_data.get('source', ''),
+                'store': deal_data.get('site_display', deal_data.get('source', '')),
+                'current_price': float(deal_data.get('current_price', 0)),
+                'original_price': float(deal_data.get('original_price', 0)),
+                'discount_percent': int(deal_data.get('discount_percent', 0)),
+                'image_url': deal_data.get('image_url', ''),
+                'product_url': deal_data.get('product_url', ''),
+                'category': deal_data.get('category', ''),
+                'verdict': deal_data.get('verdict', 'genuine'),
+                'rating': float(deal_data.get('rating', 0)) if deal_data.get('rating') else 0.0,
+                'currency': 'EGP',
+            })
+
+        deals = deals[:limit]
+        return jsonify({
+            'success': True,
+            'count': len(deals),
+            'deals': deals
+        }), 200
+    except Exception as e:
+        print(f"Error fetching deals: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/deals/search', methods=['GET'])
+def search_deals():
+    """Search deals by keyword"""
+    try:
+        query = request.args.get('q', '').lower()
+        if not query:
+            return jsonify({'error': 'Query parameter q is required'}), 400
+
+        deals_snap = db.collection('deals').stream()
+        results = []
+
+        for doc in deals_snap:
+            deal_data = doc.to_dict()
+            if deal_data.get('hidden', False):
+                continue
+            title = deal_data.get('title', '').lower()
+            category = deal_data.get('category', '').lower()
+            source = deal_data.get('source', '').lower()
+
+            if query in title or query in category or query in source:
+                results.append({
+                    'id': doc.id,
+                    'title': deal_data.get('title', ''),
+                    'store': deal_data.get('site_display', deal_data.get('source', '')),
+                    'current_price': float(deal_data.get('current_price', 0)),
+                    'original_price': float(deal_data.get('original_price', 0)),
+                    'discount_percent': int(deal_data.get('discount_percent', 0)),
+                    'image_url': deal_data.get('image_url', ''),
+                    'product_url': deal_data.get('product_url', ''),
+                    'category': deal_data.get('category', ''),
+                    'currency': 'EGP',
+                })
+
+        return jsonify({
+            'success': True,
+            'query': query,
+            'count': len(results),
+            'deals': results
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/deals/<deal_id>', methods=['GET'])
+def get_deal_by_id(deal_id):
+    """Get single deal by ID"""
+    try:
+        deal_doc = db.collection('deals').document(deal_id).get()
+        if not deal_doc.exists:
+            return jsonify({'error': 'Deal not found'}), 404
+
+        deal_data = deal_doc.to_dict()
+        return jsonify({
+            'success': True,
+            'deal': {
+                'id': deal_doc.id,
+                'title': deal_data.get('title', ''),
+                'source': deal_data.get('source', ''),
+                'store': deal_data.get('site_display', deal_data.get('source', '')),
+                'current_price': float(deal_data.get('current_price', 0)),
+                'original_price': float(deal_data.get('original_price', 0)),
+                'discount_percent': int(deal_data.get('discount_percent', 0)),
+                'image_url': deal_data.get('image_url', ''),
+                'product_url': deal_data.get('product_url', ''),
+                'category': deal_data.get('category', ''),
+                'verdict': deal_data.get('verdict', 'genuine'),
+                'rating': float(deal_data.get('rating', 0)) if deal_data.get('rating') else 0.0,
+                'description': deal_data.get('description', ''),
+                'currency': 'EGP',
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/v1/categories', methods=['GET'])
+def get_categories():
+    """Get all available categories"""
+    try:
+        deals_snap = db.collection('deals').stream()
+        categories = set()
+        for doc in deals_snap:
+            deal_data = doc.to_dict()
+            if not deal_data.get('hidden', False):
+                cat = deal_data.get('category', '')
+                if cat:
+                    categories.add(cat)
+        return jsonify({
+            'success': True,
+            'categories': sorted(list(categories))
+        }), 200
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
@@ -202,31 +313,22 @@ def user_dashboard():
 
 @app.route('/auth/login', methods=['POST'])
 def login():
-    """Login with email/password (handled by Firebase client SDK)
-    This endpoint is mainly for backend verification"""
+    """Login with email/password"""
     try:
         data = request.get_json()
         id_token = data.get('id_token')
-
         if not id_token:
             return jsonify({'error': 'id_token required'}), 400
-
         decoded = verify_id_token(id_token)
         if not decoded:
             return jsonify({'error': 'Invalid token'}), 401
-
-        # Check if user exists in admin_users
         admin_doc = db.collection('admin_users').document(decoded['email']).get()
         if not admin_doc.exists:
             return jsonify({'error': 'User not registered as admin'}), 403
-
         admin_data = admin_doc.to_dict()
-
-        # Update last_login
         db.collection('admin_users').document(decoded['email']).update({
             'last_login': datetime.datetime.now(datetime.timezone.utc)
         })
-
         return jsonify({
             'success': True,
             'admin': {
@@ -249,7 +351,6 @@ def get_current_user():
         admin_doc = db.collection('admin_users').document(request.current_user['email']).get()
         if not admin_doc.exists:
             return jsonify({'error': 'Admin not found'}), 404
-
         admin_data = admin_doc.to_dict()
         return jsonify({
             'email': request.current_user['email'],
@@ -301,22 +402,15 @@ def add_team_member():
         permissions = data.get('permissions', [])
         status = data.get('status', 'active')
         notes = data.get('notes', '')
-
         if not email or not name:
             return jsonify({'error': 'email and name required'}), 400
-
         if role not in ['owner', 'editor', 'viewer']:
             return jsonify({'error': 'Invalid role'}), 400
-
-        # Owner role always has all permissions
         if role == 'owner':
             permissions = ['sources', 'deals', 'users', 'notifications', 'checker', 'competitors', 'scraper_control']
-
-        # Check if user already exists
         existing = db.collection('admin_users').document(email).get()
         if existing.exists:
             return jsonify({'error': 'User already exists'}), 400
-
         db.collection('admin_users').document(email).set({
             'email': email,
             'name': name,
@@ -328,7 +422,6 @@ def add_team_member():
             'added_by': request.current_user['email'],
             'last_login': None
         })
-
         return jsonify({'success': True, 'message': f'Added {name}'}), 201
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -341,14 +434,10 @@ def update_team_member(email):
     try:
         email = email.lower().strip()
         data = request.get_json()
-
         admin_doc = db.collection('admin_users').document(email).get()
         if not admin_doc.exists:
             return jsonify({'error': 'User not found'}), 404
-
         admin_data = admin_doc.to_dict()
-
-        # Update fields
         updates = {}
         if 'name' in data:
             updates['name'] = data['name'].strip()
@@ -357,25 +446,19 @@ def update_team_member(email):
             if role not in ['owner', 'editor', 'viewer']:
                 return jsonify({'error': 'Invalid role'}), 400
             updates['role'] = role
-
-            # Owner role always has all permissions
             if role == 'owner':
                 updates['permissions'] = ['sources', 'deals', 'users', 'notifications', 'checker', 'competitors', 'scraper_control']
             elif 'permissions' in data:
                 updates['permissions'] = data['permissions']
         elif 'permissions' in data and admin_data.get('role') != 'owner':
             updates['permissions'] = data['permissions']
-
         if 'status' in data:
             updates['status'] = data['status']
         if 'notes' in data:
             updates['notes'] = data['notes']
-
         if not updates:
             return jsonify({'error': 'No fields to update'}), 400
-
         db.collection('admin_users').document(email).update(updates)
-
         return jsonify({'success': True, 'message': f'Updated {email}'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -387,12 +470,9 @@ def remove_team_member(email):
     """Remove team member"""
     try:
         email = email.lower().strip()
-
-        # Don't allow removing the only owner
         team_docs = list(db.collection('admin_users').where('role', '==', 'owner').stream())
         if len(team_docs) == 1 and team_docs[0].id == email:
             return jsonify({'error': 'Cannot remove the only owner'}), 400
-
         db.collection('admin_users').document(email).delete()
         return jsonify({'success': True, 'message': f'Removed {email}'}), 200
     except Exception as e:
@@ -409,14 +489,9 @@ def check_permission_endpoint(resource):
         admin_doc = db.collection('admin_users').document(request.current_user['email']).get()
         if not admin_doc.exists:
             return jsonify({'allowed': False, 'reason': 'Not registered as admin'}), 403
-
         admin_data = admin_doc.to_dict()
-
-        # Owner role has all permissions
         if admin_data.get('role') == 'owner':
             return jsonify({'allowed': True, 'reason': 'Owner role'}), 200
-
-        # Check permissions array
         permissions = admin_data.get('permissions', [])
         if resource in permissions:
             return jsonify({'allowed': True, 'reason': f'Has {resource} permission'}), 200
@@ -448,14 +523,11 @@ def create_user():
     try:
         data = request.get_json()
         id_token = data.get('id_token')
-
         if not id_token:
             return jsonify({'error': 'id_token required'}), 400
-
         decoded = verify_id_token(id_token)
         if not decoded:
             return jsonify({'error': 'Invalid token'}), 401
-
         email = decoded.get('email')
         user_data = {
             'id': decoded.get('uid'),
@@ -483,9 +555,7 @@ def create_user():
                 'last_login': datetime.datetime.now(datetime.timezone.utc)
             }
         }
-
         db.collection('users').document(email).set(user_data)
-
         return jsonify({
             'success': True,
             'user': {
@@ -504,38 +574,28 @@ def create_user():
 @app.route('/api/v1/users/<uid>', methods=['GET'])
 @require_auth
 def get_user(uid):
-    """Get user profile - syncs Stripe subscription if user has one pending"""
+    """Get user profile"""
     try:
-        # Get user from email (uid is actually the user's UID, but we use email as doc ID)
         user_email = request.current_user.get('email')
         user_doc = db.collection('users').document(user_email).get()
-
         if not user_doc.exists:
             return jsonify({'error': 'User not found'}), 404
-
         user_data = user_doc.to_dict()
         stripe_customer_id = user_data.get('stripe_customer_id')
-
-        # If user has a stripe_customer_id but no active subscription, check Stripe
         if stripe_customer_id and not user_data.get('stripe_subscription_id'):
             try:
                 subscriptions = stripe.Subscription.list(customer=stripe_customer_id, status='active', limit=1)
-
                 if subscriptions.data:
                     active_sub = subscriptions.data[0]
                     line_items = active_sub.get('items', {}).get('data', [])
                     product_name = 'Unknown'
-
                     if line_items:
                         product_id = line_items[0].get('price', {}).get('product')
                         if product_id:
                             product = stripe.Product.retrieve(product_id)
                             product_name = product.get('name', 'Unknown')
-
                     tier = 'premium' if 'premium' in product_name.lower() else 'vip'
                     limit_map = {'premium': 500, 'vip': 99999}
-
-                    # Update user with new subscription info
                     db.collection('users').document(user_email).update({
                         'stripe_subscription_id': active_sub.id,
                         'subscription_active': True,
@@ -544,17 +604,12 @@ def get_user(uid):
                         'subscription_renewal_date': datetime.datetime.fromtimestamp(active_sub.get('current_period_end')),
                         'daily_deal_limit': limit_map.get(tier, 500)
                     })
-
-                    # Update user_data with synced values
                     user_data['stripe_subscription_id'] = active_sub.id
                     user_data['subscription_active'] = True
                     user_data['tier'] = tier
                     user_data['daily_deal_limit'] = limit_map.get(tier, 500)
-                    print(f"Synced subscription for {user_email}: tier={tier}")
             except Exception as e:
                 print(f"Error checking Stripe subscription for {user_email}: {e}")
-                # Continue with local data if Stripe check fails
-
         return jsonify(user_data), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -567,12 +622,8 @@ def update_user(uid):
     try:
         user_email = request.current_user.get('email')
         data = request.get_json()
-
-        # Check if user exists
         user_doc = db.collection('users').document(user_email).get()
-
         if not user_doc.exists:
-            # Create user document if it doesn't exist
             user_data = {
                 'id': request.current_user.get('uid'),
                 'email': user_email,
@@ -593,7 +644,6 @@ def update_user(uid):
             }
             db.collection('users').document(user_email).set(user_data)
             return jsonify({'success': True, 'user': user_data}), 201
-
         updates = {}
         if 'name' in data:
             updates['name'] = data['name']
@@ -603,15 +653,11 @@ def update_user(uid):
             updates['metadata.language'] = data['language']
         if 'notifications_enabled' in data:
             updates['metadata.notifications_enabled'] = data['notifications_enabled']
-
         updates['updated_at'] = datetime.datetime.now(datetime.timezone.utc)
-
         db.collection('users').document(user_email).update(updates)
-
         user_doc = db.collection('users').document(user_email).get()
         return jsonify({'success': True, 'user': user_doc.to_dict()}), 200
     except Exception as e:
-        print(f"Error updating user {user_email}: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -622,20 +668,14 @@ def get_referral_stats(uid):
     try:
         user_email = request.current_user.get('email')
         user_doc = db.collection('users').document(user_email).get()
-
         if not user_doc.exists:
             return jsonify({'error': 'User not found'}), 404
-
         referral_code = user_doc.to_dict().get('referral_code')
-
-        # Get all referrals from this user
         referrals_snap = db.collection('referrals').where('referrer_id', '==', user_email).stream()
         referrals = [doc.to_dict() for doc in referrals_snap]
-
         activated = sum(1 for r in referrals if r.get('status') in ['activated', 'redeemed', 'expired'])
         redeemed = sum(1 for r in referrals if r.get('status') == 'redeemed')
         pending = sum(1 for r in referrals if r.get('status') == 'pending')
-
         return jsonify({
             'referral_code': referral_code,
             'total_referrals': len(referrals),
@@ -664,20 +704,15 @@ def create_checkout_session():
     """Create Stripe checkout session"""
     try:
         data = request.get_json()
-        tier = data.get('tier')  # 'premium' or 'vip'
+        tier = data.get('tier')
         user_email = request.current_user.get('email')
-
         if tier not in ['premium', 'vip']:
             return jsonify({'error': 'Invalid tier'}), 400
-
         user_doc = db.collection('users').document(user_email).get()
         if not user_doc.exists:
             return jsonify({'error': 'User not found'}), 404
-
         user_data = user_doc.to_dict()
         stripe_customer_id = user_data.get('stripe_customer_id')
-
-        # Create Stripe customer if not exists
         if not stripe_customer_id:
             customer = stripe.Customer.create(
                 email=user_email,
@@ -687,14 +722,10 @@ def create_checkout_session():
             db.collection('users').document(user_email).update({
                 'stripe_customer_id': stripe_customer_id
             })
-
-        # Tier pricing (in cents, EGP)
         pricing = {
             'premium': {'amount': 500, 'product_name': 'Premium Monthly'},
             'vip': {'amount': 1000, 'product_name': 'VIP Monthly'}
         }
-
-        # Create checkout session
         session = stripe.checkout.Session.create(
             customer=stripe_customer_id,
             payment_method_types=['card'],
@@ -715,7 +746,6 @@ def create_checkout_session():
             cancel_url=data.get('cancel_url', 'app://subscription-cancel'),
             metadata={'user_email': user_email, 'tier': tier}
         )
-
         return jsonify({
             'success': True,
             'checkout_session_id': session.id,
@@ -732,78 +762,51 @@ def cancel_subscription():
     try:
         user_email = request.current_user.get('email')
         user_doc = db.collection('users').document(user_email).get()
-
         if not user_doc.exists:
             return jsonify({'error': 'User not found'}), 404
-
         user_data = user_doc.to_dict()
         stripe_sub_id = user_data.get('stripe_subscription_id')
-
         if not stripe_sub_id:
             return jsonify({'error': 'No active subscription to cancel'}), 400
-
-        # Cancel subscription at Stripe
-        stripe.Subscription.modify(
-            stripe_sub_id,
-            cancel_at_period_end=True
-        )
-
-        print(f"Subscription {stripe_sub_id} marked for cancellation at period end")
-
-        # Update user document to reflect cancellation
+        stripe.Subscription.modify(stripe_sub_id, cancel_at_period_end=True)
         db.collection('users').document(user_email).update({
             'subscription_active': False,
             'cancel_at_period_end': True,
             'updated_at': datetime.datetime.now(datetime.timezone.utc)
         })
-
         return jsonify({
             'success': True,
             'message': 'Subscription cancelled. Access continues until renewal date.'
         }), 200
     except Exception as e:
-        print(f"Error canceling subscription: {e}")
         return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/v1/subscriptions/current', methods=['GET'])
 @require_auth
 def get_current_subscription():
-    """Get current subscription - checks Stripe directly and syncs with database"""
+    """Get current subscription"""
     try:
         user_email = request.current_user.get('email')
         user_doc = db.collection('users').document(user_email).get()
-
         if not user_doc.exists:
             return jsonify({'error': 'User not found'}), 404
-
         user_data = user_doc.to_dict()
         sub_id = user_data.get('stripe_subscription_id')
         stripe_customer_id = user_data.get('stripe_customer_id')
-
-        # If user has a stripe_customer_id but no subscription, check Stripe for active subscriptions
         if not sub_id and stripe_customer_id:
-            print(f"Checking Stripe for active subscriptions for customer {stripe_customer_id}")
             subscriptions = stripe.Subscription.list(customer=stripe_customer_id, status='active', limit=1)
-
             if subscriptions.data:
                 active_sub = subscriptions.data[0]
-                print(f"Found active subscription: {active_sub.id}")
-
-                # Sync this subscription to the database
                 line_items = active_sub.get('items', {}).get('data', [])
                 product_name = 'Unknown'
-
                 if line_items:
                     product_id = line_items[0].get('price', {}).get('product')
                     if product_id:
                         product = stripe.Product.retrieve(product_id)
                         product_name = product.get('name', 'Unknown')
-
                 tier = 'premium' if 'premium' in product_name.lower() else 'vip'
                 limit_map = {'premium': 500, 'vip': 99999}
-
-                # Update user with new subscription info
                 db.collection('users').document(user_email).update({
                     'stripe_subscription_id': active_sub.id,
                     'subscription_active': True,
@@ -812,21 +815,16 @@ def get_current_subscription():
                     'subscription_renewal_date': datetime.datetime.fromtimestamp(active_sub.get('current_period_end')),
                     'daily_deal_limit': limit_map.get(tier, 500)
                 })
-
-                print(f"Updated user {user_email} to tier: {tier}")
                 sub_id = active_sub.id
-
         if not sub_id:
             return jsonify({
                 'subscription_id': None,
                 'tier': user_data.get('tier'),
                 'status': 'none'
             }), 200
-
         sub_doc = db.collection('subscriptions').document(sub_id).get()
         if not sub_doc.exists:
             return jsonify({'error': 'Subscription not found'}), 404
-
         sub_data = sub_doc.to_dict()
         return jsonify({
             'subscription_id': sub_id,
@@ -850,12 +848,9 @@ def send_notification():
     try:
         data = request.get_json()
         admin_email = request.current_user.get('email')
-
-        # Verify admin has notification permission
         admin_doc = db.collection('admin_users').document(admin_email).get()
         if not admin_doc.exists or 'notifications' not in admin_doc.to_dict().get('permissions', []):
             return jsonify({'error': 'Insufficient permissions'}), 403
-
         title = data.get('title', '')
         title_ar = data.get('title_ar', '')
         message = data.get('message', '')
@@ -864,38 +859,22 @@ def send_notification():
         channel = data.get('channel', 'in_app')
         group_id = data.get('group_id')
         specific_user = data.get('specific_user')
-
-        # Find target users
         target_users = []
-
         if target.startswith('tier:'):
-            # Send to users of specific tier
             tier = target.split(':')[1]
-
             if tier == 'all':
-                # Send to all users
                 users_snap = db.collection('users').get()
-                target_users = [doc.id for doc in users_snap]  # doc.id is email
-                print(f"Sending to {len(target_users)} total users")
+                target_users = [doc.id for doc in users_snap]
             else:
-                # Send to users of specific tier
                 users_snap = db.collection('users').where('tier', '==', tier).get()
-                target_users = [doc.id for doc in users_snap]  # doc.id is email
-                print(f"Sending to {len(target_users)} users in {tier} tier")
-
+                target_users = [doc.id for doc in users_snap]
         elif target == 'user' and specific_user:
-            # Send to specific user
             target_users = [specific_user]
-
         elif target == 'group' and group_id:
-            # Send to users in specific group
             group_doc = db.collection('user_groups').document(group_id).get()
             if group_doc.exists:
                 members = group_doc.to_dict().get('members', [])
                 target_users = [m.get('email') for m in members if m.get('email')]
-            print(f"Sending to {len(target_users)} users in group {group_id}")
-
-        # Save notifications for each user
         if target_users:
             batch = db.batch()
             for user_email in target_users:
@@ -912,14 +891,12 @@ def send_notification():
                     'sent_by': admin_email
                 })
             batch.commit()
-
         return jsonify({
             'success': True,
             'message': f'Notification sent to {len(target_users)} users',
             'recipients': len(target_users)
         }), 200
     except Exception as e:
-        print(f"Error sending notification: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -929,30 +906,21 @@ def admin_create_user():
     """Admin endpoint to create/update user manually"""
     try:
         admin_email = request.current_user.get('email')
-
-        # Verify admin has user management permission
         admin_doc = db.collection('admin_users').document(admin_email).get()
         if not admin_doc.exists or 'users' not in admin_doc.to_dict().get('permissions', []):
             return jsonify({'error': 'Insufficient permissions'}), 403
-
         data = request.get_json()
         email = data.get('email', '').strip()
         phone = data.get('phone', '').strip()
         name = data.get('name', '').strip()
         tier = data.get('tier', 'free')
         notes = data.get('notes', '').strip()
-
         if not email:
             return jsonify({'error': 'Email is required'}), 400
-
-        # Tier limits
         limit_map = {'free': 50, 'premium': 500, 'vip': 99999}
-
-        # Generate referral code
         import random
         import string
         referral_code = 'DEAL' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
-
         user_data = {
             'id': email,
             'email': email,
@@ -968,18 +936,13 @@ def admin_create_user():
             'added_by': admin_email,
             'status': 'active'
         }
-
         db.collection('users').document(email).set(user_data, merge=True)
-
-        print(f"User created by admin {admin_email}: {email}")
-
         return jsonify({
             'success': True,
             'message': f'User {name or email} created successfully',
             'user': user_data
         }), 201
     except Exception as e:
-        print(f"Error creating user: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -989,31 +952,21 @@ def update_user_daily_limit(uid):
     """Update user's daily deal limit"""
     try:
         admin_email = request.current_user.get('email')
-
-        # Verify admin has user management permission
         admin_doc = db.collection('admin_users').document(admin_email).get()
         if not admin_doc.exists or 'users' not in admin_doc.to_dict().get('permissions', []):
             return jsonify({'error': 'Insufficient permissions'}), 403
-
         data = request.get_json()
         daily_limit = data.get('daily_deal_limit')
-
         if not daily_limit or daily_limit < 1:
             return jsonify({'error': 'Daily limit must be at least 1'}), 400
-
         db.collection('users').document(uid).update({
             'daily_deal_limit': int(daily_limit),
             'custom_daily_limit': True,
             'updated_at': datetime.datetime.now(datetime.timezone.utc),
             'updated_by': admin_email
         })
-
-        return jsonify({
-            'success': True,
-            'message': f'Daily limit updated to {daily_limit}'
-        }), 200
+        return jsonify({'success': True, 'message': f'Daily limit updated to {daily_limit}'}), 200
     except Exception as e:
-        print(f"Error updating daily limit: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -1023,27 +976,14 @@ def delete_user(uid):
     """Delete user account"""
     try:
         admin_email = request.current_user.get('email')
-
-        # Verify admin has user management permission
         admin_doc = db.collection('admin_users').document(admin_email).get()
         if not admin_doc.exists or 'users' not in admin_doc.to_dict().get('permissions', []):
             return jsonify({'error': 'Insufficient permissions'}), 403
-
-        # Get user info before deletion
         user_doc = db.collection('users').document(uid).get()
         user_name = user_doc.to_dict().get('name', uid) if user_doc.exists else uid
-
-        # Delete user
         db.collection('users').document(uid).delete()
-
-        print(f"User {uid} deleted by admin {admin_email}")
-
-        return jsonify({
-            'success': True,
-            'message': f'User {user_name} deleted successfully'
-        }), 200
+        return jsonify({'success': True, 'message': f'User {user_name} deleted successfully'}), 200
     except Exception as e:
-        print(f"Error deleting user: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -1053,16 +993,11 @@ def get_tiers():
     """Get all tier configurations"""
     try:
         admin_email = request.current_user.get('email')
-
-        # Verify admin access
         admin_doc = db.collection('admin_users').document(admin_email).get()
         if not admin_doc.exists:
             return jsonify({'error': 'Access denied'}), 403
-
         tiers_snap = db.collection('tier_config').get()
         tiers = [doc.to_dict() for doc in tiers_snap]
-
-        # If no custom tiers, return defaults
         if not tiers:
             tiers = [
                 {'tier': 'free', 'daily_limit': 50, 'price': 0, 'features': ['View Deals']},
@@ -1070,10 +1005,8 @@ def get_tiers():
                 {'tier': 'premium', 'daily_limit': 500, 'price': 5, 'currency': 'USD', 'features': ['View Deals', 'Groups', 'Gifts']},
                 {'tier': 'vip', 'daily_limit': 99999, 'price': 10, 'currency': 'USD', 'features': ['All Features']}
             ]
-
         return jsonify({'tiers': tiers}), 200
     except Exception as e:
-        print(f"Error getting tiers: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -1083,14 +1016,10 @@ def update_tier(tier_name):
     """Update tier configuration"""
     try:
         admin_email = request.current_user.get('email')
-
-        # Verify admin is owner
         admin_doc = db.collection('admin_users').document(admin_email).get()
         if not admin_doc.exists or admin_doc.to_dict().get('role') != 'owner':
             return jsonify({'error': 'Only owners can modify tiers'}), 403
-
         data = request.get_json()
-
         db.collection('tier_config').document(tier_name).set({
             'tier': tier_name,
             'daily_limit': data.get('daily_limit', 50),
@@ -1100,13 +1029,8 @@ def update_tier(tier_name):
             'updated_at': datetime.datetime.now(datetime.timezone.utc),
             'updated_by': admin_email
         })
-
-        return jsonify({
-            'success': True,
-            'message': f'Tier {tier_name} updated'
-        }), 200
+        return jsonify({'success': True, 'message': f'Tier {tier_name} updated'}), 200
     except Exception as e:
-        print(f"Error updating tier: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -1116,15 +1040,11 @@ def create_user_group():
     """Create user group"""
     try:
         admin_email = request.current_user.get('email')
-
-        # Verify admin has users permission
         admin_doc = db.collection('admin_users').document(admin_email).get()
         if not admin_doc.exists or 'users' not in admin_doc.to_dict().get('permissions', []):
             return jsonify({'error': 'Insufficient permissions'}), 403
-
         data = request.get_json()
         group_id = db.collection('user_groups').document().id
-
         db.collection('user_groups').document(group_id).set({
             'id': group_id,
             'group_name': data.get('group_name'),
@@ -1134,14 +1054,8 @@ def create_user_group():
             'daily_budget': data.get('daily_budget'),
             'created_at': datetime.datetime.now(datetime.timezone.utc)
         })
-
-        return jsonify({
-            'success': True,
-            'message': 'Group created',
-            'group_id': group_id
-        }), 201
+        return jsonify({'success': True, 'message': 'Group created', 'group_id': group_id}), 201
     except Exception as e:
-        print(f"Error creating group: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -1151,19 +1065,15 @@ def create_offer():
     """Create special offer"""
     try:
         admin_email = request.current_user.get('email')
-
-        # Verify admin is owner
         admin_doc = db.collection('admin_users').document(admin_email).get()
         if not admin_doc.exists or admin_doc.to_dict().get('role') != 'owner':
             return jsonify({'error': 'Only owners can create offers'}), 403
-
         data = request.get_json()
         offer_id = db.collection('special_offers').document().id
-
         db.collection('special_offers').document(offer_id).set({
             'id': offer_id,
             'name': data.get('name'),
-            'type': data.get('type'),  # 'discount', 'free_days', 'amount'
+            'type': data.get('type'),
             'discount_percent': data.get('discount_percent', 0),
             'days': data.get('days', 0),
             'amount': data.get('amount', 0),
@@ -1174,14 +1084,8 @@ def create_offer():
             'used_count': 0,
             'created_at': datetime.datetime.now(datetime.timezone.utc)
         })
-
-        return jsonify({
-            'success': True,
-            'message': 'Offer created',
-            'offer_id': offer_id
-        }), 201
+        return jsonify({'success': True, 'message': 'Offer created', 'offer_id': offer_id}), 201
     except Exception as e:
-        print(f"Error creating offer: {e}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -1194,27 +1098,19 @@ def create_group():
     try:
         user_email = request.current_user.get('email')
         user_doc = db.collection('users').document(user_email).get()
-
         if not user_doc.exists:
             return jsonify({'error': 'User not found'}), 404
-
         user_data = user_doc.to_dict()
         if user_data.get('tier') not in ['premium', 'vip']:
             return jsonify({'error': 'Premium+ tier required'}), 403
-
         data = request.get_json()
         group_id = db.collection('user_groups').document().id
-
         group_data = {
             'id': group_id,
             'name': data.get('name'),
             'description': data.get('description', ''),
             'owner_id': user_email,
-            'members': [{
-                'uid': user_email,
-                'joined_at': datetime.datetime.now(datetime.timezone.utc),
-                'role': 'owner'
-            }],
+            'members': [{'uid': user_email, 'joined_at': datetime.datetime.now(datetime.timezone.utc), 'role': 'owner'}],
             'member_count': 1,
             'deals_shared_today': 0,
             'daily_share_limit': data.get('daily_share_limit', 10),
@@ -1223,9 +1119,7 @@ def create_group():
             'created_at': datetime.datetime.now(datetime.timezone.utc),
             'updated_at': datetime.datetime.now(datetime.timezone.utc)
         }
-
         db.collection('user_groups').document(group_id).set(group_data)
-
         return jsonify({
             'success': True,
             'group': {
@@ -1247,14 +1141,11 @@ def get_group(group_id):
     try:
         user_email = request.current_user.get('email')
         group_doc = db.collection('user_groups').document(group_id).get()
-
         if not group_doc.exists:
             return jsonify({'error': 'Group not found'}), 404
-
         group_data = group_doc.to_dict()
         member_uids = [m.get('uid') for m in group_data.get('members', [])]
         user_is_member = user_email in member_uids
-
         return jsonify({
             'id': group_id,
             'name': group_data.get('name'),
@@ -1280,52 +1171,25 @@ def manage_group_members(group_id):
         user_email = request.current_user.get('email')
         data = request.get_json()
         action = data.get('action')
-
         group_doc = db.collection('user_groups').document(group_id).get()
         if not group_doc.exists:
             return jsonify({'error': 'Group not found'}), 404
-
         group_data = group_doc.to_dict()
         members = group_data.get('members', [])
         member_uids = [m.get('uid') for m in members]
-
         if action == 'join':
             if user_email in member_uids:
                 return jsonify({'error': 'Already a member'}), 400
-
-            members.append({
-                'uid': user_email,
-                'joined_at': datetime.datetime.now(datetime.timezone.utc),
-                'role': 'member'
-            })
-
-            db.collection('user_groups').document(group_id).update({
-                'members': members,
-                'member_count': len(members),
-                'updated_at': datetime.datetime.now(datetime.timezone.utc)
-            })
-
+            members.append({'uid': user_email, 'joined_at': datetime.datetime.now(datetime.timezone.utc), 'role': 'member'})
+            db.collection('user_groups').document(group_id).update({'members': members, 'member_count': len(members), 'updated_at': datetime.datetime.now(datetime.timezone.utc)})
             return jsonify({'success': True, 'message': 'Joined group successfully'}), 200
-
         elif action == 'invite':
             invite_user_id = data.get('invite_user_id')
             if invite_user_id in member_uids:
                 return jsonify({'error': 'User already in group'}), 400
-
-            members.append({
-                'uid': invite_user_id,
-                'joined_at': datetime.datetime.now(datetime.timezone.utc),
-                'role': 'member'
-            })
-
-            db.collection('user_groups').document(group_id).update({
-                'members': members,
-                'member_count': len(members),
-                'updated_at': datetime.datetime.now(datetime.timezone.utc)
-            })
-
+            members.append({'uid': invite_user_id, 'joined_at': datetime.datetime.now(datetime.timezone.utc), 'role': 'member'})
+            db.collection('user_groups').document(group_id).update({'members': members, 'member_count': len(members), 'updated_at': datetime.datetime.now(datetime.timezone.utc)})
             return jsonify({'success': True, 'message': 'User invited successfully'}), 200
-
         else:
             return jsonify({'error': 'Invalid action'}), 400
     except Exception as e:
@@ -1339,25 +1203,14 @@ def remove_group_member(group_id, user_id):
     try:
         user_email = request.current_user.get('email')
         group_doc = db.collection('user_groups').document(group_id).get()
-
         if not group_doc.exists:
             return jsonify({'error': 'Group not found'}), 404
-
         group_data = group_doc.to_dict()
-
-        # Only owner or the user themselves can remove
         if group_data.get('owner_id') != user_email and user_email != user_id:
             return jsonify({'error': 'Not authorized'}), 403
-
         members = group_data.get('members', [])
         members = [m for m in members if m.get('uid') != user_id]
-
-        db.collection('user_groups').document(group_id).update({
-            'members': members,
-            'member_count': len(members),
-            'updated_at': datetime.datetime.now(datetime.timezone.utc)
-        })
-
+        db.collection('user_groups').document(group_id).update({'members': members, 'member_count': len(members), 'updated_at': datetime.datetime.now(datetime.timezone.utc)})
         return jsonify({'success': True, 'message': 'User removed from group'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1372,26 +1225,19 @@ def gift_deal(deal_id):
     try:
         user_email = request.current_user.get('email')
         user_doc = db.collection('users').document(user_email).get()
-
         if not user_doc.exists:
             return jsonify({'error': 'User not found'}), 404
-
         user_data = user_doc.to_dict()
         if user_data.get('tier') not in ['premium', 'vip']:
             return jsonify({'error': 'Premium+ tier required'}), 403
-
         data = request.get_json()
         to_user_id = data.get('to_user_id')
         message = data.get('message', '')
-
-        # Get deal data
         deal_doc = db.collection('deals').document(deal_id).get()
         if not deal_doc.exists:
             return jsonify({'error': 'Deal not found'}), 404
-
         deal_data = deal_doc.to_dict()
         gift_id = db.collection('deal_gifts').document().id
-
         gift_data = {
             'id': gift_id,
             'from_user_id': user_email,
@@ -1409,9 +1255,7 @@ def gift_deal(deal_id):
                 'deal_current_price': deal_data.get('current_price', 0)
             }
         }
-
         db.collection('deal_gifts').document(gift_id).set(gift_data)
-
         return jsonify({
             'success': True,
             'gift': {
@@ -1436,7 +1280,6 @@ def get_received_gifts():
         user_email = request.current_user.get('email')
         gifts_snap = db.collection('deal_gifts').where('to_user_id', '==', user_email).stream()
         gifts = []
-
         for doc in gifts_snap:
             gift_data = doc.to_dict()
             gifts.append({
@@ -1451,7 +1294,6 @@ def get_received_gifts():
                 'expires_at': gift_data.get('expires_at').isoformat() if gift_data.get('expires_at') else None,
                 'created_at': gift_data.get('created_at').isoformat() if gift_data.get('created_at') else None
             })
-
         unredeemed = sum(1 for g in gifts if g.get('status') != 'claimed')
         return jsonify({'gifts': gifts, 'total_unredeemed': unredeemed}), 200
     except Exception as e:
@@ -1467,28 +1309,19 @@ def activate_referral():
         data = request.get_json()
         referral_code = data.get('referral_code')
         new_user_id = data.get('new_user_id')
-
         if not referral_code or not new_user_id:
             return jsonify({'error': 'referral_code and new_user_id required'}), 400
-
-        # Find referral record
         ref_snap = db.collection('referrals').where('referral_code', '==', referral_code).limit(1).stream()
         ref_docs = list(ref_snap)
-
         if not ref_docs:
             return jsonify({'error': 'Invalid referral code'}), 400
-
         ref_doc = ref_docs[0].to_dict()
         referrer_id = ref_doc.get('referrer_id')
-
-        # Update referral record
         db.collection('referrals').document(ref_docs[0].id).update({
             'referee_id': new_user_id,
             'status': 'activated',
             'activated_at': datetime.datetime.now(datetime.timezone.utc)
         })
-
-        # Give referrer 1 week premium
         referrer_user = db.collection('users').document(referrer_id).get()
         if referrer_user.exists:
             db.collection('users').document(referrer_id).update({
@@ -1496,12 +1329,7 @@ def activate_referral():
                 'subscription_active': True,
                 'subscription_renewal_date': datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=7)
             })
-
-        return jsonify({
-            'success': True,
-            'message': 'Referral activated',
-            'reward': '7-day premium trial'
-        }), 200
+        return jsonify({'success': True, 'message': 'Referral activated', 'reward': '7-day premium trial'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1513,29 +1341,17 @@ def check_referral_code():
         code = request.args.get('code')
         if not code:
             return jsonify({'error': 'code parameter required'}), 400
-
         ref_snap = db.collection('referrals').where('referral_code', '==', code).limit(1).stream()
         ref_docs = list(ref_snap)
-
         if not ref_docs:
             return jsonify({'valid': False}), 200
-
         ref_data = ref_docs[0].to_dict()
-
-        # Check if expired
         expires_at = ref_data.get('expires_at')
         if expires_at and datetime.datetime.now(datetime.timezone.utc) > expires_at:
             return jsonify({'valid': False, 'reason': 'Code expired'}), 200
-
-        # Get referrer name
         referrer_doc = db.collection('users').document(ref_data.get('referrer_id')).get()
         referrer_name = referrer_doc.to_dict().get('name', 'User') if referrer_doc.exists else 'User'
-
-        return jsonify({
-            'valid': True,
-            'referrer_name': referrer_name,
-            'reward_description': 'Get 1 week of Premium'
-        }), 200
+        return jsonify({'valid': True, 'referrer_name': referrer_name, 'reward_description': 'Get 1 week of Premium'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1558,96 +1374,57 @@ def stripe_webhook():
     try:
         payload = request.get_data(as_text=True)
         sig_header = request.headers.get('stripe-signature')
-
-        print(f"[Webhook] Received POST request")
-        print(f"[Webhook] Signature header: {sig_header[:20] if sig_header else 'MISSING'}...")
-        print(f"[Webhook] STRIPE_WEBHOOK_SECRET configured: {bool(STRIPE_WEBHOOK_SECRET)}")
-
         if not STRIPE_WEBHOOK_SECRET:
-            print(f"[Webhook] ERROR: Webhook secret not configured!")
             return jsonify({'error': 'Webhook secret not configured'}), 500
-
         try:
-            event = stripe.Webhook.construct_event(
-                payload, sig_header, STRIPE_WEBHOOK_SECRET
-            )
-            print(f"[Webhook] ✓ Signature verified")
+            event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
         except stripe.error.SignatureVerificationError as e:
-            print(f"[Webhook] ✗ Signature verification failed: {e}")
             return jsonify({'error': 'Invalid signature'}), 400
-
         event_type = event['type']
-        print(f"[Webhook] Event type: {event_type}")
-
         if event_type == 'customer.created':
             handle_customer_created(event['data']['object'])
-
         elif event_type == 'customer.subscription.created':
             handle_subscription_created(event['data']['object'])
-
         elif event_type == 'customer.subscription.updated':
             handle_subscription_updated(event['data']['object'])
-
         elif event_type == 'customer.subscription.deleted':
             handle_subscription_deleted(event['data']['object'])
-
         elif event_type == 'charge.succeeded':
             handle_charge_succeeded(event['data']['object'])
-
         elif event_type == 'charge.failed':
             handle_charge_failed(event['data']['object'])
-
-        print(f"[Webhook] Logging event...")
-        # Log webhook
         log_webhook(event['id'], event_type, 'success', 200, event)
-        print(f"[Webhook] ✓ Event logged successfully")
-
         return jsonify({'success': True}), 200
     except Exception as e:
-        print(f"[Webhook] ✗ ERROR: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
         log_webhook(None, event_type if 'event_type' in locals() else 'unknown', 'failed', 500, str(e))
         return jsonify({'error': str(e)}), 500
 
 
 def handle_customer_created(customer):
-    """Handle Stripe customer.created event"""
     try:
         email = customer.get('email')
         if email:
             user_doc = db.collection('users').document(email).get()
             if user_doc.exists:
-                db.collection('users').document(email).update({
-                    'stripe_customer_id': customer['id']
-                })
+                db.collection('users').document(email).update({'stripe_customer_id': customer['id']})
     except Exception as e:
         print(f"Error handling customer.created: {e}")
 
 
 def handle_subscription_created(subscription):
-    """Handle Stripe subscription.created event"""
     try:
         customer_id = subscription.get('customer')
         user_email = subscription.get('metadata', {}).get('user_email')
-
-        # Get product/tier name
         line_items = subscription.get('items', {}).get('data', [])
         product_name = 'Unknown'
         price_amount = 0
-
         if line_items:
             product_id = line_items[0].get('price', {}).get('product')
             price_amount = line_items[0].get('price', {}).get('unit_amount', 0)
-
             if product_id:
                 product = stripe.Product.retrieve(product_id)
                 product_name = product.get('name', 'Unknown')
-
-        # Extract tier from product name
         tier = 'premium' if 'premium' in product_name.lower() else 'vip'
-
-        # Create subscription record
         sub_data = {
             'id': subscription['id'],
             'user_id': user_email,
@@ -1664,10 +1441,7 @@ def handle_subscription_created(subscription):
             'created_at': datetime.datetime.now(datetime.timezone.utc),
             'updated_at': datetime.datetime.now(datetime.timezone.utc)
         }
-
         db.collection('subscriptions').document(subscription['id']).set(sub_data)
-
-        # Update user
         if user_email:
             limit_map = {'premium': 500, 'vip': 99999}
             db.collection('users').document(user_email).update({
@@ -1683,10 +1457,8 @@ def handle_subscription_created(subscription):
 
 
 def handle_subscription_updated(subscription):
-    """Handle Stripe subscription.updated event"""
     try:
         sub_id = subscription['id']
-
         sub_doc = db.collection('subscriptions').document(sub_id).get()
         if sub_doc.exists:
             db.collection('subscriptions').document(sub_id).update({
@@ -1700,53 +1472,27 @@ def handle_subscription_updated(subscription):
 
 
 def handle_subscription_deleted(subscription):
-    """Handle Stripe subscription.deleted event"""
     try:
         sub_id = subscription['id']
         user_email = subscription.get('metadata', {}).get('user_email')
-
-        # Mark as canceled
-        db.collection('subscriptions').document(sub_id).update({
-            'status': 'canceled',
-            'updated_at': datetime.datetime.now(datetime.timezone.utc)
-        })
-
-        # Downgrade user to free
+        db.collection('subscriptions').document(sub_id).update({'status': 'canceled', 'updated_at': datetime.datetime.now(datetime.timezone.utc)})
         if user_email:
-            db.collection('users').document(user_email).update({
-                'subscription_active': False,
-                'tier': 'free',
-                'daily_deal_limit': 50,
-                'stripe_subscription_id': None
-            })
+            db.collection('users').document(user_email).update({'subscription_active': False, 'tier': 'free', 'daily_deal_limit': 50, 'stripe_subscription_id': None})
     except Exception as e:
         print(f"Error handling subscription.deleted: {e}")
 
 
 def handle_charge_succeeded(charge):
-    """Handle Stripe charge.succeeded event"""
-    try:
-        # Log successful charge
-        pass
-    except Exception as e:
-        print(f"Error handling charge.succeeded: {e}")
+    pass
 
 
 def handle_charge_failed(charge):
-    """Handle Stripe charge.failed event"""
-    try:
-        # Log failed charge, mark subscription as past_due
-        pass
-    except Exception as e:
-        print(f"Error handling charge.failed: {e}")
+    pass
 
 
 def log_webhook(event_id, event_type, status, response_code, payload):
-    """Log webhook event for auditing"""
     if not db:
-        print(f"Warning: Firebase not initialized, cannot log webhook event: {event_type}")
         return
-
     try:
         log_id = db.collection('webhooks_log').document().id
         db.collection('webhooks_log').document(log_id).set({
@@ -1756,29 +1502,21 @@ def log_webhook(event_id, event_type, status, response_code, payload):
             'response_code': response_code,
             'created_at': datetime.datetime.now(datetime.timezone.utc)
         })
-        print(f"✓ Webhook logged: {event_type}")
     except Exception as e:
         print(f"Error logging webhook: {e}")
 
 
-# ============ ADMIN API ENDPOINTS (FOR DASHBOARD) ============
+# ============ ADMIN API ENDPOINTS ============
 
 @app.route('/api/v1/admin/tiers', methods=['GET'])
 @require_auth
 def admin_get_tiers():
-    """Get all tier configurations for admin"""
     try:
         tiers_snap = db.collection('tier_config').stream()
         tiers = []
         for doc in tiers_snap:
             tier_data = doc.to_dict()
-            tiers.append({
-                'name': doc.id,
-                'daily_limit': tier_data.get('daily_limit', 0),
-                'price': tier_data.get('price', 0),
-                'features': tier_data.get('features', []),
-                'status': tier_data.get('status', 'active')
-            })
+            tiers.append({'name': doc.id, 'daily_limit': tier_data.get('daily_limit', 0), 'price': tier_data.get('price', 0), 'features': tier_data.get('features', []), 'status': tier_data.get('status', 'active')})
         return jsonify({'tiers': sorted(tiers, key=lambda x: x['price'])}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1787,20 +1525,12 @@ def admin_get_tiers():
 @app.route('/api/v1/admin/groups', methods=['GET'])
 @require_auth
 def admin_get_groups():
-    """Get all user groups for admin"""
     try:
         groups_snap = db.collection('user_groups').stream()
         groups = []
         for doc in groups_snap:
             group_data = doc.to_dict()
-            groups.append({
-                'id': doc.id,
-                'name': group_data.get('name', 'Unknown'),
-                'admin_email': group_data.get('owner_id', 'unknown'),
-                'member_count': group_data.get('member_count', 0),
-                'tier': group_data.get('tier', 'N/A'),
-                'created_at': group_data.get('created_at', '').isoformat() if hasattr(group_data.get('created_at', ''), 'isoformat') else str(group_data.get('created_at', ''))
-            })
+            groups.append({'id': doc.id, 'name': group_data.get('name', 'Unknown'), 'admin_email': group_data.get('owner_id', 'unknown'), 'member_count': group_data.get('member_count', 0), 'tier': group_data.get('tier', 'N/A'), 'created_at': group_data.get('created_at', '').isoformat() if hasattr(group_data.get('created_at', ''), 'isoformat') else str(group_data.get('created_at', ''))})
         return jsonify({'groups': groups}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1809,21 +1539,12 @@ def admin_get_groups():
 @app.route('/api/v1/admin/offers', methods=['GET'])
 @require_auth
 def admin_get_offers():
-    """Get all special offers for admin"""
     try:
         offers_snap = db.collection('special_offers').stream()
         offers = []
         for doc in offers_snap:
             offer_data = doc.to_dict()
-            offers.append({
-                'id': doc.id,
-                'type': offer_data.get('type', 'discount'),
-                'value': offer_data.get('value', 0),
-                'target_type': offer_data.get('target_type', 'tier'),
-                'target_value': offer_data.get('target_value', 'all'),
-                'description': offer_data.get('description', ''),
-                'created_at': offer_data.get('created_at', '').isoformat() if hasattr(offer_data.get('created_at', ''), 'isoformat') else str(offer_data.get('created_at', ''))
-            })
+            offers.append({'id': doc.id, 'type': offer_data.get('type', 'discount'), 'value': offer_data.get('value', 0), 'target_type': offer_data.get('target_type', 'tier'), 'target_value': offer_data.get('target_value', 'all'), 'description': offer_data.get('description', ''), 'created_at': offer_data.get('created_at', '').isoformat() if hasattr(offer_data.get('created_at', ''), 'isoformat') else str(offer_data.get('created_at', ''))})
         return jsonify({'offers': offers}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1832,20 +1553,12 @@ def admin_get_offers():
 @app.route('/api/v1/admin/team', methods=['GET'])
 @require_auth
 def admin_get_team():
-    """Get all team members for admin"""
     try:
         team_snap = db.collection('admin_users').stream()
         team = []
         for doc in team_snap:
             member_data = doc.to_dict()
-            team.append({
-                'email': doc.id,
-                'name': member_data.get('name', 'Unknown'),
-                'role': member_data.get('role', 'viewer'),
-                'permissions': member_data.get('permissions', []),
-                'status': member_data.get('status', 'active'),
-                'last_login': member_data.get('last_login', '').isoformat() if hasattr(member_data.get('last_login', ''), 'isoformat') else str(member_data.get('last_login', ''))
-            })
+            team.append({'email': doc.id, 'name': member_data.get('name', 'Unknown'), 'role': member_data.get('role', 'viewer'), 'permissions': member_data.get('permissions', []), 'status': member_data.get('status', 'active'), 'last_login': member_data.get('last_login', '').isoformat() if hasattr(member_data.get('last_login', ''), 'isoformat') else str(member_data.get('last_login', ''))})
         return jsonify({'team': team}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1854,51 +1567,27 @@ def admin_get_team():
 @app.route('/api/v1/admin/check-auth', methods=['GET'])
 @require_auth
 def admin_check_auth():
-    """Check if user is authenticated admin"""
     try:
         user_email = request.current_user.get('email')
         admin_doc = db.collection('admin_users').document(user_email).get()
-
         if not admin_doc.exists:
             return jsonify({'is_admin': False, 'reason': 'Not in admin_users collection'}), 200
-
         admin_data = admin_doc.to_dict()
-        return jsonify({
-            'is_admin': True,
-            'email': user_email,
-            'name': admin_data.get('name'),
-            'role': admin_data.get('role'),
-            'permissions': admin_data.get('permissions', []),
-            'status': admin_data.get('status')
-        }), 200
+        return jsonify({'is_admin': True, 'email': user_email, 'name': admin_data.get('name'), 'role': admin_data.get('role'), 'permissions': admin_data.get('permissions', []), 'status': admin_data.get('status')}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-
-# ============ PHASE 2: ADMIN USERS MANAGEMENT ============
 
 @app.route('/api/v1/admin/users', methods=['GET'])
 @require_auth
 @check_permission('users')
 def admin_get_users():
-    """Get all users for admin (Phase 2)"""
     try:
         users_snap = db.collection('users').stream()
         users = []
         for doc in users_snap:
             user_data = doc.to_dict()
-            users.append({
-                'id': doc.id,
-                'email': user_data.get('email', ''),
-                'name': user_data.get('name'),
-                'tier': user_data.get('tier', 'free'),
-                'daily_deal_limit': user_data.get('daily_deal_limit', 50),
-                'registered_at': user_data.get('registered_at', '').isoformat() if hasattr(user_data.get('registered_at', ''), 'isoformat') else str(user_data.get('registered_at', '')),
-                'last_login': user_data.get('last_login', '').isoformat() if hasattr(user_data.get('last_login', ''), 'isoformat') else str(user_data.get('last_login', '')),
-                'is_active': user_data.get('is_active', True),
-                'group_name': user_data.get('group_name'),
-                'stripe_customer_id': user_data.get('stripe_customer_id'),
-            })
+            users.append({'id': doc.id, 'email': user_data.get('email', ''), 'name': user_data.get('name'), 'tier': user_data.get('tier', 'free'), 'daily_deal_limit': user_data.get('daily_deal_limit', 50), 'registered_at': user_data.get('registered_at', '').isoformat() if hasattr(user_data.get('registered_at', ''), 'isoformat') else str(user_data.get('registered_at', '')), 'last_login': user_data.get('last_login', '').isoformat() if hasattr(user_data.get('last_login', ''), 'isoformat') else str(user_data.get('last_login', '')), 'is_active': user_data.get('is_active', True), 'group_name': user_data.get('group_name'), 'stripe_customer_id': user_data.get('stripe_customer_id')})
         return jsonify({'data': users}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1908,10 +1597,8 @@ def admin_get_users():
 @require_auth
 @check_permission('users')
 def admin_update_user(user_id):
-    """Update user details (Phase 2)"""
     try:
         data = request.get_json()
-
         updates = {}
         if 'name' in data:
             updates['name'] = data['name']
@@ -1921,48 +1608,24 @@ def admin_update_user(user_id):
             updates['daily_deal_limit'] = int(data['daily_deal_limit'])
         if 'is_active' in data:
             updates['is_active'] = data['is_active']
-
-        # Log who made the change
         updates['edited_by'] = request.current_user.get('email')
         updates['edited_at'] = datetime.datetime.now()
-
         db.collection('users').document(user_id).update(updates)
         return jsonify({'success': True}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-# ============ PHASE 2: ADMIN DEALS MANAGEMENT ============
-
 @app.route('/api/v1/admin/deals', methods=['GET'])
 @require_auth
 @check_permission('deals')
 def admin_get_deals():
-    """Get all deals for admin (Phase 2)"""
     try:
         deals_snap = db.collection('deals').stream()
         deals = []
         for doc in deals_snap:
             deal_data = doc.to_dict()
-            deals.append({
-                'id': doc.id,
-                'title': deal_data.get('title', ''),
-                'source': deal_data.get('source', ''),
-                'current_price': float(deal_data.get('current_price', 0)),
-                'original_price': float(deal_data.get('original_price', 0)) if deal_data.get('original_price') else None,
-                'discount_percent': deal_data.get('discount_percent'),
-                'image_url': deal_data.get('image_url'),
-                'product_url': deal_data.get('product_url'),
-                'status': deal_data.get('status', 'active'),
-                'verdict': deal_data.get('verdict', 'genuine'),
-                'featured': deal_data.get('featured', False),
-                'hidden': deal_data.get('hidden', False),
-                'views': deal_data.get('views', 0),
-                'rating': float(deal_data.get('rating', 0)) if deal_data.get('rating') else None,
-                'reviews': deal_data.get('reviews'),
-                'added_at': deal_data.get('added_at', '').isoformat() if hasattr(deal_data.get('added_at', ''), 'isoformat') else str(deal_data.get('added_at', '')),
-                'updated_at': deal_data.get('updated_at', '').isoformat() if hasattr(deal_data.get('updated_at', ''), 'isoformat') else str(deal_data.get('updated_at', '')),
-            })
+            deals.append({'id': doc.id, 'title': deal_data.get('title', ''), 'source': deal_data.get('source', ''), 'current_price': float(deal_data.get('current_price', 0)), 'original_price': float(deal_data.get('original_price', 0)) if deal_data.get('original_price') else None, 'discount_percent': deal_data.get('discount_percent'), 'image_url': deal_data.get('image_url'), 'product_url': deal_data.get('product_url'), 'status': deal_data.get('status', 'active'), 'verdict': deal_data.get('verdict', 'genuine'), 'featured': deal_data.get('featured', False), 'hidden': deal_data.get('hidden', False), 'views': deal_data.get('views', 0), 'rating': float(deal_data.get('rating', 0)) if deal_data.get('rating') else None, 'reviews': deal_data.get('reviews'), 'added_at': deal_data.get('added_at', '').isoformat() if hasattr(deal_data.get('added_at', ''), 'isoformat') else str(deal_data.get('added_at', '')), 'updated_at': deal_data.get('updated_at', '').isoformat() if hasattr(deal_data.get('updated_at', ''), 'isoformat') else str(deal_data.get('updated_at', ''))})
         return jsonify({'data': deals}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1972,10 +1635,8 @@ def admin_get_deals():
 @require_auth
 @check_permission('deals')
 def admin_update_deal(deal_id):
-    """Update deal details (Phase 2)"""
     try:
         data = request.get_json()
-
         updates = {}
         if 'title' in data:
             updates['title'] = data['title']
@@ -1986,12 +1647,9 @@ def admin_update_deal(deal_id):
         if 'discount_percent' in data:
             updates['discount_percent'] = int(data['discount_percent'])
         if 'verdict' in data:
-            updates['verdict'] = data['verdict']  # 'genuine', 'suspicious', 'fake'
-
-        # Log who made the change
+            updates['verdict'] = data['verdict']
         updates['edited_by'] = request.current_user.get('email')
         updates['updated_at'] = datetime.datetime.now()
-
         db.collection('deals').document(deal_id).update(updates)
         return jsonify({'success': True}), 200
     except Exception as e:
@@ -2002,7 +1660,6 @@ def admin_update_deal(deal_id):
 @require_auth
 @check_permission('deals')
 def admin_delete_deal(deal_id):
-    """Delete deal (Phase 2)"""
     try:
         db.collection('deals').document(deal_id).delete()
         return jsonify({'success': True}), 200
@@ -2014,16 +1671,10 @@ def admin_delete_deal(deal_id):
 @require_auth
 @check_permission('deals')
 def admin_toggle_deal_visibility(deal_id):
-    """Toggle deal visibility (hide/show) (Phase 2)"""
     try:
         data = request.get_json()
         hidden = data.get('hidden', False)
-
-        db.collection('deals').document(deal_id).update({
-            'hidden': hidden,
-            'updated_by': request.current_user.get('email'),
-            'updated_at': datetime.datetime.now()
-        })
+        db.collection('deals').document(deal_id).update({'hidden': hidden, 'updated_by': request.current_user.get('email'), 'updated_at': datetime.datetime.now()})
         return jsonify({'success': True}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2033,16 +1684,10 @@ def admin_toggle_deal_visibility(deal_id):
 @require_auth
 @check_permission('deals')
 def admin_toggle_deal_featured(deal_id):
-    """Toggle deal featured status (Phase 2)"""
     try:
         data = request.get_json()
         featured = data.get('featured', False)
-
-        db.collection('deals').document(deal_id).update({
-            'featured': featured,
-            'updated_by': request.current_user.get('email'),
-            'updated_at': datetime.datetime.now()
-        })
+        db.collection('deals').document(deal_id).update({'featured': featured, 'updated_by': request.current_user.get('email'), 'updated_at': datetime.datetime.now()})
         return jsonify({'success': True}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2052,44 +1697,25 @@ def admin_toggle_deal_featured(deal_id):
 @require_auth
 @check_permission('deals')
 def admin_set_deal_verdict(deal_id):
-    """Set deal fraud verdict (Phase 2)"""
     try:
         data = request.get_json()
-        verdict = data.get('verdict', 'genuine')  # 'genuine', 'suspicious', 'fake'
-
-        db.collection('deals').document(deal_id).update({
-            'verdict': verdict,
-            'verdict_set_by': request.current_user.get('email'),
-            'verdict_set_at': datetime.datetime.now()
-        })
+        verdict = data.get('verdict', 'genuine')
+        db.collection('deals').document(deal_id).update({'verdict': verdict, 'verdict_set_by': request.current_user.get('email'), 'verdict_set_at': datetime.datetime.now()})
         return jsonify({'success': True}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-# ============ PHASE 2: ADMIN NOTIFICATIONS ============
-
 @app.route('/api/v1/admin/notifications', methods=['GET'])
 @require_auth
 @check_permission('notifications')
 def admin_get_notifications():
-    """Get notification history (Phase 2)"""
     try:
-        notif_snap = db.collection('notifications').order_by('sent_at', direction='DESCENDING').stream()
+        notif_snap = db.collection('notifications').stream()
         notifications = []
         for doc in notif_snap:
             notif_data = doc.to_dict()
-            notifications.append({
-                'id': doc.id,
-                'title': notif_data.get('title', ''),
-                'message': notif_data.get('message', ''),
-                'target_type': notif_data.get('target_type', 'all'),
-                'target_tier': notif_data.get('target_tier'),
-                'target_group': notif_data.get('target_group'),
-                'sent_count': notif_data.get('sent_count', 0),
-                'sent_at': notif_data.get('sent_at', '').isoformat() if hasattr(notif_data.get('sent_at', ''), 'isoformat') else str(notif_data.get('sent_at', '')),
-                'sent_by': notif_data.get('sent_by', ''),
-            })
+            notifications.append({'id': doc.id, 'title': notif_data.get('title', ''), 'message': notif_data.get('message', ''), 'target_type': notif_data.get('target_type', 'all'), 'target_tier': notif_data.get('target_tier'), 'target_group': notif_data.get('target_group'), 'sent_count': notif_data.get('sent_count', 0), 'sent_at': notif_data.get('sent_at', '').isoformat() if hasattr(notif_data.get('sent_at', ''), 'isoformat') else str(notif_data.get('sent_at', '')), 'sent_by': notif_data.get('sent_by', '')})
         return jsonify({'data': notifications}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -2098,34 +1724,15 @@ def admin_get_notifications():
 @app.route('/api/v1/admin/permissions', methods=['GET'])
 @require_auth
 def admin_get_permissions():
-    """Get available permissions (Phase 2)"""
     try:
         user_email = request.current_user.get('email')
         admin_doc = db.collection('admin_users').document(user_email).get()
-
-        available_permissions = [
-            'sources',
-            'deals',
-            'users',
-            'notifications',
-            'checker',
-            'competitors',
-            'scraper_control'
-        ]
-
+        available_permissions = ['sources', 'deals', 'users', 'notifications', 'checker', 'competitors', 'scraper_control']
         current_permissions = []
         if admin_doc.exists:
             admin_data = admin_doc.to_dict()
             current_permissions = admin_data.get('permissions', [])
-
-        return jsonify({
-            'permissions': available_permissions,
-            'current_admin': {
-                'email': user_email,
-                'role': admin_doc.to_dict().get('role') if admin_doc.exists else 'viewer',
-                'permissions': current_permissions,
-            }
-        }), 200
+        return jsonify({'permissions': available_permissions, 'current_admin': {'email': user_email, 'role': admin_doc.to_dict().get('role') if admin_doc.exists else 'viewer', 'permissions': current_permissions}}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -2172,7 +1779,6 @@ if __name__ == "__main__":
     print("DealHunter Egypt Starting...")
     scraper_thread = threading.Thread(target=run_scheduler, daemon=True)
     scraper_thread.start()
-
     port = int(os.environ.get("PORT", 10000))
     print(f"Starting Flask server on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
