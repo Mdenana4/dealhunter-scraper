@@ -8,7 +8,6 @@ import re
 import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone
-import threading
 
 app = Flask(__name__)
 CORS(app)
@@ -28,143 +27,54 @@ else:
 
 db = firestore.client()
 
-SCRAPE_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-}
-
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
-# ═════════════════════════════════════════════════════════════
-# AMAZON PRICE SCRAPER
-# ═════════════════════════════════════════════════════════════
+def extract_asin(url: str) -> str:
+    match = re.search(r'/dp/([A-Z0-9]{10})', url or "")
+    return match.group(1) if match else ""
 
-def scrape_amazon_prices(product_url: str) -> dict:
-    """
-    Scrape Amazon to get REAL original and current prices
-    """
-    try:
-        if not product_url or "amazon" not in product_url.lower():
-            return {"found": False, "original": 0, "current": 0}
+# ═══════════════════════════════════════════════════
+# FRAUD DETECTION — MATH ONLY, NO SCRAPING = FAST
+# ═══════════════════════════════════════════════════
 
-        # Add timeout and headers
-        resp = requests.get(product_url, headers=SCRAPE_HEADERS, timeout=10)
-        if resp.status_code != 200:
-            return {"found": False, "original": 0, "current": 0}
+def detect_fraud(original: float, current: float, claimed_pct: int) -> dict:
+    if current <= 0 or original <= 0:
+        return {"verdict": "UNVERIFIED", "score": 0, "confidence": 20, "reasons": []}
 
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        # Try multiple selectors for current price
-        current_price = 0
-        original_price = 0
-
-        # Selector 1: Current price
-        price_span = soup.find("span", class_=re.compile("a-price-whole"))
-        if price_span:
-            price_text = price_span.text.strip()
-            match = re.search(r'[\d,]+', price_text)
-            if match:
-                current_price = float(match.group().replace(",", ""))
-
-        # Selector 2: Original/List price (struck through)
-        original_span = soup.find("span", class_=re.compile("a-price a-text-price-range"))
-        if not original_span:
-            original_span = soup.find("s", class_=re.compile("a-price"))
-        
-        if original_span:
-            original_text = original_span.text.strip()
-            match = re.search(r'[\d,]+', original_text)
-            if match:
-                original_price = float(match.group().replace(",", ""))
-
-        # If no original found, use current * 1.5 as estimate
-        if original_price == 0 and current_price > 0:
-            original_price = current_price * 1.5
-
-        return {
-            "found": current_price > 0,
-            "original": original_price,
-            "current": current_price
-        }
-    except Exception as e:
-        print(f"Scrape error: {e}")
-        return {"found": False, "original": 0, "current": 0}
-
-# ═════════════════════════════════════════════════════════════
-# ✅ FRAUD DETECTION (Uses REAL Amazon prices)
-# ═════════════════════════════════════════════════════════════
-
-def detect_fraud_with_real_prices(claimed_original: float, claimed_current: float, 
-                                   real_original: float, real_current: float, 
-                                   claimed_discount: int) -> dict:
-    """
-    Detect fraud by comparing claimed prices against REAL Amazon prices
-    """
     reasons = []
     score = 0
-    confidence = 60
+    confidence = 70  # base confidence
 
-    if claimed_current <= 0:
-        return {"verdict": "UNVERIFIED", "score": 0, "confidence": 20, "reasons": ["Invalid price"]}
+    # Rule 1 — Math check: does the claimed discount match the math?
+    calculated_pct = round(((original - current) / original) * 100)
+    diff = abs(claimed_pct - calculated_pct)
+    if diff > 10:
+        reasons.append(f"Math error: claimed {claimed_pct}% but calculated {calculated_pct}%")
+        score += 40
 
-    # No real price data - fall back to basic check
-    if real_original <= 0:
-        return detect_fraud_basic(claimed_original, claimed_current, claimed_discount)
-
-    # ── Rule 1: Claimed original vs REAL original (MOST IMPORTANT)
-    if real_original > 0:
-        original_diff = abs(claimed_original - real_original) / real_original * 100
-        
-        if original_diff > 15:  # More than 15% difference
-            reasons.append(f"Original price mismatch: claimed {claimed_original:.0f} vs Amazon {real_original:.0f}")
-            score += 40
-            confidence -= 15
-
-    # ── Rule 2: Compare claimed discount vs REAL discount
-    real_discount = ((real_original - real_current) / real_original) * 100 if real_original > 0 else 0
-    discount_diff = abs(claimed_discount - real_discount)
-    
-    if discount_diff > 10:
-        reasons.append(f"Discount exaggerated: claimed {claimed_discount}% vs real {real_discount:.0f}%")
-        score += 35
-
-    # ── Rule 3: Claimed original suspiciously high vs claimed current
-    if claimed_original > claimed_current * 2.5:
-        reasons.append(f"Original price inflated: {claimed_original:.0f} is {(claimed_original/claimed_current):.1f}x the sale price")
-        score += 30
-
-    # ── Rule 4: Unrealistic discount
-    if claimed_discount > 70:
-        reasons.append(f"Unrealistic discount: {claimed_discount}% (rarely exceeds 60%)")
-        score += 20
-
-    confidence = max(30, min(100, confidence))
-
-    if score >= 70:
-        verdict = "FAKE"
-    elif score >= 40:
-        verdict = "SUSPICIOUS"
-    else:
-        verdict = "GENUINE"
-
-    return {"verdict": verdict, "score": score, "confidence": confidence, "reasons": reasons}
-
-def detect_fraud_basic(original_price: float, current_price: float, claimed_discount: int) -> dict:
-    """Fallback when no real price data available"""
-    reasons = []
-    score = 0
-    confidence = 60
-
-    if original_price > current_price * 2.5:
-        reasons.append("Original price inflated: 2.5x+ the sale price")
+    # Rule 2 — Original price inflated vs current
+    ratio = original / current
+    if ratio > 2.5:
+        reasons.append(f"Original price inflated ({ratio:.1f}x the sale price)")
         score += 35
         confidence -= 10
+    elif ratio > 2.0:
+        reasons.append(f"Original price seems high ({ratio:.1f}x the sale price)")
+        score += 20
 
-    if claimed_discount > 70:
-        reasons.append(f"Unrealistic discount: {claimed_discount}%")
-        score += 25
+    # Rule 3 — Discount too high
+    if claimed_pct > 65:
+        reasons.append(f"Very high discount: {claimed_pct}% (uncommon on Amazon Egypt)")
+        score += 20
+
+    # Rule 4 — No real discount (less than 5%)
+    if claimed_pct < 5 and original != current:
+        score += 10
+
+    # Adjust confidence upward if data is consistent
+    if diff <= 5:
+        confidence += 10
 
     confidence = max(20, min(100, confidence))
 
@@ -177,161 +87,200 @@ def detect_fraud_basic(original_price: float, current_price: float, claimed_disc
 
     return {"verdict": verdict, "score": score, "confidence": confidence, "reasons": reasons}
 
-def serialize_deal_smart(doc_id: str, deal_data: dict) -> dict:
-    """
-    Serialize deal with REAL fraud detection
-    Scrapes Amazon to get true prices
-    """
-    
-    claimed_original = float(deal_data.get("original_price", 0))
-    claimed_current = float(deal_data.get("current_price", 0))
-    claimed_discount = int(deal_data.get("discount_percent", 0))
-    product_url = deal_data.get("product_url", "")
 
-    # Scrape Amazon for REAL prices (with timeout)
-    real_prices = scrape_amazon_prices(product_url)
-    real_original = real_prices.get("original", 0)
-    real_current = real_prices.get("current", 0)
-
-    # Detect fraud using REAL prices
-    if real_prices.get("found"):
-        fraud = detect_fraud_with_real_prices(claimed_original, claimed_current, 
-                                             real_original, real_current, claimed_discount)
-    else:
-        fraud = detect_fraud_basic(claimed_original, claimed_current, claimed_discount)
+def serialize_deal(doc_id: str, d: dict) -> dict:
+    original = float(d.get("original_price", 0))
+    current = float(d.get("current_price", 0))
+    discount = int(d.get("discount_percent", 0))
+    fraud = detect_fraud(original, current, discount)
 
     return {
         "id": doc_id,
-        "title": deal_data.get("title", ""),
-        "store": deal_data.get("site_display", deal_data.get("source", "")),
-        "source": deal_data.get("source", ""),
-        "current_price": claimed_current,
-        "original_price": claimed_original,
-        "discount_percent": claimed_discount,
+        "title": d.get("title", ""),
+        "store": d.get("site_display", d.get("source", "")),
+        "source": d.get("source", ""),
+        "current_price": current,
+        "original_price": original,
+        "discount_percent": discount,
         "currency": "EGP",
-        "image_url": deal_data.get("image_url", ""),
-        "product_url": product_url,
-        "category": deal_data.get("category", ""),
-        "rating": float(deal_data.get("rating", 0)) if deal_data.get("rating") else 0.0,
-        
-        # Fraud Detection (REAL prices)
-        "verdict": fraud.get("verdict", "UNVERIFIED"),
-        "fake_score": fraud.get("score", 0),
-        "confidence": fraud.get("confidence", 60),
-        "fraud_reasons": fraud.get("reasons", []),
-        
-        # Real Amazon prices (for reference)
-        "amazon_original": real_original,
-        "amazon_current": real_current,
+        "image_url": d.get("image_url", ""),
+        "product_url": d.get("product_url", ""),
+        "category": d.get("category", ""),
+        "rating": float(d.get("rating", 0)) if d.get("rating") else 0.0,
+        "verdict": fraud["verdict"],
+        "fake_score": fraud["score"],
+        "confidence": fraud["confidence"],
+        "fraud_reasons": fraud["reasons"],
     }
 
-# ═════════════════════════════════════════════════════════════
-# API ENDPOINTS
-# ═════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════
+# PRICE HISTORY — Safqa via ASIN
+# ═══════════════════════════════════════════════════
+
+def get_safqa_history(asin: str) -> dict:
+    """Try to get Safqa price history for an Amazon ASIN."""
+    if not asin:
+        return {"found": False}
+    try:
+        # Safqa API endpoint (used by their browser extension)
+        url = f"https://www.safqa.com/api/v2/products/{asin}?country=eg"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Referer": f"https://www.amazon.eg/dp/{asin}",
+            "Accept": "application/json",
+        }
+        resp = requests.get(url, headers=headers, timeout=8)
+
+        if resp.status_code == 200:
+            data = resp.json()
+            prices_raw = data.get("prices", []) or data.get("price_history", [])
+            prices = [float(p.get("price", 0) or p) for p in prices_raw if p]
+            prices = [p for p in prices if p > 0]
+
+            if prices:
+                return {
+                    "found": True,
+                    "lowest": min(prices),
+                    "highest": max(prices),
+                    "source": "Safqa",
+                }
+
+        # Fallback: try Safqa search page scrape
+        search_url = f"https://www.safqa.com/eg/product/{asin}"
+        resp2 = requests.get(search_url, headers={"User-Agent": headers["User-Agent"]}, timeout=8)
+        if resp2.status_code == 200:
+            soup = BeautifulSoup(resp2.text, "html.parser")
+            prices = []
+            for el in soup.select("[data-price], .price-value, .chart-price"):
+                try:
+                    prices.append(float(el.get("data-price") or el.text.replace(",", "").strip()))
+                except:
+                    pass
+            if prices:
+                return {"found": True, "lowest": min(prices), "highest": max(prices), "source": "Safqa"}
+
+    except Exception as e:
+        print(f"Safqa error: {e}")
+
+    return {"found": False}
+
+
+def get_kanbkam_history(asin: str) -> dict:
+    """Try Kanbkam as a fallback."""
+    if not asin:
+        return {"found": False}
+    try:
+        url = f"https://www.kanbkam.com/eg/en/api/products/{asin}"
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
+        if resp.status_code == 200:
+            data = resp.json()
+            prices = data.get("prices", [])
+            if prices:
+                vals = [float(p.get("price", 0)) for p in prices if p.get("price")]
+                vals = [v for v in vals if v > 0]
+                if vals:
+                    return {"found": True, "lowest": min(vals), "highest": max(vals), "source": "Kanbkam"}
+    except:
+        pass
+    return {"found": False}
+
+
+# ═══════════════════════════════════════════════════
+# ENDPOINTS
+# ═══════════════════════════════════════════════════
 
 @app.route('/api/v1/deals', methods=['GET'])
 def get_deals():
-    """Get deals with REAL fraud detection"""
     limit = request.args.get('limit', 50, type=int)
     category = request.args.get('category', None)
-
     try:
         query = db.collection('deals')
         if category and category != "all":
             query = query.where('category', '==', category.lower())
-        
         docs = query.limit(limit).stream()
-        deals = [serialize_deal_smart(doc.id, doc.to_dict()) for doc in docs]
-
-        return jsonify({
-            "success": True,
-            "count": len(deals),
-            "deals": deals,
-            "timestamp": now_iso()
-        })
+        deals = [serialize_deal(doc.id, doc.to_dict()) for doc in docs]
+        return jsonify({"success": True, "count": len(deals), "deals": deals, "timestamp": now_iso()})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route('/api/v1/deals/<deal_id>', methods=['GET'])
-def get_deal_by_id(deal_id):
-    """Get single deal with REAL fraud detection"""
-    try:
-        doc = db.collection('deals').document(deal_id).get()
-        if not doc.exists:
-            return jsonify({"success": False, "error": "Deal not found"}), 404
-        
-        deal = serialize_deal_smart(doc.id, doc.to_dict())
-        return jsonify({"success": True, "deal": deal, "timestamp": now_iso()})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/v1/deals/search', methods=['GET'])
 def search_deals():
-    """Search deals with REAL fraud detection"""
-    query = request.args.get('q', '').lower()
+    q = request.args.get('q', '').lower().strip()
     category = request.args.get('category', None)
     limit = request.args.get('limit', 50, type=int)
-
-    if not query or len(query) < 2:
+    if len(q) < 2:
         return jsonify({"success": False, "error": "Query too short"}), 400
-
     try:
-        docs = db.collection('deals').limit(limit * 2).stream()
+        docs = db.collection('deals').limit(limit * 3).stream()
         deals = []
-        
         for doc in docs:
-            deal_data = doc.to_dict()
-            title = deal_data.get('title', '').lower()
-            store = deal_data.get('site_display', '').lower()
-            cat = deal_data.get('category', '').lower()
-            
-            if query not in title and query not in store:
+            d = doc.to_dict()
+            title = d.get('title', '').lower()
+            store = d.get('site_display', d.get('source', '')).lower()
+            cat = d.get('category', '').lower()
+            if q not in title and q not in store:
                 continue
             if category and category != "all" and cat != category.lower():
                 continue
-            
-            deals.append(serialize_deal_smart(doc.id, deal_data))
+            deals.append(serialize_deal(doc.id, d))
             if len(deals) >= limit:
                 break
-
-        return jsonify({
-            "success": True,
-            "count": len(deals),
-            "deals": deals,
-            "query": query,
-            "timestamp": now_iso()
-        })
+        return jsonify({"success": True, "count": len(deals), "deals": deals, "query": q, "timestamp": now_iso()})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
 
 @app.route('/api/v1/categories', methods=['GET'])
 def get_categories():
-    """Get all categories"""
     try:
-        categories = set()
+        cats = set()
         for doc in db.collection('deals').stream():
-            cat = doc.to_dict().get('category', 'general')
-            if cat:
-                categories.add(cat)
-        
-        return jsonify({
-            "success": True,
-            "categories": sorted(list(categories)),
-            "timestamp": now_iso()
-        })
+            c = doc.to_dict().get('category', '')
+            if c:
+                cats.add(c)
+        return jsonify({"success": True, "categories": sorted(list(cats)), "timestamp": now_iso()})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/v1/price-history', methods=['GET'])
+def price_history():
+    """Lazy-loaded endpoint — only called from detail screen."""
+    product_url = request.args.get('url', '').strip()
+    if not product_url:
+        return jsonify({"success": False, "found": False, "error": "Missing URL"}), 400
+
+    asin = extract_asin(product_url)
+
+    # Try Safqa first, then Kanbkam
+    result = get_safqa_history(asin)
+    if not result.get("found"):
+        result = get_kanbkam_history(asin)
+
+    return jsonify({
+        "success": True,
+        "found": result.get("found", False),
+        "lowest": result.get("lowest", 0),
+        "highest": result.get("highest", 0),
+        "source": result.get("source", ""),
+        "asin": asin,
+        "timestamp": now_iso(),
+    })
+
 
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({"status": "ok"}), 200
+
 
 @app.errorhandler(404)
 def not_found(e):
     return jsonify({"success": False, "error": "Not found"}), 404
 
 @app.errorhandler(500)
-def error(e):
+def server_error(e):
     return jsonify({"success": False, "error": "Server error"}), 500
 
 if __name__ == '__main__':
