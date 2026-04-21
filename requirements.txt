@@ -2,5 +2,5 @@ flask
 flask-cors
 firebase-admin
 requests
-pycryptodome
 beautifulsoup4
+cryptography
