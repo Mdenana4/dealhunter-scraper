@@ -466,3 +466,33 @@ _load_shops()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
+
+
+# ── Debug endpoint (remove after testing) ──────────────
+@app.route('/debug-login', methods=['GET'])
+def debug_login():
+    """Test Safqa login and show full response."""
+    email    = os.getenv("SAFQA_EMAIL", "NOT_SET")
+    password = os.getenv("SAFQA_PASSWORD", "NOT_SET")
+
+    if email == "NOT_SET" or password == "NOT_SET":
+        return jsonify({
+            "error": "Environment variables not set",
+            "SAFQA_EMAIL_set":    email != "NOT_SET",
+            "SAFQA_PASSWORD_set": password != "NOT_SET",
+        }), 400
+
+    try:
+        r = requests.post(
+            f"{SAFQA_BASE}/auth/login",
+            json={"email": email, "password": password},
+            headers=SAFQA_HEADERS, timeout=12
+        )
+        return jsonify({
+            "status_code": r.status_code,
+            "email_used":  email,
+            "response":    r.json() if "json" in r.headers.get("Content-Type","") else r.text[:500],
+            "login_ok":    r.status_code == 200,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
