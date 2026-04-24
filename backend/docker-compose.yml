@@ -1,0 +1,87 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: dealhunter_postgres
+    environment:
+      POSTGRES_USER: dealhunter
+      POSTGRES_PASSWORD: dealhunter
+      POSTGRES_DB: dealhunter
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - dealhunter_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dealhunter"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: dealhunter_redis
+    networks:
+      - dealhunter_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dealhunter_api
+    environment:
+      DATABASE_URL: postgresql+asyncpg://dealhunter:dealhunter@postgres:5432/dealhunter
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - dealhunter_network
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dealhunter_celery_worker
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=2
+    environment:
+      DATABASE_URL: postgresql+asyncpg://dealhunter:dealhunter@postgres:5432/dealhunter
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - dealhunter_network
+
+  celery_beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dealhunter_celery_beat
+    command: celery -A app.celery_app beat --loglevel=info
+    environment:
+      DATABASE_URL: postgresql+asyncpg://dealhunter:dealhunter@postgres:5432/dealhunter
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - dealhunter_network
+
+networks:
+  dealhunter_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
