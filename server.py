@@ -2,7 +2,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore, messaging, auth as fb_auth
-import json, os, re, requests, hashlib, base64, time
+import json, os, re, requests, hashlib, hmac, base64, time
 from datetime import datetime, timezone
 from functools import wraps
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -544,11 +544,23 @@ def require_admin(f):
 # ── Mobile App API ───────────────────────────────────────────────────────────
 # Endpoints consumed by the Flutter user app (api_service.dart).
 
-TIER_PRICES = {
+# Egypt prices in EGP (Paymob)
+TIER_PRICES_EGP = {
     'basic':   {'monthly': 49,   '6months': 264.6,  'yearly': 441.0},
     'premium': {'monthly': 99,   '6months': 534.6,  'yearly': 891.0},
     'vip':     {'monthly': 199,  '6months': 1074.6, 'yearly': 1791.0},
 }
+
+# GCC prices in AED (Tap Payments) — UAE/SA/KW/BH/QA/OM
+TIER_PRICES_AED = {
+    'basic':   {'monthly': 14.99, '6months': 80.94,  'yearly': 134.91},
+    'premium': {'monthly': 29.99, '6months': 161.94, 'yearly': 269.91},
+    'vip':     {'monthly': 59.99, '6months': 323.94, 'yearly': 539.91},
+}
+
+TIER_PRICES = TIER_PRICES_EGP   # backwards compat alias
+
+GCC_COUNTRIES = {'AE', 'SA', 'KW', 'BH', 'QA', 'OM'}
 
 
 @app.route('/api/deals')
@@ -761,21 +773,33 @@ def mobile_log_event():
 @app.route('/api/payment/create', methods=['POST'])
 def mobile_create_payment():
     """
-    Create a Paymob payment session.
+    Create a payment session — routes to Paymob (EG) or Tap Payments (GCC).
 
-    Body: { user_id, tier, billing_cycle }
+    Body: { user_id, tier, billing_cycle, country }
+    country: ISO 3166-1 alpha-2 (EG → Paymob; AE/SA/KW/BH/QA/OM → Tap)
     billing_cycle: 'monthly' | '6months' | 'yearly'
-    Returns: { payment_url, order_id }
+    Returns: { payment_url, order_id, gateway, currency, amount }
     """
-    body         = request.get_json(silent=True) or {}
-    user_id      = body.get('user_id', '').strip()
-    tier         = body.get('tier', '').strip().lower()
+    body          = request.get_json(silent=True) or {}
+    user_id       = body.get('user_id', '').strip()
+    tier          = body.get('tier', '').strip().lower()
     billing_cycle = body.get('billing_cycle', 'monthly').strip().lower()
+    country       = body.get('country', 'EG').strip().upper()
 
-    if not user_id or tier not in TIER_PRICES:
+    if not user_id or tier not in TIER_PRICES_EGP:
         return jsonify({"success": False, "error": "user_id and valid tier required"}), 400
 
-    amount_egp  = TIER_PRICES[tier].get(billing_cycle, TIER_PRICES[tier]['monthly'])
+    user_doc = db.collection('users').document(user_id).get()
+    u = user_doc.to_dict() if user_doc.exists else {}
+
+    if country in GCC_COUNTRIES:
+        return _create_tap_payment(user_id, u, tier, billing_cycle, country)
+    return _create_paymob_payment(user_id, u, tier, billing_cycle)
+
+
+def _create_paymob_payment(user_id, u, tier, billing_cycle):
+    """Create a Paymob (Egypt) payment session. Returns Flask response."""
+    amount_egp   = TIER_PRICES_EGP[tier].get(billing_cycle, TIER_PRICES_EGP[tier]['monthly'])
     amount_cents = int(amount_egp * 100)
 
     api_key        = os.getenv('PAYMOB_API_KEY', '')
@@ -783,88 +807,300 @@ def mobile_create_payment():
     iframe_id      = os.getenv('PAYMOB_IFRAME_ID', '')
 
     if not api_key:
-        return jsonify({"success": False, "error": "Payment not configured"}), 503
+        return jsonify({"success": False, "error": "Paymob not configured"}), 503
 
-    paymob_session = requests.Session()
+    sess = requests.Session()
     try:
-        # Step 1: Authenticate
-        auth_resp = paymob_session.post(
+        auth_resp = sess.post(
             'https://accept.paymob.com/api/auth/tokens',
-            json={'api_key': api_key},
-            timeout=10,
+            json={'api_key': api_key}, timeout=10,
         )
         auth_resp.raise_for_status()
         auth_token = auth_resp.json()['token']
 
-        # Step 2: Create order
-        order_resp = paymob_session.post(
+        order_resp = sess.post(
             'https://accept.paymob.com/api/ecommerce/orders',
             json={
-                'auth_token':       auth_token,
-                'delivery_needed':  False,
-                'amount_cents':     amount_cents,
-                'currency':         'EGP',
+                'auth_token':      auth_token,
+                'delivery_needed': False,
+                'amount_cents':    amount_cents,
+                'currency':        'EGP',
                 'items': [{
                     'name':         f'DealHunter {tier.title()} ({billing_cycle})',
                     'amount_cents': amount_cents,
                     'description':  f'DealHunter {tier.title()} membership',
                     'quantity':     1,
                 }],
-            },
-            timeout=10,
+            }, timeout=10,
         )
         order_resp.raise_for_status()
         order_id = order_resp.json()['id']
 
-        # Step 3: Get payment key
-        user_doc = db.collection('users').document(user_id).get()
-        u = user_doc.to_dict() if user_doc.exists else {}
-        key_resp = paymob_session.post(
+        key_resp = sess.post(
             'https://accept.paymob.com/api/acceptance/payment_keys',
             json={
-                'auth_token':    auth_token,
-                'amount_cents':  amount_cents,
-                'expiration':    3600,
-                'order_id':      order_id,
-                'currency':      'EGP',
+                'auth_token':     auth_token,
+                'amount_cents':   amount_cents,
+                'expiration':     3600,
+                'order_id':       order_id,
+                'currency':       'EGP',
                 'integration_id': int(integration_id),
                 'billing_data': {
-                    'first_name':    u.get('display_name', 'DealHunter').split()[0],
-                    'last_name':     (u.get('display_name', 'User').split() + ['User'])[-1],
-                    'email':         u.get('email', 'no-reply@dealhunter.app'),
-                    'phone_number':  u.get('phone', '+20000000000'),
-                    'apartment':     'NA', 'floor': 'NA', 'street': 'NA',
-                    'building':      'NA', 'shipping_method': 'NA',
-                    'postal_code':   'NA', 'city': 'NA',
-                    'country':       'EG', 'state': 'NA',
+                    'first_name':      u.get('display_name', 'DealHunter').split()[0],
+                    'last_name':       (u.get('display_name', 'User').split() + ['User'])[-1],
+                    'email':           u.get('email', 'no-reply@dealhunter.app'),
+                    'phone_number':    u.get('phone', '+20000000000'),
+                    'apartment':       'NA', 'floor': 'NA', 'street': 'NA',
+                    'building':        'NA', 'shipping_method': 'NA',
+                    'postal_code':     'NA', 'city': 'NA',
+                    'country':         'EG', 'state': 'NA',
                 },
-            },
-            timeout=10,
+            }, timeout=10,
         )
         key_resp.raise_for_status()
         payment_key = key_resp.json()['token']
+        payment_url = (
+            f'https://accept.paymob.com/api/acceptance/iframes/{iframe_id}'
+            f'?payment_token={payment_key}'
+        )
 
-        payment_url = f'https://accept.paymob.com/api/acceptance/iframes/{iframe_id}?payment_token={payment_key}'
-
-        # Log pending transaction in Firestore
         db.collection('payment_transactions').add({
-            'user_id':      user_id,
-            'tier':         tier,
+            'user_id':       user_id,
+            'tier':          tier,
             'billing_cycle': billing_cycle,
-            'amount_egp':   amount_egp,
-            'order_id':     str(order_id),
-            'status':       'pending',
-            'created_at':   now_iso(),
+            'amount':        amount_egp,
+            'currency':      'EGP',
+            'gateway':       'paymob',
+            'order_id':      str(order_id),
+            'status':        'pending',
+            'created_at':    now_iso(),
         })
 
         return jsonify({
             "success":     True,
+            "gateway":     "paymob",
             "payment_url": payment_url,
             "order_id":    str(order_id),
-            "amount_egp":  amount_egp,
+            "currency":    "EGP",
+            "amount":      amount_egp,
         })
     except Exception as e:
-        return _pt_error(f'Payment creation failed: {e}', 500)
+        return _pt_error(f'Paymob payment creation failed: {e}', 500)
+
+
+def _create_tap_payment(user_id, u, tier, billing_cycle, country):
+    """Create a Tap Payments (GCC) charge. Returns Flask response."""
+    amount_aed = TIER_PRICES_AED[tier].get(billing_cycle, TIER_PRICES_AED[tier]['monthly'])
+
+    tap_secret = os.getenv('TAP_SECRET_KEY', '')
+    if not tap_secret:
+        return jsonify({"success": False, "error": "Tap Payments not configured"}), 503
+
+    display_name = u.get('display_name', 'DealHunter User')
+    name_parts   = display_name.split(maxsplit=1)
+    first_name   = name_parts[0]
+    last_name    = name_parts[1] if len(name_parts) > 1 else 'User'
+
+    try:
+        resp = requests.post(
+            'https://api.tap.company/v2/charges',
+            headers={
+                'Authorization': f'Bearer {tap_secret}',
+                'Content-Type':  'application/json',
+            },
+            json={
+                'amount':      amount_aed,
+                'currency':    'AED',
+                'customer_initiated': True,
+                'threeDSecure': True,
+                'save_card':    False,
+                'description':  f'DealHunter {tier.title()} ({billing_cycle})',
+                'metadata':     {
+                    'user_id':       user_id,
+                    'tier':          tier,
+                    'billing_cycle': billing_cycle,
+                },
+                'reference':    {
+                    'transaction': f'dh_{user_id[:8]}_{int(time.time())}',
+                    'order':       f'dh_order_{int(time.time())}',
+                },
+                'receipt':      {'email': True, 'sms': False},
+                'customer': {
+                    'first_name': first_name,
+                    'last_name':  last_name,
+                    'email':      u.get('email', 'no-reply@dealhunter.app'),
+                    'phone':      {
+                        'country_code': '971',
+                        'number':       u.get('phone', '500000000').lstrip('+'),
+                    },
+                },
+                'source': {'id': 'src_all'},
+                'post': {
+                    'url': os.getenv(
+                        'TAP_CALLBACK_URL',
+                        'https://dealhunter-scraper.onrender.com/api/payment/tap-callback',
+                    ),
+                },
+                'redirect': {
+                    'url': os.getenv(
+                        'APP_PAYMENT_RETURN_URL',
+                        'https://dealhunter.app/payment/result',
+                    ),
+                },
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        charge = resp.json()
+        charge_id   = charge.get('id', '')
+        payment_url = charge.get('transaction', {}).get('url', '')
+
+        db.collection('payment_transactions').add({
+            'user_id':       user_id,
+            'tier':          tier,
+            'billing_cycle': billing_cycle,
+            'amount':        amount_aed,
+            'currency':      'AED',
+            'gateway':       'tap',
+            'order_id':      charge_id,
+            'status':        'pending',
+            'created_at':    now_iso(),
+        })
+
+        return jsonify({
+            "success":     True,
+            "gateway":     "tap",
+            "payment_url": payment_url,
+            "order_id":    charge_id,
+            "currency":    "AED",
+            "amount":      amount_aed,
+        })
+    except Exception as e:
+        return _pt_error(f'Tap payment creation failed: {e}', 500)
+
+
+@app.route('/api/payment/tap-callback', methods=['POST'])
+def tap_payment_callback():
+    """
+    Tap Payments POST webhook — called after the user completes (or fails) payment.
+    Tap sends charge object as JSON body.
+    """
+    payload = request.get_json(silent=True) or {}
+    charge_id = payload.get('id', '')
+    status    = payload.get('status', '')      # CAPTURED | VOID | FAILED | …
+    metadata  = payload.get('metadata') or {}
+
+    user_id       = metadata.get('user_id', '')
+    tier          = metadata.get('tier', '')
+    billing_cycle = metadata.get('billing_cycle', 'monthly')
+
+    if not charge_id:
+        return jsonify({"success": False, "error": "Missing charge id"}), 400
+
+    try:
+        # Update the pending transaction record
+        txn_query = (db.collection('payment_transactions')
+                       .where('order_id', '==', charge_id)
+                       .limit(1)
+                       .stream())
+        for txn in txn_query:
+            txn.reference.update({
+                'status':      status.lower(),
+                'updated_at':  now_iso(),
+                'raw_status':  status,
+            })
+
+        if status == 'CAPTURED' and user_id and tier:
+            _activate_membership(user_id, tier, billing_cycle, gateway='tap',
+                                 order_id=charge_id)
+
+        return jsonify({"success": True})
+    except Exception as e:
+        return _pt_error(f'Tap callback error: {e}', 500)
+
+
+@app.route('/api/payment/paymob-callback', methods=['POST'])
+def paymob_payment_callback():
+    """
+    Paymob transaction callback — HMAC-verified POST from Paymob.
+    Activates membership on successful payment.
+    """
+    payload = request.get_json(silent=True) or {}
+    obj     = payload.get('obj', {})
+    hmac_received = request.args.get('hmac', '')
+
+    hmac_secret = os.getenv('PAYMOB_HMAC_SECRET', '')
+    if hmac_secret:
+        # Build the HMAC string in Paymob's documented field order
+        hmac_fields = [
+            str(obj.get('amount_cents', '')),
+            str(obj.get('created_at', '')),
+            str(obj.get('currency', '')),
+            str(obj.get('error_occured', '')),
+            str(obj.get('has_parent_transaction', '')),
+            str(obj.get('id', '')),
+            str(obj.get('integration_id', '')),
+            str(obj.get('is_3d_secure', '')),
+            str(obj.get('is_auth', '')),
+            str(obj.get('is_capture', '')),
+            str(obj.get('is_refunded', '')),
+            str(obj.get('is_standalone_payment', '')),
+            str(obj.get('is_voided', '')),
+            str(obj.get('order', {}).get('id', '') if isinstance(obj.get('order'), dict) else obj.get('order', '')),
+            str(obj.get('owner', '')),
+            str(obj.get('pending', '')),
+            str(obj.get('source_data.pan', '')),
+            str(obj.get('source_data.sub_type', '')),
+            str(obj.get('source_data.type', '')),
+            str(obj.get('success', '')),
+        ]
+        hmac_string   = ''.join(hmac_fields)
+        hmac_computed = hmac.new(
+            hmac_secret.encode(), hmac_string.encode(), hashlib.sha512
+        ).hexdigest()
+        if not hmac_received or hmac_computed != hmac_received:
+            return jsonify({"success": False, "error": "HMAC mismatch"}), 403
+
+    success  = obj.get('success', False)
+    order_id = str(obj.get('order', {}).get('id', '') if isinstance(obj.get('order'), dict) else obj.get('order', ''))
+
+    try:
+        txn_query = (db.collection('payment_transactions')
+                       .where('order_id', '==', order_id)
+                       .limit(1)
+                       .stream())
+        user_id = tier = billing_cycle = None
+        for txn in txn_query:
+            data = txn.to_dict()
+            user_id, tier, billing_cycle = (
+                data.get('user_id'), data.get('tier'), data.get('billing_cycle', 'monthly')
+            )
+            txn.reference.update({
+                'status':     'completed' if success else 'failed',
+                'updated_at': now_iso(),
+            })
+
+        if success and user_id and tier:
+            _activate_membership(user_id, tier, billing_cycle, gateway='paymob',
+                                 order_id=order_id)
+
+        return jsonify({"success": True})
+    except Exception as e:
+        return _pt_error(f'Paymob callback error: {e}', 500)
+
+
+def _activate_membership(user_id: str, tier: str, billing_cycle: str,
+                          gateway: str, order_id: str):
+    """Upgrade user's Firestore membership record after confirmed payment."""
+    now = now_iso()
+    db.collection('users').document(user_id).update({
+        'membership.tier':          tier,
+        'membership.billing_cycle': billing_cycle,
+        'membership.gateway':       gateway,
+        'membership.last_order_id': order_id,
+        'membership.activated_at':  now,
+        'last_updated_at':          now,
+    })
 
 
 @app.route('/api/referral/apply', methods=['POST'])
