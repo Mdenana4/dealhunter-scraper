@@ -4,3 +4,5 @@ firebase-admin
 requests
 beautifulsoup4
 cryptography
+schedule
+python-dotenv
