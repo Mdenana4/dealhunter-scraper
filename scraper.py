@@ -17,9 +17,11 @@ import re
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, messaging
 from dotenv import load_dotenv
 from fake_checker import check_price_history
+from price_tracker import record_price as _pt_record, get_triggered_alerts as _pt_alerts
+from scraper_health import health as _health
 
 load_dotenv()
 
@@ -128,6 +130,93 @@ def clean_price(text):
 def price_in_range(price):
     """Return True if price passes the MIN_PRICE / MAX_PRICE filter."""
     return MIN_PRICE <= price <= MAX_PRICE
+
+
+# ─── Price-tracker integration helpers ───────────────────────────────────────
+
+# Sites whose price history we track in the products/price_history schema.
+# Keys match the deal["site"] field; values are marketplace_country keys.
+_SITE_TO_MC = {
+    "amazon_eg": "amazon_eg",
+    "amazon_ae": "amazon_ae",
+    "amazon_sa": "amazon_sa",
+    "noon_eg":   "noon_eg",
+    "noon_ae":   "noon_ae",
+    "noon_sa":   "noon_sa",
+    "jumia_eg":  "jumia_eg",
+}
+
+
+def _tracker_id(deal: dict) -> str:
+    """
+    Return a stable product identifier suitable for price_tracker.record_price().
+    - Amazon: use the ASIN (always present and unique).
+    - Noon:   extract the SKU slug from the product URL.
+    - Jumia:  extract the alphanumeric ID appended before .html.
+    - Others: fall back to deal_id.
+    """
+    if deal.get("asin"):
+        return deal["asin"]
+    url = deal.get("product_url", "")
+    # Noon URL pattern: noon.com/{region}/{sku}/
+    noon_m = re.search(r'noon\.com/[^/]+/([^/?]+)', url)
+    if noon_m:
+        return noon_m.group(1)[:80]
+    # Jumia URL pattern: /product-name-MP1234567.html
+    jumia_m = re.search(r'-([A-Z0-9]{5,})\.html', url, re.IGNORECASE)
+    if jumia_m:
+        return jumia_m.group(1)
+    return (deal.get("deal_id") or "unknown")[:80]
+
+
+def _fire_price_alerts(tracker_result: dict) -> None:
+    """
+    After record_price() signals a price change, query active user alerts
+    and send FCM push notifications to each matched user.
+    Users receive notifications via the topic "user_{user_id}" which the
+    mobile app subscribes to on login.
+    """
+    try:
+        alerts = _pt_alerts({
+            "product_doc_id": tracker_result["doc_id"],
+            "new_price":      tracker_result["new_price"],
+            "change_pct":     tracker_result.get("change_pct", 0),
+        })
+        for alert in alerts:
+            user_id = alert.get("user_id", "")
+            if not user_id:
+                continue
+            old_p = tracker_result.get("old_price") or 0
+            new_p = tracker_result["new_price"]
+            pct   = abs(tracker_result.get("change_pct", 0))
+            cur   = tracker_result.get("currency", "EGP")
+            try:
+                messaging.send(messaging.Message(
+                    topic=f"user_{user_id}",
+                    notification=messaging.Notification(
+                        title="💰 Price Drop Alert!",
+                        body=f"Price dropped {pct:.1f}% → {new_p:,.0f} {cur}",
+                    ),
+                    data={
+                        "type":            "price_alert",
+                        "product_doc_id":  tracker_result["doc_id"],
+                        "old_price":       str(old_p),
+                        "new_price":       str(new_p),
+                        "change_pct":      str(tracker_result.get("change_pct", 0)),
+                        "alert_id":        alert.get("alert_id", ""),
+                    },
+                    android=messaging.AndroidConfig(priority="high"),
+                ))
+                # Stamp the alert so we don't re-fire it immediately
+                if db:
+                    db.collection("price_alerts").document(alert["alert_id"]).update({
+                        "last_alerted_at": now_iso(),
+                    })
+                print(f"  [ALERT] Sent to user_{user_id} — {new_p:,.0f} {cur}")
+            except Exception as _fe:
+                print(f"  [ALERT] FCM error for user_{user_id}: {_fe}")
+    except Exception as _e:
+        print(f"  [ALERT] Error: {_e}")
 
 def get_headers(mobile=False):
     if mobile:
@@ -270,13 +359,34 @@ def save_deal(deal):
             })
             print(f"  NEW:     {deal['title'][:45]} | {deal['discount_percent']}% OFF | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
 
+        # ── Record to price_tracker (builds the full price-history schema) ──
+        mc = _SITE_TO_MC.get(deal.get("site", ""))
+        if mc and db:
+            try:
+                _result = _pt_record(
+                    marketplace_country = mc,
+                    product_id          = _tracker_id(deal),
+                    name                = deal["title"],
+                    url                 = deal["product_url"],
+                    price               = float(deal["current_price"]),
+                    original_price      = float(deal["original_price"]) if deal.get("original_price") else None,
+                    currency            = deal.get("currency", "EGP"),
+                    in_stock            = deal.get("availability") != "out_of_stock",
+                    image_url           = deal.get("image_url"),
+                    category            = deal.get("category"),
+                )
+                if _result.get("price_changed"):
+                    _fire_price_alerts(_result)
+            except Exception as _te:
+                print(f"  [TRACKER] {_te}")
+
     except Exception as e:
         print(f"  SAVE ERROR: {e}")
 
 
 def build_deal(title, site, site_display, category, current_price, original_price,
                discount, image_url, product_url, rating=0.0, review_count=None,
-               asin=None, kanbkam_result=None, coupon_codes=None):
+               asin=None, kanbkam_result=None, coupon_codes=None, currency="EGP"):
     if not kanbkam_result:
         from fake_checker import local_verdict
         kanbkam_result = local_verdict(current_price, original_price)
@@ -292,7 +402,7 @@ def build_deal(title, site, site_display, category, current_price, original_pric
         "current_price":        current_price,
         "original_price":       original_price,
         "discount_percent":     discount,
-        "currency":             "EGP",
+        "currency":             currency,
         "image_url":            image_url,
         "product_url":          product_url,
         "asin":                 asin or "",
@@ -383,13 +493,20 @@ AMAZON_KEYWORDS = [
 ]
 
 
-def scrape_amazon():
-    print("\n[AMAZON] Starting — with Kanbkam+Safqa check...")
+def _scrape_amazon_region(
+    base_domain="amazon.eg",
+    marketplace_country="amazon_eg",
+    site_display="Amazon Egypt",
+    currency="EGP",
+    country_code="eg",
+):
+    """Scrape any Amazon regional store. Called by the three wrappers below."""
+    print(f"\n[AMAZON/{country_code.upper()}] Starting — {site_display}...")
     total = 0
 
     for item in AMAZON_KEYWORDS:
         try:
-            url = f"https://www.amazon.eg/s?k={item['k'].replace(' ', '+')}&language=en_AE"
+            url = f"https://www.{base_domain}/s?k={item['k'].replace(' ', '+')}&language=en_AE"
             resp = fetch_direct(url)
             if not resp or resp.status_code != 200:
                 time.sleep(2)
@@ -425,10 +542,6 @@ def scrape_amazon():
                         continue
                     current_price = clean_price(price_el.get_text(strip=True))
                     if current_price < 50:
-                        continue
-
-                    # ✅ FIX: Apply MIN_PRICE / MAX_PRICE filter
-                    if not price_in_range(current_price):
                         continue
 
                     original_price = current_price
@@ -471,10 +584,14 @@ def scrape_amazon():
                             except Exception:
                                 pass
 
-                    product_url = f"https://www.amazon.eg/dp/{asin}?language=en_AE"
+                    product_url = f"https://www.{base_domain}/dp/{asin}?language=en_AE"
                     cat = detect_category(title)
                     if cat == "general":
                         cat = item["cat"]
+
+                    # Skip EGP price-range filter for non-EGP markets
+                    if currency == "EGP" and not price_in_range(current_price):
+                        continue
 
                     print(f"    Checking: {title[:35]}...")
                     kb = check_price_history(
@@ -483,14 +600,14 @@ def scrape_amazon():
                         current_price=current_price,
                         original_price=original_price,
                         title=title,
-                        site="amazon_eg"
+                        site=marketplace_country,
                     )
                     time.sleep(1)
 
                     deal = build_deal(
                         title=title,
-                        site="amazon_eg",
-                        site_display="Amazon Egypt",
+                        site=marketplace_country,
+                        site_display=site_display,
                         category=cat,
                         current_price=current_price,
                         original_price=original_price,
@@ -500,7 +617,8 @@ def scrape_amazon():
                         rating=rating,
                         review_count=review_count,
                         asin=asin,
-                        kanbkam_result=kb
+                        kanbkam_result=kb,
+                        currency=currency,
                     )
                     save_deal(deal)
                     total += 1
@@ -512,11 +630,24 @@ def scrape_amazon():
             time.sleep(3)
 
         except Exception as e:
-            print(f"  Amazon keyword error '{item['k']}': {e}")
+            print(f"  Amazon/{country_code} keyword error '{item['k']}': {e}")
             time.sleep(5)
 
-    print(f"[AMAZON] Done. {total} deals.")
+    print(f"[AMAZON/{country_code.upper()}] Done. {total} deals.")
     return total
+
+
+def scrape_amazon():
+    """Amazon Egypt (EGP)."""
+    return _scrape_amazon_region()
+
+def scrape_amazon_ae():
+    """Amazon UAE (AED)."""
+    return _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
+
+def scrape_amazon_sa():
+    """Amazon Saudi Arabia (SAR)."""
+    return _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
 
 
 # ─────────────────────────────────────────────────────
@@ -1118,8 +1249,8 @@ def scrape_sharaf_dg():
 # ─────────────────────────────────────────────────────
 # NOON EGYPT — ScraperAPI + JSON extraction
 # ─────────────────────────────────────────────────────
-def _process_noon_item(src, default_cat):
-    """Parse a single Noon product dict. Returns (deal_dict, kb_dict) or None."""
+def _process_noon_item(src, default_cat, region_path="egypt-en", currency="EGP"):
+    """Parse a single Noon product dict. Returns tuple or None."""
     title = src.get("name", "") or src.get("title", "")
     if not title:
         return None
@@ -1131,7 +1262,9 @@ def _process_noon_item(src, default_cat):
         src.get("price", {}).get("was", cp) if isinstance(src.get("price"), dict) else
         src.get("was_price", cp) or src.get("original_price", cp) or cp
     ))
-    if cp < 50 or not price_in_range(cp):
+    if cp < 50:
+        return None
+    if currency == "EGP" and not price_in_range(cp):
         return None
     if op < cp:
         op = cp
@@ -1141,15 +1274,22 @@ def _process_noon_item(src, default_cat):
     img_keys = src.get("image_keys", [])
     img  = f"https://f.nooncdn.com/p/{img_keys[0]}.jpg" if img_keys else (src.get("image", "") or "")
     sku  = src.get("sku", "") or src.get("id", "")
-    purl = f"https://www.noon.com/egypt-en/{sku}/" if sku else ""
+    purl = f"https://www.noon.com/{region_path}/{sku}/" if sku else ""
     rating = float(src.get("rating", {}).get("value", 0) if isinstance(src.get("rating"), dict) else src.get("rating", 0) or 0)
     rc     = int(src.get("rating", {}).get("count", 0) if isinstance(src.get("rating"), dict) else src.get("review_count", 0) or 0) or None
     cat    = detect_category(title) or default_cat
     return title, cp, op, disc, img, purl, rating, rc, cat
 
 
-def scrape_noon():
-    print("\n[NOON] Starting...")
+def _scrape_noon_region(
+    region_path="egypt-en",
+    marketplace_country="noon_eg",
+    site_display="Noon Egypt",
+    currency="EGP",
+    country_code="eg",
+):
+    """Scrape any Noon regional store. Called by the three wrappers below."""
+    print(f"\n[NOON/{country_code.upper()}] Starting — {site_display}...")
     total = 0
     search_terms = [
         ("samsung galaxy",  "electronics"), ("iphone",     "electronics"),
@@ -1166,8 +1306,8 @@ def scrape_noon():
 
     for term, default_cat in search_terms:
         try:
-            url = f"https://www.noon.com/egypt-en/search/?q={term.replace(' ', '+')}&limit=48&sort%5Bby%5D=discount&sort%5Bdir%5D=desc"
-            resp = fetch_with_scraperapi(url, render_js=True, country="eg")
+            url = f"https://www.noon.com/{region_path}/search/?q={term.replace(' ', '+')}&limit=48&sort%5Bby%5D=discount&sort%5Bdir%5D=desc"
+            resp = fetch_with_scraperapi(url, render_js=True, country=country_code)
             if not resp or resp.status_code != 200:
                 time.sleep(2)
                 continue
@@ -1201,16 +1341,17 @@ def scrape_noon():
                 )
                 for item in hits:
                     try:
-                        parsed = _process_noon_item(item.get("_source", item), default_cat)
+                        parsed = _process_noon_item(item.get("_source", item), default_cat, region_path, currency)
                         if not parsed:
                             continue
                         title, cp, op, disc, img, purl, rating, rc, cat = parsed
                         kb = check_price_history(product_url=purl, current_price=cp,
-                                                 original_price=op, title=title, site="noon_eg")
-                        deal = build_deal(title=title, site="noon_eg", site_display="Noon Egypt",
+                                                 original_price=op, title=title, site=marketplace_country)
+                        deal = build_deal(title=title, site=marketplace_country, site_display=site_display,
                                           category=cat, current_price=cp, original_price=op,
                                           discount=disc, image_url=img, product_url=purl,
-                                          rating=rating, review_count=rc, kanbkam_result=kb)
+                                          rating=rating, review_count=rc, kanbkam_result=kb,
+                                          currency=currency)
                         save_deal(deal)
                         total += 1
                         products_found += 1
@@ -1243,16 +1384,17 @@ def scrape_noon():
 
                         for item in items:
                             try:
-                                parsed = _process_noon_item(item.get("_source", item), default_cat)
+                                parsed = _process_noon_item(item.get("_source", item), default_cat, region_path, currency)
                                 if not parsed:
                                     continue
                                 title, cp, op, disc, img, purl, rating, rc, cat = parsed
                                 kb = check_price_history(product_url=purl, current_price=cp,
-                                                         original_price=op, title=title, site="noon_eg")
-                                deal = build_deal(title=title, site="noon_eg", site_display="Noon Egypt",
+                                                         original_price=op, title=title, site=marketplace_country)
+                                deal = build_deal(title=title, site=marketplace_country, site_display=site_display,
                                                   category=cat, current_price=cp, original_price=op,
                                                   discount=disc, image_url=img, product_url=purl,
-                                                  rating=rating, review_count=rc, kanbkam_result=kb)
+                                                  rating=rating, review_count=rc, kanbkam_result=kb,
+                                                  currency=currency)
                                 save_deal(deal)
                                 total += 1
                                 products_found += 1
@@ -1293,7 +1435,9 @@ def scrape_noon():
                         if not price_el:
                             continue
                         cp = clean_price(price_el.get_text())
-                        if cp < 50 or not price_in_range(cp):
+                        if cp < 50:
+                            continue
+                        if currency == "EGP" and not price_in_range(cp):
                             continue
 
                         orig_el = (
@@ -1317,13 +1461,14 @@ def scrape_noon():
 
                         kb = check_price_history(
                             product_url=purl, current_price=cp,
-                            original_price=op, title=title, site="noon_eg"
+                            original_price=op, title=title, site=marketplace_country,
                         )
 
                         deal = build_deal(
-                            title=title, site="noon_eg", site_display="Noon Egypt",
+                            title=title, site=marketplace_country, site_display=site_display,
                             category=cat, current_price=cp, original_price=op,
-                            discount=disc, image_url=img, product_url=purl, kanbkam_result=kb
+                            discount=disc, image_url=img, product_url=purl,
+                            kanbkam_result=kb, currency=currency,
                         )
                         save_deal(deal)
                         total += 1
@@ -1331,15 +1476,28 @@ def scrape_noon():
                     except Exception:
                         continue
 
-            print(f"  [NOON] '{term}': {products_found} deals")
+            print(f"  [NOON/{country_code.upper()}] '{term}': {products_found} deals")
             time.sleep(2)
 
         except Exception as e:
-            print(f"  [NOON] Error '{term}': {e}")
+            print(f"  [NOON/{country_code.upper()}] Error '{term}': {e}")
             time.sleep(3)
 
-    print(f"[NOON] Done. {total} deals.")
+    print(f"[NOON/{country_code.upper()}] Done. {total} deals.")
     return total
+
+
+def scrape_noon():
+    """Noon Egypt (EGP)."""
+    return _scrape_noon_region()
+
+def scrape_noon_ae():
+    """Noon UAE (AED)."""
+    return _scrape_noon_region("uae-en", "noon_ae", "Noon UAE", "AED", "ae")
+
+def scrape_noon_sa():
+    """Noon Saudi Arabia (SAR)."""
+    return _scrape_noon_region("saudi-en", "noon_sa", "Noon Saudi Arabia", "SAR", "sa")
 
 
 # ─────────────────────────────────────────────────────
@@ -1790,30 +1948,58 @@ def run_scraper():
     print(f"{'=' * 62}")
 
     total = 0
-    total += scrape_amazon()
-    total += scrape_jumia()
-    total += scrape_btech()
-    total += scrape_carrefour()
-    total += scrape_sharaf_dg()
+
+    # ── Egypt ────────────────────────────────────────────────────────────────
+    n = scrape_amazon();       _health.record("amazon_eg", n); total += n
+    n = scrape_jumia();        _health.record("jumia_eg",  n); total += n
+    n = scrape_btech();        _health.record("btech_eg",  n); total += n
+    n = scrape_carrefour();    _health.record("carrefour_eg", n); total += n
+    n = scrape_sharaf_dg();    _health.record("sharaf_dg_eg", n); total += n
+    n = scrape_hyperone();     _health.record("hyperone_eg", n); total += n
+    n = scrape_sahla();        _health.record("sahla_eg",  n); total += n
+
+    # ── Noon Egypt (wrapped separately for safety) ───────────────────────────
     try:
-        noon_total = scrape_noon()
-        total += noon_total
+        n = scrape_noon()
+        _health.record("noon_eg", n)
+        total += n
     except Exception as e:
-        print(f"\n❌ [NOON] CRITICAL ERROR: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
-    total += scrape_hyperone()
-    total += scrape_sahla()
-    total += scrape_custom_sources()
+        print(f"\n❌ [NOON/EG] CRITICAL ERROR: {e}", flush=True)
+        import traceback; traceback.print_exc()
+        _health.record("noon_eg", 0)
+
+    # ── UAE ──────────────────────────────────────────────────────────────────
+    try:
+        n = scrape_amazon_ae(); _health.record("amazon_ae", n); total += n
+    except Exception as e:
+        print(f"❌ [AMAZON/AE]: {e}"); _health.record("amazon_ae", 0)
+    try:
+        n = scrape_noon_ae();   _health.record("noon_ae",   n); total += n
+    except Exception as e:
+        print(f"❌ [NOON/AE]: {e}");   _health.record("noon_ae", 0)
+
+    # ── Saudi Arabia ─────────────────────────────────────────────────────────
+    try:
+        n = scrape_amazon_sa(); _health.record("amazon_sa", n); total += n
+    except Exception as e:
+        print(f"❌ [AMAZON/SA]: {e}"); _health.record("amazon_sa", 0)
+    try:
+        n = scrape_noon_sa();   _health.record("noon_sa",   n); total += n
+    except Exception as e:
+        print(f"❌ [NOON/SA]: {e}");   _health.record("noon_sa", 0)
+
+    # ── Custom & analytics ───────────────────────────────────────────────────
+    n = scrape_custom_sources(); total += n
 
     update_analytics()
+    _health.flush()   # write health summary + send FCM alert if anything broke
     print(f"\n  TOTAL: {total} deals | Next in: {INTERVAL} min")
     print(f"{'=' * 62}\n")
 
 
 if __name__ == "__main__":
     print("DealHunter Egypt Scraper v7 FIXED")
-    print(f"Stores: Amazon + Jumia + B.Tech + Carrefour + Sharaf DG + Noon + HyperOne + Sahla")
+    print(f"Stores: Amazon EG/AE/SA + Noon EG/AE/SA + Jumia + B.Tech + Carrefour + Sharaf DG + HyperOne + Sahla")
     print(f"Fake check: Kanbkam (fixed URL) + Safqa (rebuilt)")
     print(f"Min discount: {MIN_DISCOUNT}% | Interval: {INTERVAL} min")
     if MIN_PRICE > 0 or MAX_PRICE < 9999999:

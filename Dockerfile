@@ -26,6 +26,7 @@ COPY server.py .
 COPY scraper.py .
 COPY fake_checker.py .
 COPY price_tracker.py .
+COPY scraper_health.py .
 COPY firebase-credentials.json .
 
 # Copy static files
