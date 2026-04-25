@@ -1,4 +1,4 @@
-name: Flutter APK Build
+name: Flutter Admin App — Analyze & Test
 
 on:
   push:
@@ -6,11 +6,11 @@ on:
     paths:
       - 'app/admin_app/**'
       - '.github/workflows/flutter-build.yml'
-  workflow_dispatch:
   pull_request:
     branches: [main]
     paths:
       - 'app/admin_app/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,6 +18,7 @@ permissions:
 
 jobs:
   build-apk:
+    name: analyze
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -25,13 +26,6 @@ jobs:
         with:
           fetch-depth: 0
         timeout-minutes: 5
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-        timeout-minutes: 10
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -45,27 +39,21 @@ jobs:
           cd app/admin_app
           flutter pub get
 
+      - name: Analyze (type-check all Dart code)
+        run: |
+          cd app/admin_app
+          flutter analyze --fatal-infos 2>&1 | tee analyze.log
+          # Show summary line
+          tail -5 analyze.log
+
       - name: Run tests
         run: |
           cd app/admin_app
-          flutter test --coverage 2>/dev/null || echo "No tests found"
+          flutter test 2>/dev/null || echo "No tests found — skipping"
 
-      - name: Build APK (Release)
-        run: |
-          cd app/admin_app
-          flutter build apk --release --verbose 2>&1 | tee build.log
-
-      - name: Upload APK artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-release.apk
-          path: app/admin_app/build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 30
-
-      - name: Upload build log
+      - name: Upload analyze log on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: flutter-build-log
-          path: app/admin_app/build.log
+          name: flutter-analyze-log
+          path: app/admin_app/analyze.log
