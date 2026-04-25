@@ -1,0 +1,79 @@
+name: dealhunter_user
+description: "DealHunter - Find real deals, skip fake discounts. MENA's smartest price tracker."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # Firebase
+  firebase_core: ^3.6.0
+  firebase_auth: ^5.3.1
+  cloud_firestore: ^5.4.4
+  firebase_messaging: ^15.1.3
+  firebase_analytics: ^11.3.3
+
+  # State Management
+  flutter_riverpod: ^2.5.1
+
+  # Navigation
+  go_router: ^14.2.7
+
+  # HTTP Client
+  dio: ^5.7.0
+
+  # Price History Charts
+  fl_chart: ^0.69.0
+
+  # Social Auth
+  google_sign_in: ^6.2.1
+  sign_in_with_apple: ^6.1.1
+
+  # UI Components
+  cached_network_image: ^3.4.1
+  shimmer: ^3.0.0
+  font_awesome_flutter: ^10.7.0
+
+  # Push Notifications (local display)
+  flutter_local_notifications: ^17.2.2
+
+  # Persistent Storage
+  shared_preferences: ^2.3.2
+
+  # Utilities
+  intl: ^0.19.0
+  url_launcher: ^6.3.1
+  share_plus: ^10.0.3
+
+  # In-app browser (store pages + payment)
+  webview_flutter: ^4.10.0
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  generate: true
+
+  assets:
+    - assets/images/
+    - assets/icons/
+
+  fonts:
+    - family: Cairo
+      fonts:
+        - asset: assets/fonts/Cairo-Regular.ttf
+        - asset: assets/fonts/Cairo-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Cairo-SemiBold.ttf
+          weight: 600
