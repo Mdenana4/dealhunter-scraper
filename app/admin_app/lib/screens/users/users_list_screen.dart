@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 import '../../providers/admin_providers.dart';
 
 class UsersListScreen extends ConsumerStatefulWidget {
