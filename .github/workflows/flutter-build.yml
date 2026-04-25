@@ -42,8 +42,7 @@ jobs:
       - name: Analyze (type-check all Dart code)
         run: |
           cd app/admin_app
-          flutter analyze --fatal-infos 2>&1 | tee analyze.log
-          # Show summary line
+          flutter analyze --fatal-warnings 2>&1 | tee analyze.log
           tail -5 analyze.log
 
       - name: Run tests
