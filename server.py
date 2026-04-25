@@ -264,6 +264,245 @@ def price_history():
                      "enhanced_confidence":fraud["confidence"],"enhanced_reasons":fraud["reasons"]})
     return jsonify(resp)
 
+# ── Price-tracker routes ────────────────────────────────────────────────────
+# These endpoints expose the price_tracker.py service to the frontend / apps.
+# All accept marketplace_country values: amazon_eg, amazon_ae, amazon_sa,
+#   noon_eg, noon_ae, noon_sa, jumia_eg
+
+from price_tracker import (
+    record_price as pt_record,
+    get_price_history as pt_history,
+    get_price_changes_only as pt_changes,
+    get_product_summary as pt_summary,
+    get_recent_price_changes as pt_recent,
+    get_top_price_drops as pt_drops,
+    get_historical_low as pt_low,
+    create_price_alert as pt_create_alert,
+)
+
+def _pt_error(msg, code=400):
+    return jsonify({"success": False, "error": msg}), code
+
+def _serialize_ts(obj):
+    """Recursively convert Firestore Timestamps to ISO strings for JSON."""
+    if isinstance(obj, list):
+        return [_serialize_ts(i) for i in obj]
+    if isinstance(obj, dict):
+        return {k: _serialize_ts(v) for k, v in obj.items()}
+    if hasattr(obj, "isoformat"):   # datetime / Timestamp
+        return obj.isoformat()
+    return obj
+
+
+@app.route("/api/v1/tracker/record", methods=["POST"])
+def tracker_record():
+    """
+    Internal endpoint called by the scraper to store a price snapshot.
+
+    Required JSON body fields:
+      marketplace_country, product_id, name, url, price
+
+    Optional:
+      original_price, currency, in_stock, image_url, category, brand
+    """
+    body = request.get_json(silent=True) or {}
+    required = ("marketplace_country", "product_id", "name", "url", "price")
+    missing  = [f for f in required if not body.get(f)]
+    if missing:
+        return _pt_error(f"Missing fields: {missing}")
+
+    try:
+        result = pt_record(
+            marketplace_country = body["marketplace_country"],
+            product_id          = body["product_id"],
+            name                = body["name"],
+            url                 = body["url"],
+            price               = float(body["price"]),
+            original_price      = float(body["original_price"]) if body.get("original_price") else None,
+            currency            = body.get("currency"),
+            in_stock            = bool(body.get("in_stock", True)),
+            image_url           = body.get("image_url"),
+            category            = body.get("category"),
+            brand               = body.get("brand"),
+        )
+        return jsonify({"success": True, **result})
+    except ValueError as e:
+        return _pt_error(str(e))
+    except Exception as e:
+        return _pt_error(str(e), 500)
+
+
+@app.route("/api/v1/tracker/history")
+def tracker_history():
+    """
+    Full chronological price history for one product.
+
+    Query params:
+      marketplace_country  e.g. amazon_eg
+      product_id           e.g. B08N5WRWNW
+      days                 int, default 90
+      changes_only         bool (1/true) — return only snapshots where price changed
+    """
+    mc  = request.args.get("marketplace_country", "").strip()
+    pid = request.args.get("product_id", "").strip()
+    if not mc or not pid:
+        return _pt_error("marketplace_country and product_id are required")
+
+    days         = request.args.get("days", 90, type=int)
+    changes_only = request.args.get("changes_only", "").lower() in ("1", "true", "yes")
+
+    try:
+        if changes_only:
+            data = pt_changes(mc, pid, days=days)
+        else:
+            data = pt_history(mc, pid, days=days)
+        return jsonify({
+            "success": True,
+            "marketplace_country": mc,
+            "product_id": pid,
+            "days": days,
+            "count": len(data),
+            "history": _serialize_ts(data),
+        })
+    except Exception as e:
+        return _pt_error(str(e), 500)
+
+
+@app.route("/api/v1/tracker/product")
+def tracker_product():
+    """
+    Product document + statistics (lowest, highest, average, trend).
+
+    Query params:
+      marketplace_country  e.g. noon_ae
+      product_id           product's SKU / ASIN
+      days                 int, window for stats, default 90
+    """
+    mc  = request.args.get("marketplace_country", "").strip()
+    pid = request.args.get("product_id", "").strip()
+    if not mc or not pid:
+        return _pt_error("marketplace_country and product_id are required")
+
+    days = request.args.get("days", 90, type=int)
+    try:
+        summary = pt_summary(mc, pid, history_days=days)
+        if not summary:
+            return jsonify({"success": False, "error": "Product not found"}), 404
+        return jsonify({"success": True, "product": _serialize_ts(summary)})
+    except Exception as e:
+        return _pt_error(str(e), 500)
+
+
+@app.route("/api/v1/tracker/recent-changes")
+def tracker_recent_changes():
+    """
+    Recent price change events across all tracked products.
+
+    Query params (all optional, use one filter at a time):
+      marketplace_country  e.g. jumia_eg
+      marketplace          e.g. amazon
+      country              e.g. sa
+      hours                int, look-back window, default 24
+      limit                int, max results, default 50
+    """
+    mc          = request.args.get("marketplace_country", "").strip() or None
+    marketplace = request.args.get("marketplace", "").strip() or None
+    country     = request.args.get("country", "").strip() or None
+    hours       = request.args.get("hours", 24, type=int)
+    limit       = request.args.get("limit", 50, type=int)
+
+    try:
+        events = pt_recent(
+            marketplace_country = mc,
+            marketplace         = marketplace,
+            country             = country,
+            hours               = hours,
+            limit               = limit,
+        )
+        return jsonify({
+            "success": True,
+            "hours": hours,
+            "count": len(events),
+            "events": _serialize_ts(events),
+        })
+    except Exception as e:
+        return _pt_error(str(e), 500)
+
+
+@app.route("/api/v1/tracker/top-drops")
+def tracker_top_drops():
+    """
+    Products with the largest percentage price drops in the last N hours.
+
+    Query params:
+      marketplace_country  optional filter
+      hours                int, default 24
+      limit                int, default 20
+      min_drop_pct         float, minimum drop to include, default 5.0
+    """
+    mc           = request.args.get("marketplace_country", "").strip() or None
+    hours        = request.args.get("hours", 24, type=int)
+    limit        = request.args.get("limit", 20, type=int)
+    min_drop_pct = request.args.get("min_drop_pct", 5.0, type=float)
+
+    try:
+        drops = pt_drops(
+            marketplace_country = mc,
+            hours               = hours,
+            limit               = limit,
+            min_drop_pct        = min_drop_pct,
+        )
+        return jsonify({
+            "success": True,
+            "hours": hours,
+            "min_drop_pct": min_drop_pct,
+            "count": len(drops),
+            "drops": _serialize_ts(drops),
+        })
+    except Exception as e:
+        return _pt_error(str(e), 500)
+
+
+@app.route("/api/v1/tracker/alert", methods=["POST"])
+def tracker_create_alert():
+    """
+    Create a price alert for a user.
+
+    Required JSON body:
+      user_id, marketplace_country, product_id
+
+    Provide at least one of:
+      target_price         — alert when price drops to or below this value
+      alert_threshold_pct  — alert on any drop >= this percentage (e.g. 10)
+
+    Optional:
+      notification_channels  array, default ["push", "email"]
+    """
+    body = request.get_json(silent=True) or {}
+    required = ("user_id", "marketplace_country", "product_id")
+    missing  = [f for f in required if not body.get(f)]
+    if missing:
+        return _pt_error(f"Missing fields: {missing}")
+
+    if not body.get("target_price") and not body.get("alert_threshold_pct"):
+        return _pt_error("Provide target_price or alert_threshold_pct")
+
+    try:
+        alert_id = pt_create_alert(
+            user_id              = body["user_id"],
+            marketplace_country  = body["marketplace_country"],
+            product_id           = body["product_id"],
+            target_price         = float(body["target_price"]) if body.get("target_price") else None,
+            alert_threshold_pct  = float(body["alert_threshold_pct"]) if body.get("alert_threshold_pct") else None,
+            notification_channels = body.get("notification_channels"),
+        )
+        return jsonify({"success": True, "alert_id": alert_id})
+    except ValueError as e:
+        return _pt_error(str(e))
+    except Exception as e:
+        return _pt_error(str(e), 500)
+
+
 @app.errorhandler(404)
 def not_found(e): return jsonify({"success":False,"error":"Not found"}),404
 @app.errorhandler(500)
