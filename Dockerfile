@@ -24,7 +24,9 @@ RUN pip install --upgrade pip && \
 # Copy application code
 COPY server.py .
 COPY scraper.py .
-COPY firebase-credentials.json . 2>/dev/null || true
+COPY fake_checker.py .
+COPY price_tracker.py .
+COPY firebase-credentials.json .
 
 # Copy static files
 COPY admin.html .
