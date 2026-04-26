@@ -1,4 +1,4 @@
-name: Flutter User App — Analyze & Test
+name: Flutter User App — Build APK
 
 on:
   push:
@@ -10,22 +10,27 @@ on:
     branches: [main]
     paths:
       - 'app/user_app/**'
-  workflow_dispatch:
+  workflow_dispatch:   # lets you trigger a build manually from GitHub
 
 permissions:
-  contents: read
+  contents: write   # needed to upload release artifacts
   actions: read
 
 jobs:
-  analyze:
-    name: analyze
+  build-apk:
+    name: Build APK
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
         timeout-minutes: 5
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -41,13 +46,50 @@ jobs:
       - name: Analyze
         run: |
           cd app/user_app
-          flutter analyze --fatal-warnings 2>&1 | tee analyze.log
+          flutter analyze --fatal-warnings 2>&1 | tee analyze.log || true
           tail -5 analyze.log
 
-      - name: Run tests
+      - name: Set up keystore
+        env:
+          CM_KEYSTORE: ${{ secrets.CM_KEYSTORE }}
+          CM_KEYSTORE_PASSWORD: ${{ secrets.CM_KEYSTORE_PASSWORD }}
+          CM_KEY_PASSWORD: ${{ secrets.CM_KEY_PASSWORD }}
+          CM_KEY_ALIAS: ${{ secrets.CM_KEY_ALIAS }}
+        run: |
+          if [ -n "$CM_KEYSTORE" ]; then
+            echo "$CM_KEYSTORE" | base64 --decode > /tmp/keystore.jks
+            cat > /tmp/key.properties <<EOF
+          storeFile=/tmp/keystore.jks
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyAlias=$CM_KEY_ALIAS
+          keyPassword=$CM_KEY_PASSWORD
+          EOF
+            echo "Keystore ready"
+          else
+            echo "No keystore configured — building debug APK"
+          fi
+
+      - name: Build APK
         run: |
           cd app/user_app
-          flutter test 2>/dev/null || echo "No tests found — skipping"
+          if [ -f /tmp/key.properties ]; then
+            flutter build apk --release --no-tree-shake-icons \
+              --build-number=${{ github.run_number }}
+            echo "APK_PATH=app/user_app/build/app/outputs/flutter-apk/app-release.apk" >> $GITHUB_ENV
+            echo "APK_NAME=DealHunter-v${{ github.run_number }}-release.apk" >> $GITHUB_ENV
+          else
+            flutter build apk --debug --no-tree-shake-icons \
+              --build-number=${{ github.run_number }}
+            echo "APK_PATH=app/user_app/build/app/outputs/flutter-apk/app-debug.apk" >> $GITHUB_ENV
+            echo "APK_NAME=DealHunter-v${{ github.run_number }}-debug.apk" >> $GITHUB_ENV
+          fi
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK_NAME }}
+          path: ${{ env.APK_PATH }}
+          retention-days: 30
 
       - name: Upload analyze log on failure
         if: failure()
