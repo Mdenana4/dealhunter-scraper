@@ -1,6 +1,10 @@
 .env
 .env.local
 .env.txt
+
+# Android keystores — never commit signing keys
+*.jks
+*.keystore
 __pycache__/
 *.pyc
 *.pyo
