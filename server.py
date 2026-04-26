@@ -164,12 +164,17 @@ def detect_fraud_basic(orig, curr, pct) -> dict:
 def serialize_deal(doc_id, d) -> dict:
     orig,curr,disc = float(d.get("original_price",0)),float(d.get("current_price",0)),int(d.get("discount_percent",0))
     f = detect_fraud_basic(orig, curr, disc)
+    # Scraper stores marketplace as 'site' (e.g. "amazon_eg"); 'source' is always "scraper"
+    marketplace = d.get("site") or d.get("marketplace_country") or d.get("source","")
     return {
         "id":doc_id,"title":d.get("title",""),
-        "store":d.get("site_display",d.get("source","")),
-        "source":d.get("source",""),
+        "store":d.get("site_display", marketplace),
+        "source": marketplace,
+        "marketplace_country": marketplace,
+        "product_id": d.get("asin") or d.get("product_id") or doc_id,
         "current_price":curr,"original_price":orig,
-        "discount_percent":disc,"currency":"EGP",
+        "discount_percent":disc,
+        "currency": d.get("currency","EGP"),
         "image_url":d.get("image_url",""),"product_url":d.get("product_url",""),
         "category":d.get("category",""),
         "rating":float(d.get("rating",0)) if d.get("rating") else 0.0,
@@ -587,7 +592,7 @@ def mobile_get_deals():
         if category:
             q = q.where('category', '==', category)
         if mc:
-            q = q.where('source', '==', mc)
+            q = q.where('site', '==', mc)   # scraper stores marketplace in 'site'
 
         all_docs = list(q.order_by('discount_percent', direction=firestore.Query.DESCENDING)
                          .stream())
@@ -651,12 +656,12 @@ def mobile_search():
         for doc in db.collection('deals').limit(limit * 5).stream():
             d = doc.to_dict()
             title   = d.get('title', '').lower()
-            source  = d.get('source', '').lower()
+            site    = d.get('site', d.get('source', '')).lower()
             d_brand = d.get('brand', '').lower()
             d_size  = d.get('size', '').lower()
             d_cat   = d.get('category', '').lower()
 
-            if q_str not in title and q_str not in source:
+            if q_str not in title and q_str not in site:
                 continue
             if category and d_cat != category:
                 continue
@@ -664,7 +669,7 @@ def mobile_search():
                 continue
             if size and size not in d_size:
                 continue
-            if mc and d.get('source', '').lower() != mc:
+            if mc and site != mc:
                 continue
 
             results.append(serialize_deal(doc.id, d))
@@ -691,20 +696,37 @@ def mobile_verify():
         return jsonify({"success": False, "error": "marketplace_country and product_id required"}), 400
 
     try:
-        # Pull latest product snapshot from price-tracker collection
+        # Try price_tracker collection first (populated after scraper fix)
+        p = None
         product_ref = (db.collection('price_tracker')
                          .document(mc)
                          .collection('products')
                          .document(pid))
         product_doc = product_ref.get()
-        if not product_doc.exists:
+        if product_doc.exists:
+            p = product_doc.to_dict()
+        else:
+            # Fall back to the deals collection (pid = doc_id or asin)
+            deal_doc = db.collection('deals').document(pid).get()
+            if deal_doc.exists:
+                p = deal_doc.to_dict()
+                p['url'] = p.get('product_url', '')
+            else:
+                # Search by asin field
+                matches = list(db.collection('deals')
+                                 .where('asin', '==', pid)
+                                 .limit(1).stream())
+                if matches:
+                    p = matches[0].to_dict()
+                    p['url'] = p.get('product_url', '')
+
+        if not p:
             return jsonify({"success": False, "error": "Product not found"}), 404
 
-        p    = product_doc.to_dict()
         curr = float(p.get('current_price', 0))
         orig = float(p.get('original_price', 0))
         disc = int(p.get('discount_percent', 0))
-        url  = p.get('url', '')
+        url  = p.get('url', p.get('product_url', ''))
 
         # Try Safqa enhanced detection first
         hist   = get_safqa_history(url, curr) if url and curr > 0 else {"found": False}
