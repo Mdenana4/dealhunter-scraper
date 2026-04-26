@@ -1,26 +1,36 @@
 {
   "project_info": {
-    "project_number": "000000000000",
-    "project_id": "dealhunter-admin",
-    "storage_bucket": "dealhunter-admin.appspot.com"
+    "project_number": "97738565887",
+    "project_id": "dealhunter-admin-prod",
+    "storage_bucket": "dealhunter-admin-prod.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+        "mobilesdk_app_id": "1:97738565887:android:7340590dc772bbfaae04ca",
         "android_client_info": {
           "package_name": "com.dealhunter.admin"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "97738565887-jiafg60ol57691juebib4s7r2kp4e507.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "REPLACE_WITH_REAL_API_KEY"
+          "current_key": "AIzaSyCc6Sn-xHVzGal-M_8IE59mN63_t15eRwo"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "97738565887-jiafg60ol57691juebib4s7r2kp4e507.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
