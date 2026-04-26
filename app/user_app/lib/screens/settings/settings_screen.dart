@@ -1,0 +1,287 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import '../../models/user_model.dart';
+import '../../providers/app_providers.dart';
+
+class SettingsScreen extends ConsumerStatefulWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  final _referralCtrl = TextEditingController();
+  bool _applyingReferral = false;
+
+  @override
+  void dispose() {
+    _referralCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _signOut() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Sign Out'),
+        content: const Text('Are you sure you want to sign out?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Sign Out')),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await FirebaseAuth.instance.signOut();
+      if (mounted) context.go('/login');
+    }
+  }
+
+  Future<void> _applyReferral(String uid) async {
+    final code = _referralCtrl.text.trim().toUpperCase();
+    if (code.isEmpty) return;
+    setState(() => _applyingReferral = true);
+    try {
+      final result = await ref.read(apiServiceProvider).applyReferral(uid, code);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message'] as String? ?? 'Referral applied!'),
+        ),
+      );
+      _referralCtrl.clear();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _applyingReferral = false);
+    }
+  }
+
+  Future<void> _updateField(String uid, String field, dynamic value) async {
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .update({field: value});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final userAsync = ref.watch(currentUserProvider);
+    final user = userAsync.valueOrNull;
+    final cs = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Settings')),
+      body: ListView(
+        children: [
+          // User info
+          if (user != null) ...[
+            ListTile(
+              leading: CircleAvatar(
+                backgroundColor: cs.primaryContainer,
+                child: Text(
+                  (user.displayName.isNotEmpty
+                          ? user.displayName[0]
+                          : user.email.isNotEmpty
+                              ? user.email[0]
+                              : '?')
+                      .toUpperCase(),
+                  style: TextStyle(color: cs.onPrimaryContainer),
+                ),
+              ),
+              title: Text(user.displayName.isNotEmpty
+                  ? user.displayName
+                  : user.email),
+              subtitle: Text(
+                  '${user.membership.displayLabel} plan  •  ${user.email}'),
+            ),
+            const Divider(),
+          ],
+
+          // Country
+          _SectionHeader(label: 'Region'),
+          ListTile(
+            leading: const Icon(Icons.public_outlined),
+            title: const Text('Country'),
+            subtitle: Text(user?.country ?? 'AE'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: user == null
+                ? null
+                : () => _pickCountry(context, user),
+          ),
+
+          const Divider(),
+
+          // Notifications
+          _SectionHeader(label: 'Notifications'),
+          ListTile(
+            leading: const Icon(Icons.notifications_outlined),
+            title: const Text('Price drop alerts'),
+            subtitle: const Text('Get notified when deals drop in price'),
+            trailing: Switch(
+              value: true,
+              onChanged: (_) {},
+            ),
+          ),
+
+          const Divider(),
+
+          // Referral
+          if (user != null) ...[
+            _SectionHeader(label: 'Referral'),
+            if (user.referralCode != null)
+              ListTile(
+                leading: const Icon(Icons.card_giftcard_outlined),
+                title: const Text('Your referral code'),
+                subtitle: Text(
+                  user.referralCode!,
+                  style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: cs.primary,
+                      fontSize: 16),
+                ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.copy_outlined),
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Code copied')),
+                    );
+                  },
+                ),
+              ),
+            if (user.referralCode == null)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _referralCtrl,
+                        textCapitalization: TextCapitalization.characters,
+                        decoration: const InputDecoration(
+                          labelText: 'Enter referral code',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed:
+                          _applyingReferral ? null : () => _applyReferral(user.uid),
+                      child: _applyingReferral
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white),
+                            )
+                          : const Text('Apply'),
+                    ),
+                  ],
+                ),
+              ),
+            const Divider(),
+          ],
+
+          // About
+          _SectionHeader(label: 'About'),
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('Version'),
+            trailing: const Text('1.0.0'),
+          ),
+
+          const SizedBox(height: 8),
+
+          // Sign out
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.logout),
+              label: const Text('Sign Out'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: cs.error,
+              ),
+              onPressed: _signOut,
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+
+  void _pickCountry(BuildContext context, UserModel user) {
+    const countries = [
+      ('AE', 'United Arab Emirates'),
+      ('SA', 'Saudi Arabia'),
+      ('KW', 'Kuwait'),
+      ('BH', 'Bahrain'),
+      ('QA', 'Qatar'),
+      ('OM', 'Oman'),
+      ('EG', 'Egypt'),
+    ];
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(
+              title: Text('Select Country',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+            for (final (code, name) in countries)
+              ListTile(
+                title: Text(name),
+                trailing: user.country == code
+                    ? Icon(Icons.check,
+                        color: Theme.of(context).colorScheme.primary)
+                    : null,
+                onTap: () {
+                  Navigator.pop(context);
+                  _updateField(user.uid, 'country', code);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: Theme.of(context).colorScheme.primary,
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
+  }
+}

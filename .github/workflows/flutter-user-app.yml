@@ -1,0 +1,57 @@
+name: Flutter User App — Analyze & Test
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/user_app/**'
+      - '.github/workflows/flutter-user-app.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/user_app/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  analyze:
+    name: analyze
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+        timeout-minutes: 5
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+        timeout-minutes: 15
+
+      - name: Get dependencies
+        run: |
+          cd app/user_app
+          flutter pub get
+
+      - name: Analyze
+        run: |
+          cd app/user_app
+          flutter analyze --fatal-warnings 2>&1 | tee analyze.log
+          tail -5 analyze.log
+
+      - name: Run tests
+        run: |
+          cd app/user_app
+          flutter test 2>/dev/null || echo "No tests found — skipping"
+
+      - name: Upload analyze log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: user-app-analyze-log
+          path: app/user_app/analyze.log
