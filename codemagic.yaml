@@ -15,10 +15,11 @@ workflows:
 
     environment:
       flutter: stable
-      android_signing:
-        - dealhunter_keystore   # add this in Codemagic → Code signing → Android keystores
       vars:
         PACKAGE_NAME: com.dealhunter.app
+        CM_KEY_ALIAS: dealhunter
+        # CM_KEYSTORE, CM_KEYSTORE_PASSWORD, CM_KEY_PASSWORD
+        # are set as Secret env vars in the Codemagic dashboard
 
     cache:
       cache_paths:
@@ -26,6 +27,16 @@ workflows:
         - $HOME/.gradle/caches
 
     scripts:
+      - name: Set up Android keystore
+        script: |
+          echo $CM_KEYSTORE | base64 --decode > /tmp/keystore.jks
+          cat > /tmp/key.properties <<EOF
+          storeFile=/tmp/keystore.jks
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyAlias=$CM_KEY_ALIAS
+          keyPassword=$CM_KEY_PASSWORD
+          EOF
+
       - name: Get dependencies
         script: |
           cd app/user_app
@@ -55,7 +66,7 @@ workflows:
     publishing:
       email:
         recipients:
-          - $NOTIFICATION_EMAIL   # set this env var in Codemagic project settings
+          - $NOTIFICATION_EMAIL
         notify:
           success: true
           failure: true
@@ -74,10 +85,9 @@ workflows:
 
     environment:
       flutter: stable
-      android_signing:
-        - dealhunter_keystore
       vars:
         PACKAGE_NAME: com.dealhunter.app
+        CM_KEY_ALIAS: dealhunter
 
     cache:
       cache_paths:
@@ -85,6 +95,16 @@ workflows:
         - $HOME/.gradle/caches
 
     scripts:
+      - name: Set up Android keystore
+        script: |
+          echo $CM_KEYSTORE | base64 --decode > /tmp/keystore.jks
+          cat > /tmp/key.properties <<EOF
+          storeFile=/tmp/keystore.jks
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyAlias=$CM_KEY_ALIAS
+          keyPassword=$CM_KEY_PASSWORD
+          EOF
+
       - name: Get dependencies
         script: |
           cd app/user_app
@@ -103,7 +123,7 @@ workflows:
 
     publishing:
       google_play:
-        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS  # set in Codemagic env vars
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
         track: internal
         submit_as_draft: true
       email:
@@ -128,10 +148,9 @@ workflows:
 
     environment:
       flutter: stable
-      android_signing:
-        - dealhunter_admin_keystore
       vars:
         PACKAGE_NAME: com.dealhunter.admin
+        CM_KEY_ALIAS: dealhunter
 
     cache:
       cache_paths:
@@ -139,6 +158,16 @@ workflows:
         - $HOME/.gradle/caches
 
     scripts:
+      - name: Set up Android keystore
+        script: |
+          echo $CM_KEYSTORE | base64 --decode > /tmp/keystore.jks
+          cat > /tmp/key.properties <<EOF
+          storeFile=/tmp/keystore.jks
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyAlias=$CM_KEY_ALIAS
+          keyPassword=$CM_KEY_PASSWORD
+          EOF
+
       - name: Get dependencies
         script: |
           cd app/admin_app
