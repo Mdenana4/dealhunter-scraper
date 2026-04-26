@@ -284,6 +284,8 @@ from price_tracker import (
     get_top_price_drops as pt_drops,
     get_historical_low as pt_low,
     create_price_alert as pt_create_alert,
+    get_user_alerts as pt_user_alerts,
+    delete_alert as pt_delete_alert,
 )
 
 def _pt_error(msg, code=400):
@@ -505,6 +507,38 @@ def tracker_create_alert():
         return jsonify({"success": True, "alert_id": alert_id})
     except ValueError as e:
         return _pt_error(str(e))
+    except Exception as e:
+        return _pt_error(str(e), 500)
+
+
+@app.route("/api/v1/tracker/alert", methods=["GET"])
+def tracker_list_alerts():
+    """List active price alerts for a user. Requires ?user_id= or Firebase token."""
+    # Try token first, fall back to query param
+    decoded = _verify_firebase_token(required=False)
+    user_id = decoded["uid"] if decoded else request.args.get("user_id", "")
+    if not user_id:
+        return _pt_error("user_id required", 401)
+    try:
+        alerts = pt_user_alerts(user_id)
+        return jsonify({"success": True, "alerts": alerts})
+    except Exception as e:
+        return _pt_error(str(e), 500)
+
+
+@app.route("/api/v1/tracker/alert/<alert_id>", methods=["DELETE"])
+def tracker_delete_alert(alert_id):
+    """Deactivate (soft-delete) a price alert owned by the caller."""
+    decoded = _verify_firebase_token(required=False)
+    body    = request.get_json(silent=True) or {}
+    user_id = (decoded["uid"] if decoded else None) or body.get("user_id", "")
+    if not user_id:
+        return _pt_error("user_id required", 401)
+    try:
+        ok = pt_delete_alert(alert_id, user_id)
+        if not ok:
+            return _pt_error("Alert not found or not owned by user", 404)
+        return jsonify({"success": True})
     except Exception as e:
         return _pt_error(str(e), 500)
 

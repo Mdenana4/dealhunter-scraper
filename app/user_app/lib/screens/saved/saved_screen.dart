@@ -5,46 +5,71 @@ import 'package:go_router/go_router.dart';
 import '../../models/deal_model.dart';
 import '../../providers/app_providers.dart';
 import '../../widgets/deal_widgets.dart';
+import '../alerts/alerts_screen.dart';
 
-class SavedScreen extends ConsumerWidget {
+class SavedScreen extends StatelessWidget {
   const SavedScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Saved'),
+          bottom: const TabBar(
+            tabs: [
+              Tab(icon: Icon(Icons.bookmark_outline), text: 'Deals'),
+              Tab(icon: Icon(Icons.notifications_none), text: 'Alerts'),
+            ],
+          ),
+        ),
+        body: const TabBarView(
+          children: [
+            _SavedDealsTab(),
+            AlertsScreen(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SavedDealsTab extends ConsumerWidget {
+  const _SavedDealsTab();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final savedIds = ref.watch(savedDealIdsProvider);
     final cs = Theme.of(context).colorScheme;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('Saved Deals')),
-      body: savedIds.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Error: $e')),
-        data: (ids) {
-          if (ids.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.bookmark_outline,
-                      size: 64, color: cs.onSurfaceVariant),
-                  const SizedBox(height: 12),
-                  Text(
-                    'No saved deals yet',
-                    style: TextStyle(color: cs.onSurfaceVariant),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text('Tap the bookmark icon on any deal to save it.'),
-                ],
-              ),
-            );
-          }
-          return ListView.builder(
-            itemCount: ids.length,
-            itemBuilder: (_, i) =>
-                _SavedDealTile(dealId: ids[i]),
+    return savedIds.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Error: $e')),
+      data: (ids) {
+        if (ids.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.bookmark_outline,
+                    size: 64, color: cs.onSurfaceVariant),
+                const SizedBox(height: 12),
+                Text(
+                  'No saved deals yet',
+                  style: TextStyle(color: cs.onSurfaceVariant),
+                ),
+                const SizedBox(height: 8),
+                const Text('Tap the bookmark icon on any deal to save it.'),
+              ],
+            ),
           );
-        },
-      ),
+        }
+        return ListView.builder(
+          itemCount: ids.length,
+          itemBuilder: (_, i) => _SavedDealTile(dealId: ids[i]),
+        );
+      },
     );
   }
 }
@@ -55,8 +80,7 @@ class _SavedDealTile extends ConsumerWidget {
   final String dealId;
 
   Future<void> _unsave(BuildContext context, WidgetRef ref) async {
-    final uid =
-        ref.read(authStateProvider).valueOrNull?.uid;
+    final uid = ref.read(authStateProvider).valueOrNull?.uid;
     if (uid == null) return;
     await FirebaseFirestore.instance
         .collection('users')

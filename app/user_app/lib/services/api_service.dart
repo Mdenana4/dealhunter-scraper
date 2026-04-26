@@ -130,6 +130,20 @@ class ApiService {
     return data['alert_id'] as String? ?? '';
   }
 
+  Future<List<Map<String, dynamic>>> getAlerts(String userId) async {
+    final resp = await _dio.get('/api/v1/tracker/alert',
+        queryParameters: {'user_id': userId});
+    final data = resp.data as Map<String, dynamic>;
+    return ((data['alerts'] as List?) ?? [])
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
+  }
+
+  Future<void> deleteAlert(String alertId, String userId) async {
+    await _dio.delete('/api/v1/tracker/alert/$alertId',
+        data: {'user_id': userId});
+  }
+
   // ─── Analytics ─────────────────────────────────────────────────────────────
 
   Future<void> logEvent(String event, [Map<String, dynamic>? extra]) async {

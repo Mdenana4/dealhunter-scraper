@@ -1,0 +1,78 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ────────────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // ── Users ───────────────────────────────────────────────────────────────
+    // Each user can only read/write their own document.
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+    }
+
+    // ── Deals ───────────────────────────────────────────────────────────────
+    // All authenticated users can read deals; only the backend can write them.
+    match /deals/{dealId} {
+      allow read: if isSignedIn();
+      allow write: if false; // backend service account only
+    }
+
+    // ── Price tracker ───────────────────────────────────────────────────────
+    match /price_tracker/{productDocId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+
+      match /price_history/{historyId} {
+        allow read: if isSignedIn();
+        allow write: if false;
+      }
+    }
+
+    // ── Price change events ─────────────────────────────────────────────────
+    match /price_change_events/{eventId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // ── Price alerts ────────────────────────────────────────────────────────
+    // Users can only read/delete their own alerts.
+    // Creation goes through the backend API (which runs as service account).
+    match /price_alerts/{alertId} {
+      allow read: if isSignedIn() && resource.data.user_id == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
+      allow create, update: if false; // backend only
+    }
+
+    // ── Scraper health ──────────────────────────────────────────────────────
+    match /scraper_health/{docId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // ── Sources (scraper config) ────────────────────────────────────────────
+    // Admin app reads/writes; user app reads only.
+    match /sources/{sourceId} {
+      allow read: if isSignedIn();
+      allow write: if false; // admin app uses service account
+    }
+
+    // ── Notification log ────────────────────────────────────────────────────
+    match /notification_log/{logId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // ── Groups ──────────────────────────────────────────────────────────────
+    match /groups/{groupId} {
+      allow read: if isSignedIn();
+      allow write: if false; // admin app uses service account
+    }
+  }
+}
