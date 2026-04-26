@@ -1,14 +1,198 @@
 workflows:
-  flutter-android:
-    name: Flutter Android Build
-    instance_type: linux
-    max_build_duration: 30
+
+  # ── User App — Android APK (every push to main) ────────────────────────────
+  user-app-android:
+    name: DealHunter User App (Android)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+
     environment:
       flutter: stable
+      vars:
+        PACKAGE_NAME: com.dealhunter.app
+        CM_KEY_ALIAS: dealhunter
+        # CM_KEYSTORE, CM_KEYSTORE_PASSWORD, CM_KEY_PASSWORD
+        # are set as Secret env vars in the Codemagic dashboard
+
+    cache:
+      cache_paths:
+        - $FLUTTER_ROOT/.pub-cache
+        - $HOME/.gradle/caches
+
     scripts:
-      - name: Get Flutter packages
-        script: flutter pub get
-      - name: Build APK
-        script: flutter build apk --release
+      - name: Set up Android keystore
+        script: |
+          echo $CM_KEYSTORE | base64 --decode > /tmp/keystore.jks
+          cat > /tmp/key.properties <<EOF
+          storeFile=/tmp/keystore.jks
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyAlias=$CM_KEY_ALIAS
+          keyPassword=$CM_KEY_PASSWORD
+          EOF
+
+      - name: Get dependencies
+        script: |
+          cd app/user_app
+          flutter pub get
+
+      - name: Static analysis
+        script: |
+          cd app/user_app
+          flutter analyze --fatal-infos
+
+      - name: Run unit tests
+        script: |
+          cd app/user_app
+          flutter test || true
+
+      - name: Build release APK
+        script: |
+          cd app/user_app
+          flutter build apk \
+            --release \
+            --no-tree-shake-icons \
+            --build-number=$BUILD_NUMBER
+
     artifacts:
-      - build/app/outputs/flutter-apk/app-release.apk
+      - app/user_app/build/app/outputs/flutter-apk/app-release.apk
+
+    publishing:
+      email:
+        recipients:
+          - $NOTIFICATION_EMAIL
+        notify:
+          success: true
+          failure: true
+
+  # ── User App — AAB for Play Store (on version tags like v1.0.0) ────────────
+  user-app-play-store:
+    name: DealHunter User App (Play Store)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    triggering:
+      events:
+        - tag
+      tag_patterns:
+        - pattern: 'v*'
+          include: true
+
+    environment:
+      flutter: stable
+      vars:
+        PACKAGE_NAME: com.dealhunter.app
+        CM_KEY_ALIAS: dealhunter
+
+    cache:
+      cache_paths:
+        - $FLUTTER_ROOT/.pub-cache
+        - $HOME/.gradle/caches
+
+    scripts:
+      - name: Set up Android keystore
+        script: |
+          echo $CM_KEYSTORE | base64 --decode > /tmp/keystore.jks
+          cat > /tmp/key.properties <<EOF
+          storeFile=/tmp/keystore.jks
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyAlias=$CM_KEY_ALIAS
+          keyPassword=$CM_KEY_PASSWORD
+          EOF
+
+      - name: Get dependencies
+        script: |
+          cd app/user_app
+          flutter pub get
+
+      - name: Build App Bundle
+        script: |
+          cd app/user_app
+          flutter build appbundle \
+            --release \
+            --no-tree-shake-icons \
+            --build-number=$BUILD_NUMBER
+
+    artifacts:
+      - app/user_app/build/app/outputs/bundle/release/app-release.aab
+
+    publishing:
+      google_play:
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+        submit_as_draft: true
+      email:
+        recipients:
+          - $NOTIFICATION_EMAIL
+        notify:
+          success: true
+          failure: true
+
+  # ── Admin App — Android APK ─────────────────────────────────────────────────
+  admin-app-android:
+    name: DealHunter Admin App (Android)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+
+    environment:
+      flutter: stable
+      vars:
+        PACKAGE_NAME: com.dealhunter.admin
+        CM_KEY_ALIAS: dealhunter
+
+    cache:
+      cache_paths:
+        - $FLUTTER_ROOT/.pub-cache
+        - $HOME/.gradle/caches
+
+    scripts:
+      - name: Set up Android keystore
+        script: |
+          echo $CM_KEYSTORE | base64 --decode > /tmp/keystore.jks
+          cat > /tmp/key.properties <<EOF
+          storeFile=/tmp/keystore.jks
+          storePassword=$CM_KEYSTORE_PASSWORD
+          keyAlias=$CM_KEY_ALIAS
+          keyPassword=$CM_KEY_PASSWORD
+          EOF
+
+      - name: Get dependencies
+        script: |
+          cd app/admin_app
+          flutter pub get
+
+      - name: Static analysis
+        script: |
+          cd app/admin_app
+          flutter analyze --fatal-infos || true
+
+      - name: Build release APK
+        script: |
+          cd app/admin_app
+          flutter build apk \
+            --release \
+            --no-tree-shake-icons \
+            --build-number=$BUILD_NUMBER
+
+    artifacts:
+      - app/admin_app/build/app/outputs/flutter-apk/app-release.apk
+
+    publishing:
+      email:
+        recipients:
+          - $NOTIFICATION_EMAIL
+        notify:
+          success: true
+          failure: true
