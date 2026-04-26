@@ -8,7 +8,6 @@ import '../screens/home/home_screen.dart';
 
 final appRouter = GoRouter(
   initialLocation: '/home',
-  // Handle dealhunter://deal/<id> deep links from FCM
   redirect: (BuildContext context, GoRouterState state) {
     final isLoggedIn = FirebaseAuth.instance.currentUser != null;
     final onLogin = state.matchedLocation == '/login';

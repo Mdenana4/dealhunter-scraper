@@ -5,13 +5,6 @@ plugins {
     id "com.google.gms.google-services"
 }
 
-// Read signing config from key.properties (written by Codemagic build script)
-def keystoreProps = new Properties()
-def keystoreFile = file('/tmp/key.properties')
-if (keystoreFile.exists()) {
-    keystoreFile.withInputStream { keystoreProps.load(it) }
-}
-
 android {
     namespace "com.dealhunter.app"
     compileSdk 34
@@ -20,26 +13,15 @@ android {
         applicationId "com.dealhunter.app"
         minSdk 21
         targetSdk 34
-        versionCode flutter.versionCode
-        versionName flutter.versionName
+        versionCode 1
+        versionName "1.0.0"
         multiDexEnabled true
-    }
-
-    signingConfigs {
-        release {
-            keyAlias     keystoreProps['keyAlias']      ?: 'dealhunter'
-            keyPassword  keystoreProps['keyPassword']   ?: ''
-            storeFile    keystoreProps['storeFile']     ? file(keystoreProps['storeFile']) : null
-            storePassword keystoreProps['storePassword'] ?: ''
-        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
-            signingConfig keystoreFile.exists()
-                ? signingConfigs.release
-                : signingConfigs.debug
+            signingConfig signingConfigs.debug
         }
     }
 

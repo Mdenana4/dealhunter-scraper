@@ -112,7 +112,7 @@ class _UserListTab extends ConsumerWidget {
                             selected: tierFilter == t,
                             onSelected: (_) => onTierChanged(t),
                             selectedColor:
-                                _tierColor(t).withValues(alpha: 0.2),
+                                _tierColor(t).withOpacity(0.2),
                             labelStyle: TextStyle(
                                 color: tierFilter == t
                                     ? _tierColor(t)
@@ -181,7 +181,7 @@ class _UserTile extends ConsumerWidget {
 
     return ListTile(
       leading: CircleAvatar(
-        backgroundColor: _tierColor(tier).withValues(alpha: 0.15),
+        backgroundColor: _tierColor(tier).withOpacity(0.15),
         child: Text(
           (name.isNotEmpty ? name[0] : email[0]).toUpperCase(),
           style: TextStyle(color: _tierColor(tier), fontWeight: FontWeight.w700),
@@ -829,7 +829,7 @@ class _TierBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
+          color: color.withOpacity(0.12),
           borderRadius: BorderRadius.circular(6)),
       child: Text(tier.toUpperCase(),
           style: TextStyle(
@@ -848,7 +848,7 @@ class _Badge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
+          color: color.withOpacity(0.12),
           borderRadius: BorderRadius.circular(6)),
       child: Text(label,
           style: TextStyle(
