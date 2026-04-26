@@ -10,10 +10,10 @@ on:
     branches: [main]
     paths:
       - 'app/user_app/**'
-  workflow_dispatch:   # lets you trigger a build manually from GitHub
+  workflow_dispatch:
 
 permissions:
-  contents: write   # needed to upload release artifacts
+  contents: write
   actions: read
 
 jobs:
@@ -24,7 +24,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        timeout-minutes: 5
+
+      - name: Fix git safe directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -35,8 +37,8 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
-        timeout-minutes: 15
+          flutter-version: '3.24.0'
+          cache: true
 
       - name: Get dependencies
         run: |
@@ -46,8 +48,7 @@ jobs:
       - name: Analyze
         run: |
           cd app/user_app
-          flutter analyze --fatal-warnings 2>&1 | tee analyze.log || true
-          tail -5 analyze.log
+          flutter analyze 2>&1 | tee analyze.log || true
 
       - name: Set up keystore
         env:
@@ -64,9 +65,9 @@ jobs:
           keyAlias=$CM_KEY_ALIAS
           keyPassword=$CM_KEY_PASSWORD
           EOF
-            echo "Keystore ready"
+            echo "Keystore ready — building signed release APK"
           else
-            echo "No keystore configured — building debug APK"
+            echo "No keystore secret — building debug APK"
           fi
 
       - name: Build APK
@@ -75,25 +76,25 @@ jobs:
           if [ -f /tmp/key.properties ]; then
             flutter build apk --release --no-tree-shake-icons \
               --build-number=${{ github.run_number }}
-            echo "APK_PATH=app/user_app/build/app/outputs/flutter-apk/app-release.apk" >> $GITHUB_ENV
-            echo "APK_NAME=DealHunter-v${{ github.run_number }}-release.apk" >> $GITHUB_ENV
+            cp build/app/outputs/flutter-apk/app-release.apk \
+              DealHunter-v${{ github.run_number }}-release.apk
           else
             flutter build apk --debug --no-tree-shake-icons \
               --build-number=${{ github.run_number }}
-            echo "APK_PATH=app/user_app/build/app/outputs/flutter-apk/app-debug.apk" >> $GITHUB_ENV
-            echo "APK_NAME=DealHunter-v${{ github.run_number }}-debug.apk" >> $GITHUB_ENV
+            cp build/app/outputs/flutter-apk/app-debug.apk \
+              DealHunter-v${{ github.run_number }}-debug.apk
           fi
 
-      - name: Upload APK artifact
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APK_NAME }}
-          path: ${{ env.APK_PATH }}
+          name: DealHunter-v${{ github.run_number }}
+          path: app/user_app/DealHunter-v${{ github.run_number }}-*.apk
           retention-days: 30
 
       - name: Upload analyze log on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: user-app-analyze-log
+          name: analyze-log
           path: app/user_app/analyze.log
