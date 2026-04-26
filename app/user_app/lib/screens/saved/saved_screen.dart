@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../models/deal_model.dart';
 import '../../providers/app_providers.dart';
-import '../deals/deals_screen.dart';
+import '../../widgets/deal_widgets.dart';
 
 class SavedScreen extends ConsumerWidget {
   const SavedScreen({super.key});
@@ -133,7 +133,7 @@ class _DealRow extends StatelessWidget {
                 TextStyle(color: Theme.of(context).colorScheme.primary),
           ),
           const SizedBox(width: 8),
-          _VerdictDot(verdict: deal.verdict),
+          VerdictDot(verdict: deal.verdict),
         ],
       ),
       trailing: const Icon(Icons.chevron_right),

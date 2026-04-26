@@ -441,7 +441,7 @@ class _VerifyCard extends ConsumerWidget {
                 LinearProgressIndicator(
                   value: confidence / 100,
                   color: color,
-                  backgroundColor: color.withAlpha(40),
+                  backgroundColor: color.withValues(alpha: 0.16),
                 ),
                 if (explanation.isNotEmpty) ...[
                   const SizedBox(height: 8),
@@ -656,7 +656,7 @@ class _LineChart extends StatelessWidget {
                   dotData: const FlDotData(show: false),
                   belowBarData: BarAreaData(
                     show: true,
-                    color: cs.primary.withAlpha(25),
+                    color: cs.primary.withValues(alpha: 0.10),
                   ),
                 ),
               ],

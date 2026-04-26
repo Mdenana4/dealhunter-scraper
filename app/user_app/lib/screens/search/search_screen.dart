@@ -4,7 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../models/deal_model.dart';
 import '../../models/user_model.dart';
 import '../../providers/app_providers.dart';
-import '../deals/deals_screen.dart';
+import '../../widgets/deal_widgets.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
@@ -215,7 +215,7 @@ class _DealRow extends StatelessWidget {
         '${deal.formattedPrice}  •  -${deal.discountPercent}%',
         style: TextStyle(color: Theme.of(context).colorScheme.primary),
       ),
-      trailing: _VerdictDot(verdict: deal.verdict),
+      trailing: VerdictDot(verdict: deal.verdict),
     );
   }
 }
