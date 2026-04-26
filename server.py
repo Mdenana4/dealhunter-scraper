@@ -1,9 +1,10 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import firebase_admin
-from firebase_admin import credentials, firestore
-import json, os, re, requests, hashlib, base64, time
+from firebase_admin import credentials, firestore, messaging, auth as fb_auth
+import json, os, re, requests, hashlib, hmac, base64, time
 from datetime import datetime, timezone
+from functools import wraps
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding as crypto_padding
 from cryptography.hazmat.backends import default_backend
@@ -163,12 +164,17 @@ def detect_fraud_basic(orig, curr, pct) -> dict:
 def serialize_deal(doc_id, d) -> dict:
     orig,curr,disc = float(d.get("original_price",0)),float(d.get("current_price",0)),int(d.get("discount_percent",0))
     f = detect_fraud_basic(orig, curr, disc)
+    # Scraper stores marketplace as 'site' (e.g. "amazon_eg"); 'source' is always "scraper"
+    marketplace = d.get("site") or d.get("marketplace_country") or d.get("source","")
     return {
         "id":doc_id,"title":d.get("title",""),
-        "store":d.get("site_display",d.get("source","")),
-        "source":d.get("source",""),
+        "store":d.get("site_display", marketplace),
+        "source": marketplace,
+        "marketplace_country": marketplace,
+        "product_id": d.get("asin") or d.get("product_id") or doc_id,
         "current_price":curr,"original_price":orig,
-        "discount_percent":disc,"currency":"EGP",
+        "discount_percent":disc,
+        "currency": d.get("currency","EGP"),
         "image_url":d.get("image_url",""),"product_url":d.get("product_url",""),
         "category":d.get("category",""),
         "rating":float(d.get("rating",0)) if d.get("rating") else 0.0,
@@ -278,6 +284,8 @@ from price_tracker import (
     get_top_price_drops as pt_drops,
     get_historical_low as pt_low,
     create_price_alert as pt_create_alert,
+    get_user_alerts as pt_user_alerts,
+    delete_alert as pt_delete_alert,
 )
 
 def _pt_error(msg, code=400):
@@ -501,6 +509,816 @@ def tracker_create_alert():
         return _pt_error(str(e))
     except Exception as e:
         return _pt_error(str(e), 500)
+
+
+@app.route("/api/v1/tracker/alert", methods=["GET"])
+def tracker_list_alerts():
+    """List active price alerts for a user. Requires ?user_id= or Firebase token."""
+    # Try token first, fall back to query param
+    decoded = _verify_firebase_token(required=False)
+    user_id = decoded["uid"] if decoded else request.args.get("user_id", "")
+    if not user_id:
+        return _pt_error("user_id required", 401)
+    try:
+        alerts = pt_user_alerts(user_id)
+        return jsonify({"success": True, "alerts": alerts})
+    except Exception as e:
+        return _pt_error(str(e), 500)
+
+
+@app.route("/api/v1/tracker/alert/<alert_id>", methods=["DELETE"])
+def tracker_delete_alert(alert_id):
+    """Deactivate (soft-delete) a price alert owned by the caller."""
+    decoded = _verify_firebase_token(required=False)
+    body    = request.get_json(silent=True) or {}
+    user_id = (decoded["uid"] if decoded else None) or body.get("user_id", "")
+    if not user_id:
+        return _pt_error("user_id required", 401)
+    try:
+        ok = pt_delete_alert(alert_id, user_id)
+        if not ok:
+            return _pt_error("Alert not found or not owned by user", 404)
+        return jsonify({"success": True})
+    except Exception as e:
+        return _pt_error(str(e), 500)
+
+
+# ── Auth helpers ────────────────────────────────────────────────────────────
+
+def _verify_firebase_token(required=True):
+    """Return decoded Firebase token, or None if optional and missing."""
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return None
+    token = auth_header.split(' ', 1)[1]
+    try:
+        return fb_auth.verify_id_token(token)
+    except Exception:
+        return None
+
+def require_auth(f):
+    """Decorator: reject if no valid Firebase JWT present."""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not _verify_firebase_token():
+            return jsonify({"success": False, "error": "Unauthorized"}), 401
+        return f(*args, **kwargs)
+    return wrapper
+
+def require_admin(f):
+    """Decorator: reject if caller is not in admin_users collection."""
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        decoded = _verify_firebase_token()
+        if not decoded:
+            return jsonify({"success": False, "error": "Unauthorized"}), 401
+        uid = decoded.get('uid', '')
+        admin_doc = db.collection('admin_users').document(uid).get()
+        if not admin_doc.exists:
+            return jsonify({"success": False, "error": "Forbidden"}), 403
+        return f(*args, **kwargs)
+    return wrapper
+
+
+# ── Mobile App API ───────────────────────────────────────────────────────────
+# Endpoints consumed by the Flutter user app (api_service.dart).
+
+# Egypt prices in EGP (Paymob)
+TIER_PRICES_EGP = {
+    'basic':   {'monthly': 49,   '6months': 264.6,  'yearly': 441.0},
+    'premium': {'monthly': 99,   '6months': 534.6,  'yearly': 891.0},
+    'vip':     {'monthly': 199,  '6months': 1074.6, 'yearly': 1791.0},
+}
+
+# GCC prices in AED (Tap Payments) — UAE/SA/KW/BH/QA/OM
+TIER_PRICES_AED = {
+    'basic':   {'monthly': 14.99, '6months': 80.94,  'yearly': 134.91},
+    'premium': {'monthly': 29.99, '6months': 161.94, 'yearly': 269.91},
+    'vip':     {'monthly': 59.99, '6months': 323.94, 'yearly': 539.91},
+}
+
+TIER_PRICES = TIER_PRICES_EGP   # backwards compat alias
+
+GCC_COUNTRIES = {'AE', 'SA', 'KW', 'BH', 'QA', 'OM'}
+
+
+@app.route('/api/deals')
+def mobile_get_deals():
+    """
+    Paginated deal feed consumed by the user app's DealsTab.
+
+    Query params:
+      category             optional string
+      marketplace_country  optional string (amazon_eg, noon_eg, …)
+      min_discount         float, default 0 (filter out low-discount items)
+      limit                int, default 50
+      page                 int, default 1 (1-based)
+    """
+    category   = request.args.get('category', '').strip().lower() or None
+    mc         = request.args.get('marketplace_country', '').strip().lower() or None
+    min_disc   = request.args.get('min_discount', 0.0, type=float)
+    limit      = min(request.args.get('limit', 50, type=int), 200)
+    page       = max(request.args.get('page', 1, type=int), 1)
+    offset     = (page - 1) * limit
+
+    try:
+        q = db.collection('deals')
+        if category:
+            q = q.where('category', '==', category)
+        if mc:
+            q = q.where('site', '==', mc)   # scraper stores marketplace in 'site'
+
+        all_docs = list(q.order_by('discount_percent', direction=firestore.Query.DESCENDING)
+                         .stream())
+
+        # Apply min_discount and paginate in memory (Firestore doesn't support !=)
+        results = []
+        skipped = 0
+        for doc in all_docs:
+            d = doc.to_dict()
+            if int(d.get('discount_percent', 0)) < min_disc:
+                continue
+            if skipped < offset:
+                skipped += 1
+                continue
+            results.append(serialize_deal(doc.id, d))
+            if len(results) >= limit:
+                break
+
+        return jsonify({
+            "success": True,
+            "count": len(results),
+            "page": page,
+            "deals": results,
+            "timestamp": now_iso(),
+        })
+    except Exception as e:
+        return _pt_error(str(e), 500)
+
+
+@app.route('/api/deals/<string:deal_id>')
+def mobile_get_deal_detail(deal_id):
+    """Single deal by Firestore document ID."""
+    try:
+        doc = db.collection('deals').document(deal_id).get()
+        if not doc.exists:
+            return jsonify({"success": False, "error": "Deal not found"}), 404
+        return jsonify({"success": True, "deal": serialize_deal(doc.id, doc.to_dict())})
+    except Exception as e:
+        return _pt_error(str(e), 500)
+
+
+@app.route('/api/search')
+def mobile_search():
+    """
+    Full-text search with optional brand / size / marketplace filters.
+
+    Query params: q, category, brand, size, marketplace_country, limit
+    """
+    q_str = request.args.get('q', '').strip().lower()
+    if len(q_str) < 2:
+        return jsonify({"success": False, "error": "Query too short"}), 400
+
+    category = request.args.get('category', '').strip().lower() or None
+    brand    = request.args.get('brand', '').strip().lower() or None
+    size     = request.args.get('size', '').strip().lower() or None
+    mc       = request.args.get('marketplace_country', '').strip().lower() or None
+    limit    = min(request.args.get('limit', 30, type=int), 100)
+
+    try:
+        results = []
+        for doc in db.collection('deals').limit(limit * 5).stream():
+            d = doc.to_dict()
+            title   = d.get('title', '').lower()
+            site    = d.get('site', d.get('source', '')).lower()
+            d_brand = d.get('brand', '').lower()
+            d_size  = d.get('size', '').lower()
+            d_cat   = d.get('category', '').lower()
+
+            if q_str not in title and q_str not in site:
+                continue
+            if category and d_cat != category:
+                continue
+            if brand and brand not in d_brand:
+                continue
+            if size and size not in d_size:
+                continue
+            if mc and site != mc:
+                continue
+
+            results.append(serialize_deal(doc.id, d))
+            if len(results) >= limit:
+                break
+
+        return jsonify({"success": True, "count": len(results), "results": results})
+    except Exception as e:
+        return _pt_error(str(e), 500)
+
+
+@app.route('/api/verify')
+def mobile_verify():
+    """
+    Fake-discount verification for one product.
+
+    Query params: marketplace_country, product_id
+    Returns: verdict ('genuine'|'fake'|'uncertain'), confidence, explanation,
+             red_flags, recommendation
+    """
+    mc  = request.args.get('marketplace_country', '').strip()
+    pid = request.args.get('product_id', '').strip()
+    if not mc or not pid:
+        return jsonify({"success": False, "error": "marketplace_country and product_id required"}), 400
+
+    try:
+        # Try price_tracker collection first (populated after scraper fix)
+        p = None
+        product_ref = (db.collection('price_tracker')
+                         .document(mc)
+                         .collection('products')
+                         .document(pid))
+        product_doc = product_ref.get()
+        if product_doc.exists:
+            p = product_doc.to_dict()
+        else:
+            # Fall back to the deals collection (pid = doc_id or asin)
+            deal_doc = db.collection('deals').document(pid).get()
+            if deal_doc.exists:
+                p = deal_doc.to_dict()
+                p['url'] = p.get('product_url', '')
+            else:
+                # Search by asin field
+                matches = list(db.collection('deals')
+                                 .where('asin', '==', pid)
+                                 .limit(1).stream())
+                if matches:
+                    p = matches[0].to_dict()
+                    p['url'] = p.get('product_url', '')
+
+        if not p:
+            return jsonify({"success": False, "error": "Product not found"}), 404
+
+        curr = float(p.get('current_price', 0))
+        orig = float(p.get('original_price', 0))
+        disc = int(p.get('discount_percent', 0))
+        url  = p.get('url', p.get('product_url', ''))
+
+        # Try Safqa enhanced detection first
+        hist   = get_safqa_history(url, curr) if url and curr > 0 else {"found": False}
+        if hist.get('found') and orig > 0:
+            fraud = detect_fraud_safqa(orig, curr, disc,
+                                       hist.get('lowest', 0), hist.get('highest', 0))
+        else:
+            fraud = detect_fraud_basic(orig, curr, disc)
+
+        # Map verdict to mobile app's expected values
+        verdict_map = {'GENUINE': 'genuine', 'FAKE': 'fake', 'SUSPICIOUS': 'uncertain'}
+        verdict = verdict_map.get(fraud['verdict'], 'uncertain')
+
+        explanation = (
+            f"Price checked against {'90-day Safqa history' if hist.get('found') else 'listing data'}. "
+            f"Original: EGP {orig:.0f} · Current: EGP {curr:.0f} · Claimed: {disc}% off."
+        )
+        recommendation = (
+            "This looks like a genuine deal — good time to buy!" if verdict == 'genuine'
+            else "We detected signs of price manipulation — proceed with caution."
+            if verdict == 'uncertain'
+            else "This discount appears fake. The original price may have been inflated."
+        )
+
+        return jsonify({
+            "success":        True,
+            "verdict":        verdict,
+            "confidence":     fraud['confidence'],
+            "explanation":    explanation,
+            "red_flags":      fraud.get('reasons', []),
+            "recommendation": recommendation,
+            "checked_at":     now_iso(),
+        })
+    except Exception as e:
+        return _pt_error(str(e), 500)
+
+
+@app.route('/api/analytics/event', methods=['POST'])
+def mobile_log_event():
+    """
+    Fire-and-forget analytics event from the user app.
+    Body: { event, data, timestamp }
+    """
+    body = request.get_json(silent=True) or {}
+    event = body.get('event', '').strip()
+    if not event:
+        return jsonify({"success": False, "error": "event required"}), 400
+
+    # Enrich with server-side uid if auth header present
+    decoded = _verify_firebase_token(required=False)
+    uid     = decoded.get('uid') if decoded else None
+
+    try:
+        db.collection('analytics_events').add({
+            'event':     event,
+            'data':      body.get('data', {}),
+            'uid':       uid,
+            'timestamp': body.get('timestamp') or now_iso(),
+            'server_ts': now_iso(),
+        })
+        return jsonify({"success": True})
+    except Exception as e:
+        return _pt_error(str(e), 500)
+
+
+@app.route('/api/payment/create', methods=['POST'])
+def mobile_create_payment():
+    """
+    Create a payment session — routes to Paymob (EG) or Tap Payments (GCC).
+
+    Body: { user_id, tier, billing_cycle, country }
+    country: ISO 3166-1 alpha-2 (EG → Paymob; AE/SA/KW/BH/QA/OM → Tap)
+    billing_cycle: 'monthly' | '6months' | 'yearly'
+    Returns: { payment_url, order_id, gateway, currency, amount }
+    """
+    body          = request.get_json(silent=True) or {}
+    user_id       = body.get('user_id', '').strip()
+    tier          = body.get('tier', '').strip().lower()
+    billing_cycle = body.get('billing_cycle', 'monthly').strip().lower()
+    country       = body.get('country', 'EG').strip().upper()
+
+    if not user_id or tier not in TIER_PRICES_EGP:
+        return jsonify({"success": False, "error": "user_id and valid tier required"}), 400
+
+    user_doc = db.collection('users').document(user_id).get()
+    u = user_doc.to_dict() if user_doc.exists else {}
+
+    if country in GCC_COUNTRIES:
+        return _create_tap_payment(user_id, u, tier, billing_cycle, country)
+    return _create_paymob_payment(user_id, u, tier, billing_cycle)
+
+
+def _create_paymob_payment(user_id, u, tier, billing_cycle):
+    """Create a Paymob (Egypt) payment session. Returns Flask response."""
+    amount_egp   = TIER_PRICES_EGP[tier].get(billing_cycle, TIER_PRICES_EGP[tier]['monthly'])
+    amount_cents = int(amount_egp * 100)
+
+    api_key        = os.getenv('PAYMOB_API_KEY', '')
+    integration_id = os.getenv('PAYMOB_INTEGRATION_ID', '')
+    iframe_id      = os.getenv('PAYMOB_IFRAME_ID', '')
+
+    if not api_key:
+        return jsonify({"success": False, "error": "Paymob not configured"}), 503
+
+    sess = requests.Session()
+    try:
+        auth_resp = sess.post(
+            'https://accept.paymob.com/api/auth/tokens',
+            json={'api_key': api_key}, timeout=10,
+        )
+        auth_resp.raise_for_status()
+        auth_token = auth_resp.json()['token']
+
+        order_resp = sess.post(
+            'https://accept.paymob.com/api/ecommerce/orders',
+            json={
+                'auth_token':      auth_token,
+                'delivery_needed': False,
+                'amount_cents':    amount_cents,
+                'currency':        'EGP',
+                'items': [{
+                    'name':         f'DealHunter {tier.title()} ({billing_cycle})',
+                    'amount_cents': amount_cents,
+                    'description':  f'DealHunter {tier.title()} membership',
+                    'quantity':     1,
+                }],
+            }, timeout=10,
+        )
+        order_resp.raise_for_status()
+        order_id = order_resp.json()['id']
+
+        key_resp = sess.post(
+            'https://accept.paymob.com/api/acceptance/payment_keys',
+            json={
+                'auth_token':     auth_token,
+                'amount_cents':   amount_cents,
+                'expiration':     3600,
+                'order_id':       order_id,
+                'currency':       'EGP',
+                'integration_id': int(integration_id),
+                'billing_data': {
+                    'first_name':      u.get('display_name', 'DealHunter').split()[0],
+                    'last_name':       (u.get('display_name', 'User').split() + ['User'])[-1],
+                    'email':           u.get('email', 'no-reply@dealhunter.app'),
+                    'phone_number':    u.get('phone', '+20000000000'),
+                    'apartment':       'NA', 'floor': 'NA', 'street': 'NA',
+                    'building':        'NA', 'shipping_method': 'NA',
+                    'postal_code':     'NA', 'city': 'NA',
+                    'country':         'EG', 'state': 'NA',
+                },
+            }, timeout=10,
+        )
+        key_resp.raise_for_status()
+        payment_key = key_resp.json()['token']
+        payment_url = (
+            f'https://accept.paymob.com/api/acceptance/iframes/{iframe_id}'
+            f'?payment_token={payment_key}'
+        )
+
+        db.collection('payment_transactions').add({
+            'user_id':       user_id,
+            'tier':          tier,
+            'billing_cycle': billing_cycle,
+            'amount':        amount_egp,
+            'currency':      'EGP',
+            'gateway':       'paymob',
+            'order_id':      str(order_id),
+            'status':        'pending',
+            'created_at':    now_iso(),
+        })
+
+        return jsonify({
+            "success":     True,
+            "gateway":     "paymob",
+            "payment_url": payment_url,
+            "order_id":    str(order_id),
+            "currency":    "EGP",
+            "amount":      amount_egp,
+        })
+    except Exception as e:
+        return _pt_error(f'Paymob payment creation failed: {e}', 500)
+
+
+def _create_tap_payment(user_id, u, tier, billing_cycle, country):
+    """Create a Tap Payments (GCC) charge. Returns Flask response."""
+    amount_aed = TIER_PRICES_AED[tier].get(billing_cycle, TIER_PRICES_AED[tier]['monthly'])
+
+    tap_secret = os.getenv('TAP_SECRET_KEY', '')
+    if not tap_secret:
+        return jsonify({"success": False, "error": "Tap Payments not configured"}), 503
+
+    display_name = u.get('display_name', 'DealHunter User')
+    name_parts   = display_name.split(maxsplit=1)
+    first_name   = name_parts[0]
+    last_name    = name_parts[1] if len(name_parts) > 1 else 'User'
+
+    try:
+        resp = requests.post(
+            'https://api.tap.company/v2/charges',
+            headers={
+                'Authorization': f'Bearer {tap_secret}',
+                'Content-Type':  'application/json',
+            },
+            json={
+                'amount':      amount_aed,
+                'currency':    'AED',
+                'customer_initiated': True,
+                'threeDSecure': True,
+                'save_card':    False,
+                'description':  f'DealHunter {tier.title()} ({billing_cycle})',
+                'metadata':     {
+                    'user_id':       user_id,
+                    'tier':          tier,
+                    'billing_cycle': billing_cycle,
+                },
+                'reference':    {
+                    'transaction': f'dh_{user_id[:8]}_{int(time.time())}',
+                    'order':       f'dh_order_{int(time.time())}',
+                },
+                'receipt':      {'email': True, 'sms': False},
+                'customer': {
+                    'first_name': first_name,
+                    'last_name':  last_name,
+                    'email':      u.get('email', 'no-reply@dealhunter.app'),
+                    'phone':      {
+                        'country_code': '971',
+                        'number':       u.get('phone', '500000000').lstrip('+'),
+                    },
+                },
+                'source': {'id': 'src_all'},
+                'post': {
+                    'url': os.getenv(
+                        'TAP_CALLBACK_URL',
+                        'https://dealhunter-scraper.onrender.com/api/payment/tap-callback',
+                    ),
+                },
+                'redirect': {
+                    'url': os.getenv(
+                        'APP_PAYMENT_RETURN_URL',
+                        'https://dealhunter.app/payment/result',
+                    ),
+                },
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        charge = resp.json()
+        charge_id   = charge.get('id', '')
+        payment_url = charge.get('transaction', {}).get('url', '')
+
+        db.collection('payment_transactions').add({
+            'user_id':       user_id,
+            'tier':          tier,
+            'billing_cycle': billing_cycle,
+            'amount':        amount_aed,
+            'currency':      'AED',
+            'gateway':       'tap',
+            'order_id':      charge_id,
+            'status':        'pending',
+            'created_at':    now_iso(),
+        })
+
+        return jsonify({
+            "success":     True,
+            "gateway":     "tap",
+            "payment_url": payment_url,
+            "order_id":    charge_id,
+            "currency":    "AED",
+            "amount":      amount_aed,
+        })
+    except Exception as e:
+        return _pt_error(f'Tap payment creation failed: {e}', 500)
+
+
+@app.route('/api/payment/tap-callback', methods=['POST'])
+def tap_payment_callback():
+    """
+    Tap Payments POST webhook — called after the user completes (or fails) payment.
+    Tap sends charge object as JSON body.
+    """
+    payload = request.get_json(silent=True) or {}
+    charge_id = payload.get('id', '')
+    status    = payload.get('status', '')      # CAPTURED | VOID | FAILED | …
+    metadata  = payload.get('metadata') or {}
+
+    user_id       = metadata.get('user_id', '')
+    tier          = metadata.get('tier', '')
+    billing_cycle = metadata.get('billing_cycle', 'monthly')
+
+    if not charge_id:
+        return jsonify({"success": False, "error": "Missing charge id"}), 400
+
+    try:
+        # Update the pending transaction record
+        txn_query = (db.collection('payment_transactions')
+                       .where('order_id', '==', charge_id)
+                       .limit(1)
+                       .stream())
+        for txn in txn_query:
+            txn.reference.update({
+                'status':      status.lower(),
+                'updated_at':  now_iso(),
+                'raw_status':  status,
+            })
+
+        if status == 'CAPTURED' and user_id and tier:
+            _activate_membership(user_id, tier, billing_cycle, gateway='tap',
+                                 order_id=charge_id)
+
+        return jsonify({"success": True})
+    except Exception as e:
+        return _pt_error(f'Tap callback error: {e}', 500)
+
+
+@app.route('/api/payment/paymob-callback', methods=['POST'])
+def paymob_payment_callback():
+    """
+    Paymob transaction callback — HMAC-verified POST from Paymob.
+    Activates membership on successful payment.
+    """
+    payload = request.get_json(silent=True) or {}
+    obj     = payload.get('obj', {})
+    hmac_received = request.args.get('hmac', '')
+
+    hmac_secret = os.getenv('PAYMOB_HMAC_SECRET', '')
+    if hmac_secret:
+        # Build the HMAC string in Paymob's documented field order
+        hmac_fields = [
+            str(obj.get('amount_cents', '')),
+            str(obj.get('created_at', '')),
+            str(obj.get('currency', '')),
+            str(obj.get('error_occured', '')),
+            str(obj.get('has_parent_transaction', '')),
+            str(obj.get('id', '')),
+            str(obj.get('integration_id', '')),
+            str(obj.get('is_3d_secure', '')),
+            str(obj.get('is_auth', '')),
+            str(obj.get('is_capture', '')),
+            str(obj.get('is_refunded', '')),
+            str(obj.get('is_standalone_payment', '')),
+            str(obj.get('is_voided', '')),
+            str(obj.get('order', {}).get('id', '') if isinstance(obj.get('order'), dict) else obj.get('order', '')),
+            str(obj.get('owner', '')),
+            str(obj.get('pending', '')),
+            str(obj.get('source_data.pan', '')),
+            str(obj.get('source_data.sub_type', '')),
+            str(obj.get('source_data.type', '')),
+            str(obj.get('success', '')),
+        ]
+        hmac_string   = ''.join(hmac_fields)
+        hmac_computed = hmac.new(
+            hmac_secret.encode(), hmac_string.encode(), hashlib.sha512
+        ).hexdigest()
+        if not hmac_received or hmac_computed != hmac_received:
+            return jsonify({"success": False, "error": "HMAC mismatch"}), 403
+
+    success  = obj.get('success', False)
+    order_id = str(obj.get('order', {}).get('id', '') if isinstance(obj.get('order'), dict) else obj.get('order', ''))
+
+    try:
+        txn_query = (db.collection('payment_transactions')
+                       .where('order_id', '==', order_id)
+                       .limit(1)
+                       .stream())
+        user_id = tier = billing_cycle = None
+        for txn in txn_query:
+            data = txn.to_dict()
+            user_id, tier, billing_cycle = (
+                data.get('user_id'), data.get('tier'), data.get('billing_cycle', 'monthly')
+            )
+            txn.reference.update({
+                'status':     'completed' if success else 'failed',
+                'updated_at': now_iso(),
+            })
+
+        if success and user_id and tier:
+            _activate_membership(user_id, tier, billing_cycle, gateway='paymob',
+                                 order_id=order_id)
+
+        return jsonify({"success": True})
+    except Exception as e:
+        return _pt_error(f'Paymob callback error: {e}', 500)
+
+
+def _activate_membership(user_id: str, tier: str, billing_cycle: str,
+                          gateway: str, order_id: str):
+    """Upgrade user's Firestore membership record after confirmed payment."""
+    now = now_iso()
+    db.collection('users').document(user_id).update({
+        'membership.tier':          tier,
+        'membership.billing_cycle': billing_cycle,
+        'membership.gateway':       gateway,
+        'membership.last_order_id': order_id,
+        'membership.activated_at':  now,
+        'last_updated_at':          now,
+    })
+
+
+@app.route('/api/referral/apply', methods=['POST'])
+def mobile_apply_referral():
+    """
+    Validate and apply a referral code.
+    Body: { user_id, referral_code }
+    """
+    body    = request.get_json(silent=True) or {}
+    uid     = body.get('user_id', '').strip()
+    code    = body.get('referral_code', '').strip().upper()
+    if not uid or not code:
+        return jsonify({"success": False, "error": "user_id and referral_code required"}), 400
+
+    try:
+        # Find the owner of this referral code
+        matches = list(db.collection('users')
+                         .where('referral_code', '==', code)
+                         .limit(1)
+                         .stream())
+        if not matches:
+            return jsonify({"success": False, "error": "Invalid referral code"}), 404
+
+        referrer_uid = matches[0].id
+        if referrer_uid == uid:
+            return jsonify({"success": False, "error": "Cannot use your own referral code"}), 400
+
+        # Check if this user already used a referral code
+        user_doc = db.collection('users').document(uid).get()
+        if user_doc.exists and user_doc.to_dict().get('referral_used_by'):
+            return jsonify({"success": False, "error": "Referral code already applied"}), 409
+
+        # Credit both parties in Firestore (reward logic handled by Cloud Function)
+        db.collection('users').document(uid).update({
+            'referral_used_by': referrer_uid,
+            'referral_applied_at': now_iso(),
+        })
+        db.collection('referral_events').add({
+            'referrer_uid':  referrer_uid,
+            'referred_uid':  uid,
+            'code':          code,
+            'created_at':    now_iso(),
+            'reward_status': 'pending',
+        })
+
+        return jsonify({"success": True, "message": "Referral applied. Reward pending."})
+    except Exception as e:
+        return _pt_error(str(e), 500)
+
+
+# ── Admin API ────────────────────────────────────────────────────────────────
+
+@app.route('/api/admin/notify', methods=['POST'])
+@require_admin
+def admin_send_notification():
+    """
+    Broadcast FCM push notification from the admin app.
+
+    Body: {
+      title, body, image_url?,
+      target_type: 'all' | 'tier' | 'group' | 'user',
+      target_id?:  tier name | group doc ID | user UID,
+      data?:       { key: value, … }
+    }
+    """
+    payload = request.get_json(silent=True) or {}
+    title       = payload.get('title', '').strip()
+    body_text   = payload.get('body', '').strip()
+    image_url   = payload.get('image_url')
+    target_type = payload.get('target_type', 'all')
+    target_id   = payload.get('target_id')
+    extra_data  = {str(k): str(v) for k, v in (payload.get('data') or {}).items()}
+
+    if not title or not body_text:
+        return jsonify({"success": False, "error": "title and body required"}), 400
+
+    notification = messaging.Notification(
+        title=title,
+        body=body_text,
+        image=image_url or None,
+    )
+    success_count = 0
+    failure_count = 0
+
+    try:
+        if target_type in ('all', 'tier'):
+            topic = 'all_users' if target_type == 'all' else f'tier_{target_id}'
+            msg   = messaging.Message(
+                notification=notification,
+                data=extra_data,
+                topic=topic,
+            )
+            messaging.send(msg)
+            success_count = 1  # topic sends don't return per-device counts
+
+        elif target_type == 'group':
+            # Fetch member UIDs from user_groups
+            group_doc = db.collection('user_groups').document(target_id).get()
+            if not group_doc.exists:
+                return jsonify({"success": False, "error": "Group not found"}), 404
+            member_uids = (group_doc.to_dict().get('member_uids') or [])
+            tokens      = _get_fcm_tokens(member_uids)
+            s, f        = _send_multicast(tokens, notification, extra_data)
+            success_count, failure_count = s, f
+
+        elif target_type == 'user':
+            tokens = _get_fcm_tokens([target_id])
+            if tokens:
+                msg = messaging.Message(
+                    notification=notification,
+                    data=extra_data,
+                    token=tokens[0],
+                )
+                messaging.send(msg)
+                success_count = 1
+            else:
+                failure_count = 1
+
+        else:
+            return jsonify({"success": False, "error": "Invalid target_type"}), 400
+
+        return jsonify({
+            "success":       True,
+            "success_count": success_count,
+            "failure_count": failure_count,
+        })
+    except Exception as e:
+        return _pt_error(f'Notification failed: {e}', 500)
+
+
+def _get_fcm_tokens(uids: list) -> list:
+    """Fetch FCM tokens for a list of user UIDs from Firestore."""
+    tokens = []
+    for uid in uids:
+        try:
+            doc = db.collection('users').document(uid).get()
+            if doc.exists:
+                token = doc.to_dict().get('fcm_token')
+                if token:
+                    tokens.append(token)
+        except Exception:
+            pass
+    return tokens
+
+
+def _send_multicast(tokens: list, notification, data: dict) -> tuple:
+    """Send FCM multicast in batches of 500. Returns (success, failure) counts."""
+    if not tokens:
+        return 0, 0
+    success = failure = 0
+    batch_size = 500
+    for i in range(0, len(tokens), batch_size):
+        batch = tokens[i:i + batch_size]
+        msg   = messaging.MulticastMessage(
+            notification=notification,
+            data=data,
+            tokens=batch,
+        )
+        resp = messaging.send_each_for_multicast(msg)
+        success  += resp.success_count
+        failure  += resp.failure_count
+    return success, failure
 
 
 @app.errorhandler(404)

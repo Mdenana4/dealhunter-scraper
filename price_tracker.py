@@ -501,3 +501,43 @@ def get_triggered_alerts(price_change_event: dict) -> list[dict]:
             triggered.append({"alert_id": a.id, **data})
 
     return triggered
+
+
+def get_user_alerts(user_id: str) -> list[dict]:
+    """Return all active alerts owned by user_id, newest first."""
+    db = _db()
+    docs = (
+        db.collection("price_alerts")
+          .where("user_id", "==", user_id)
+          .where("is_active", "==", True)
+          .order_by("created_at", direction="DESCENDING")
+          .stream()
+    )
+    result = []
+    for d in docs:
+        data = d.to_dict() or {}
+        data["alert_id"] = d.id
+        # serialise datetime fields
+        for k in ("created_at", "last_alerted_at"):
+            v = data.get(k)
+            if hasattr(v, "isoformat"):
+                data[k] = v.isoformat()
+        result.append(data)
+    return result
+
+
+def delete_alert(alert_id: str, user_id: str) -> bool:
+    """
+    Soft-delete (deactivate) an alert.
+    Returns True if the alert was found and belonged to user_id, False otherwise.
+    """
+    db  = _db()
+    ref = db.collection("price_alerts").document(alert_id)
+    doc = ref.get()
+    if not doc.exists:
+        return False
+    data = doc.to_dict() or {}
+    if data.get("user_id") != user_id:
+        return False
+    ref.update({"is_active": False})
+    return True

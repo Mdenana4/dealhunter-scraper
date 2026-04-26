@@ -1,15 +1,15 @@
-name: Flutter Admin App — Analyze & Test
+name: Flutter User App — Analyze & Test
 
 on:
   push:
     branches: [main]
     paths:
-      - 'app/admin_app/**'
-      - '.github/workflows/flutter-build.yml'
+      - 'app/user_app/**'
+      - '.github/workflows/flutter-user-app.yml'
   pull_request:
     branches: [main]
     paths:
-      - 'app/admin_app/**'
+      - 'app/user_app/**'
   workflow_dispatch:
 
 permissions:
@@ -17,7 +17,7 @@ permissions:
   actions: read
 
 jobs:
-  build-apk:
+  analyze:
     name: analyze
     runs-on: ubuntu-latest
     steps:
@@ -35,23 +35,23 @@ jobs:
 
       - name: Get dependencies
         run: |
-          cd app/admin_app
+          cd app/user_app
           flutter pub get
 
-      - name: Analyze (type-check all Dart code)
+      - name: Analyze
         run: |
-          cd app/admin_app
+          cd app/user_app
           flutter analyze --fatal-warnings 2>&1 | tee analyze.log
           tail -5 analyze.log
 
       - name: Run tests
         run: |
-          cd app/admin_app
+          cd app/user_app
           flutter test 2>/dev/null || echo "No tests found — skipping"
 
       - name: Upload analyze log on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: flutter-analyze-log
-          path: app/admin_app/analyze.log
+          name: user-app-analyze-log
+          path: app/user_app/analyze.log

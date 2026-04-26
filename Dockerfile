@@ -27,7 +27,8 @@ COPY scraper.py .
 COPY fake_checker.py .
 COPY price_tracker.py .
 COPY scraper_health.py .
-COPY firebase-credentials.json .
+COPY start.sh .
+RUN chmod +x start.sh
 
 # Copy static files
 COPY admin.html .
@@ -44,5 +45,5 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD /healthcheck.sh
 
-# Run Flask server
-CMD ["python", "server.py"]
+# Run server + scraper together
+CMD ["sh", "start.sh"]
