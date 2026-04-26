@@ -149,8 +149,8 @@ class _GroupCard extends StatelessWidget {
   Widget _chip(IconData icon, String label, Color color) => Chip(
         avatar: Icon(icon, size: 14, color: color),
         label: Text(label, style: TextStyle(fontSize: 12, color: color)),
-        backgroundColor: color.withOpacity(0.1),
-        side: BorderSide(color: color.withOpacity(0.3)),
+        backgroundColor: color.withValues(alpha: 0.1),
+        side: BorderSide(color: color.withValues(alpha: 0.3)),
         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         padding: const EdgeInsets.symmetric(horizontal: 4),
       );
