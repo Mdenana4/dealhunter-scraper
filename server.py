@@ -3,7 +3,7 @@ from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore, messaging, auth as fb_auth
 import json, os, re, requests, hashlib, hmac, base64, time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from functools import wraps
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives import padding as crypto_padding
@@ -629,8 +629,23 @@ def mobile_get_deals():
         if mc:
             q = q.where('site', '==', mc)   # scraper stores marketplace in 'site'
 
-        all_docs = list(q.order_by('discount_percent', direction=firestore.Query.DESCENDING)
-                         .stream())
+        # Sort in Python to avoid requiring composite Firestore indexes when
+        # a where() filter is combined with order_by().
+        all_docs = list(q.stream())
+        all_docs.sort(
+            key=lambda doc: int(doc.to_dict().get('discount_percent', 0)),
+            reverse=True,
+        )
+
+        # Drop deals not updated in the last 7 days; they are almost certainly
+        # expired at the store. Fall back to 30-day window if nothing is fresh.
+        def _cutoff(days):
+            return (datetime.utcnow() - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%S')
+
+        fresh = [d for d in all_docs if d.to_dict().get('timestamp', '') >= _cutoff(7)]
+        if not fresh:
+            fresh = [d for d in all_docs if d.to_dict().get('timestamp', '') >= _cutoff(30)]
+        all_docs = fresh
 
         # Apply min_discount and paginate in memory (Firestore doesn't support !=)
         results = []
