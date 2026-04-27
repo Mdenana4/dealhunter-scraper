@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Simple "D" lettermark for DealHunter -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M28,22 L28,86 L56,86 C76,86 88,72 88,54 C88,36 76,22 56,22 Z
+                          M44,38 L56,38 C68,38 72,46 72,54 C72,62 68,70 56,70 L44,70 Z"/>
+</vector>

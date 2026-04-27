@@ -15,6 +15,7 @@ if (keystoreFile.exists()) {
 android {
     namespace "com.dealhunter.app"
     compileSdk 36
+    ndkVersion "28.2.13676358"
 
     defaultConfig {
         applicationId "com.dealhunter.app"
