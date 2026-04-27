@@ -69,7 +69,8 @@ class _DealsScreenState extends ConsumerState<DealsScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.notifications_outlined),
-            onPressed: () {},
+            onPressed: () =>
+                ref.read(homeTabIndexProvider.notifier).state = 2,
           ),
         ],
         bottom: PreferredSize(

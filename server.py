@@ -629,8 +629,13 @@ def mobile_get_deals():
         if mc:
             q = q.where('site', '==', mc)   # scraper stores marketplace in 'site'
 
-        all_docs = list(q.order_by('discount_percent', direction=firestore.Query.DESCENDING)
-                         .stream())
+        # Sort in Python to avoid requiring composite Firestore indexes when
+        # a where() filter is combined with order_by().
+        all_docs = list(q.stream())
+        all_docs.sort(
+            key=lambda doc: int(doc.to_dict().get('discount_percent', 0)),
+            reverse=True,
+        )
 
         # Apply min_discount and paginate in memory (Firestore doesn't support !=)
         results = []

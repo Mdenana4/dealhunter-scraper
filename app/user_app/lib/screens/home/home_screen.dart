@@ -1,19 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../providers/app_providers.dart';
 import '../deals/deals_screen.dart';
 import '../membership/membership_screen.dart';
 import '../saved/saved_screen.dart';
 import '../search/search_screen.dart';
 import '../settings/settings_screen.dart';
 
-class HomeScreen extends StatefulWidget {
+class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
-
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends State<HomeScreen> {
-  int _index = 0;
 
   static const _destinations = [
     NavigationDestination(
@@ -52,15 +47,17 @@ class _HomeScreenState extends State<HomeScreen> {
   ];
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final index = ref.watch(homeTabIndexProvider);
     return Scaffold(
       body: IndexedStack(
-        index: _index,
+        index: index,
         children: _screens,
       ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
+        selectedIndex: index,
+        onDestinationSelected: (i) =>
+            ref.read(homeTabIndexProvider.notifier).state = i,
         destinations: _destinations,
       ),
     );

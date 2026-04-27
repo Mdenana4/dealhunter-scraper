@@ -5,6 +5,10 @@ import '../models/deal_model.dart';
 import '../models/user_model.dart';
 import '../services/api_service.dart';
 
+// ─── Navigation ────────────────────────────────────────────────────────────
+
+final homeTabIndexProvider = StateProvider<int>((ref) => 0);
+
 // ─── Services ──────────────────────────────────────────────────────────────
 
 final apiServiceProvider = Provider<ApiService>((ref) => ApiService());

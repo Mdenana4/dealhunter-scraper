@@ -57,13 +57,13 @@ class _DealDetailScreenState extends ConsumerState<DealDetailScreen> {
     if (uid == null) return;
     final ref2 = FirebaseFirestore.instance.collection('users').doc(uid);
     if (_saved) {
-      await ref2.update({
+      await ref2.set({
         'saved_deals': FieldValue.arrayRemove([deal.id]),
-      });
+      }, SetOptions(merge: true));
     } else {
-      await ref2.update({
+      await ref2.set({
         'saved_deals': FieldValue.arrayUnion([deal.id]),
-      });
+      }, SetOptions(merge: true));
       ref.read(apiServiceProvider).logEvent('deal_save', {'deal_id': deal.id});
     }
     setState(() => _saved = !_saved);
