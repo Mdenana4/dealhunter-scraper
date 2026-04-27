@@ -356,6 +356,9 @@ def tracker_history():
     pid = request.args.get("product_id", "").strip()
     if not mc or not pid:
         return _pt_error("marketplace_country and product_id are required")
+    # Strip marketplace prefix if the app passed the full Firestore doc_id
+    if pid.startswith(mc + "_"):
+        pid = pid[len(mc) + 1:]
 
     days         = request.args.get("days", 90, type=int)
     changes_only = request.args.get("changes_only", "").lower() in ("1", "true", "yes")
@@ -391,6 +394,8 @@ def tracker_product():
     pid = request.args.get("product_id", "").strip()
     if not mc or not pid:
         return _pt_error("marketplace_country and product_id are required")
+    if pid.startswith(mc + "_"):
+        pid = pid[len(mc) + 1:]
 
     days = request.args.get("days", 90, type=int)
     try:
@@ -744,6 +749,8 @@ def mobile_verify():
     pid = request.args.get('product_id', '').strip()
     if not mc or not pid:
         return jsonify({"success": False, "error": "marketplace_country and product_id required"}), 400
+    if pid.startswith(mc + "_"):
+        pid = pid[len(mc) + 1:]
 
     try:
         # Try price_tracker collection first (populated after scraper fix)

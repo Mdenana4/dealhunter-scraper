@@ -1,8 +1,9 @@
 class DealModel {
-  final String id;
+  final String id;         // Firestore document ID (e.g. amazon_eg_B09XYZ)
+  final String productId;  // raw ASIN / SKU (e.g. B09XYZ) — used for price history
   final String title;
   final String store;
-  final String source;
+  final String source;     // marketplace_country (e.g. amazon_eg)
   final double currentPrice;
   final double originalPrice;
   final int discountPercent;
@@ -18,6 +19,7 @@ class DealModel {
 
   const DealModel({
     required this.id,
+    required this.productId,
     required this.title,
     required this.store,
     required this.source,
@@ -36,8 +38,12 @@ class DealModel {
   });
 
   factory DealModel.fromJson(Map<String, dynamic> json) {
+    final docId = json['id'] as String? ?? '';
+    // product_id is the raw ASIN/SKU; fall back to doc ID if missing
+    final rawProductId = json['product_id'] as String? ?? docId;
     return DealModel(
-      id: json['id'] as String? ?? '',
+      id: docId,
+      productId: rawProductId,
       title: json['title'] as String? ?? '',
       store: json['store'] as String? ?? json['source'] as String? ?? '',
       source: json['source'] as String? ?? '',

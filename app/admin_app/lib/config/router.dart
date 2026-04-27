@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../screens/auth/admin_login_screen.dart';
@@ -9,6 +10,13 @@ import '../screens/notifications/notifications_screen.dart';
 
 final adminRouter = GoRouter(
   initialLocation: '/',
+  redirect: (BuildContext context, GoRouterState state) {
+    final isLoggedIn = FirebaseAuth.instance.currentUser != null;
+    final onLogin = state.matchedLocation == '/login';
+    if (!isLoggedIn && !onLogin) return '/login';
+    if (isLoggedIn && onLogin) return '/';
+    return null;
+  },
   errorBuilder: (context, state) => Scaffold(
     appBar: AppBar(title: const Text('Error')),
     body: Center(

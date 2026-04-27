@@ -337,7 +337,7 @@ class _DealDetailBody extends ConsumerWidget {
                 await ref.read(apiServiceProvider).createAlert(
                       userId: uid,
                       marketplaceCountry: deal.source,
-                      productId: deal.id,
+                      productId: deal.productId,
                       targetPrice: target,
                     );
                 if (context.mounted) {
@@ -372,7 +372,7 @@ class _VerifyCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final key = (
       marketplaceCountry: deal.source,
-      productId: deal.id,
+      productId: deal.productId,
     );
     final verifyAsync = ref.watch(verifyProvider(key));
     final cs = Theme.of(context).colorScheme;
@@ -501,7 +501,7 @@ class _PriceHistoryCardState extends ConsumerState<_PriceHistoryCard> {
   Widget build(BuildContext context) {
     final key = (
       marketplaceCountry: widget.deal.source,
-      productId: widget.deal.id,
+      productId: widget.deal.productId,
       days: _days,
     );
     final histAsync = ref.watch(priceHistoryProvider(key));
