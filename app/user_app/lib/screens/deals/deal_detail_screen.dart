@@ -331,9 +331,18 @@ class _DealDetailBody extends ConsumerWidget {
           ),
           FilledButton(
             onPressed: () async {
-              Navigator.pop(context);
               final target = double.tryParse(ctrl.text);
-              if (target == null) return;
+              if (target == null || target <= 0 || target >= deal.currentPrice) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Enter a price between 0 and ${deal.formattedPrice}',
+                    ),
+                  ),
+                );
+                return;
+              }
+              Navigator.pop(context);
               try {
                 await ref.read(apiServiceProvider).createAlert(
                       userId: uid,

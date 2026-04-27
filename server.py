@@ -10,7 +10,8 @@ from cryptography.hazmat.primitives import padding as crypto_padding
 from cryptography.hazmat.backends import default_backend
 
 app = Flask(__name__)
-CORS(app)
+_cors_origins = os.getenv('CORS_ORIGINS', 'https://dealhunter-scraper.onrender.com')
+CORS(app, origins=_cors_origins.split(','))
 
 firebase_key_json = os.getenv("FIREBASE_KEY_JSON")
 if firebase_key_json:
@@ -23,7 +24,7 @@ else:
 db = firestore.client()
 
 SAFQA_BASE    = "https://api.sfq.app/v1"
-SAFQA_AES_KEY = "ee6uFer3jc6WuzbUGrhV"
+SAFQA_AES_KEY = os.getenv("SAFQA_AES_KEY", "ee6uFer3jc6WuzbUGrhV")
 SAFQA_HEADERS = {
     "X-joinsafqa": "joinsafqa-0.1.105",
     "Content-Type": "application/json",

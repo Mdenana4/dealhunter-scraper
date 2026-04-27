@@ -176,5 +176,5 @@ final userAlertsProvider =
     FutureProvider.autoDispose<List<Map<String, dynamic>>>((ref) async {
   final uid = ref.watch(authStateProvider).valueOrNull?.uid;
   if (uid == null) return [];
-  return ref.read(apiServiceProvider).getAlerts(uid);
+  return ref.watch(apiServiceProvider).getAlerts(uid);
 });

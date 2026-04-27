@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -16,9 +18,11 @@ class SearchScreen extends ConsumerStatefulWidget {
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   final _ctrl = TextEditingController();
   String? _category;
+  Timer? _debounce;
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _ctrl.dispose();
     super.dispose();
   }
@@ -28,6 +32,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           query ?? _ctrl.text,
           category: _category,
         );
+  }
+
+  void _onChanged(String v) {
+    setState(() {});
+    _debounce?.cancel();
+    if (v.length >= 2) {
+      _debounce = Timer(const Duration(milliseconds: 400), () => _search(v));
+    } else {
+      ref.read(searchProvider.notifier).clear();
+    }
   }
 
   @override
@@ -60,7 +74,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 ),
                 const SizedBox(height: 24),
                 FilledButton(
-                  onPressed: () {},
+                  onPressed: () => context.go('/home/membership'),
                   child: const Text('Upgrade Now'),
                 ),
               ],
@@ -90,10 +104,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   )
                 : null,
           ),
-          onChanged: (v) {
-            setState(() {});
-            if (v.length >= 2) _search(v);
-          },
+          onChanged: _onChanged,
           onSubmitted: _search,
         ),
       ),
