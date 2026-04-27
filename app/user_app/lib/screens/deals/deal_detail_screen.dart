@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -75,14 +76,6 @@ class _DealDetailScreenState extends ConsumerState<DealDetailScreen> {
     if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
-  void _share(DealModel deal) {
-    Share.share(
-      '🔥 ${deal.discountPercent}% OFF: ${deal.title}\n'
-      '${deal.formattedPrice} (was ${deal.formattedOriginal})\n'
-      '${deal.productUrl}',
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final dealAsync = widget.deal != null
@@ -101,7 +94,6 @@ class _DealDetailScreenState extends ConsumerState<DealDetailScreen> {
         saved: _saved,
         onSave: () => _toggleSave(deal),
         onBuy: () => _launchBuy(deal),
-        onShare: () => _share(deal),
       ),
     );
   }
@@ -113,14 +105,12 @@ class _DealDetailBody extends ConsumerWidget {
     required this.saved,
     required this.onSave,
     required this.onBuy,
-    required this.onShare,
   });
 
   final DealModel deal;
   final bool saved;
   final VoidCallback onSave;
   final VoidCallback onBuy;
-  final VoidCallback onShare;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -142,7 +132,7 @@ class _DealDetailBody extends ConsumerWidget {
               ),
               IconButton(
                 icon: const Icon(Icons.share_outlined),
-                onPressed: onShare,
+                onPressed: () => _showShareSheet(context, deal),
               ),
             ],
             flexibleSpace: FlexibleSpaceBar(
@@ -709,6 +699,138 @@ class _StatChip extends StatelessWidget {
             style: TextStyle(
                 fontWeight: FontWeight.bold, color: color, fontSize: 13)),
       ],
+    );
+  }
+}
+
+// ─── Social share sheet ────────────────────────────────────────────────────
+
+void _showShareSheet(BuildContext context, DealModel deal) {
+  final text = '🔥 ${deal.discountPercent}% OFF: ${deal.title}\n'
+      '${deal.formattedPrice} (was ${deal.formattedOriginal})\n'
+      '${deal.productUrl}';
+  final encodedText = Uri.encodeComponent(text);
+  final encodedUrl = Uri.encodeComponent(deal.productUrl);
+
+  showModalBottomSheet(
+    context: context,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Share via',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _ShareButton(
+                  label: 'WhatsApp',
+                  color: const Color(0xFF25D366),
+                  icon: Icons.chat_rounded,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    launchUrl(
+                      Uri.parse('https://wa.me/?text=$encodedText'),
+                      mode: LaunchMode.externalApplication,
+                    );
+                  },
+                ),
+                _ShareButton(
+                  label: 'Telegram',
+                  color: const Color(0xFF0088CC),
+                  icon: Icons.send_rounded,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    launchUrl(
+                      Uri.parse(
+                          'https://t.me/share/url?url=$encodedUrl&text=$encodedText'),
+                      mode: LaunchMode.externalApplication,
+                    );
+                  },
+                ),
+                _ShareButton(
+                  label: 'Facebook',
+                  color: const Color(0xFF1877F2),
+                  icon: Icons.facebook_rounded,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    launchUrl(
+                      Uri.parse(
+                          'https://www.facebook.com/sharer/sharer.php?u=$encodedUrl'),
+                      mode: LaunchMode.externalApplication,
+                    );
+                  },
+                ),
+                _ShareButton(
+                  label: 'Instagram',
+                  color: const Color(0xFFE1306C),
+                  icon: Icons.camera_alt_rounded,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Clipboard.setData(ClipboardData(text: text));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content:
+                            Text('Copied! Open Instagram and paste in your story or message.'),
+                      ),
+                    );
+                  },
+                ),
+                _ShareButton(
+                  label: 'More',
+                  color: Colors.grey.shade600,
+                  icon: Icons.more_horiz_rounded,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    Share.share(text);
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+class _ShareButton extends StatelessWidget {
+  const _ShareButton({
+    required this.label,
+    required this.color,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final Color color;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            child: Icon(icon, color: Colors.white, size: 26),
+          ),
+          const SizedBox(height: 6),
+          Text(label, style: const TextStyle(fontSize: 11)),
+        ],
+      ),
     );
   }
 }
