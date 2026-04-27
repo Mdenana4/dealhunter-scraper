@@ -38,6 +38,7 @@ class _DealsScreenState extends ConsumerState<DealsScreen> {
 
   @override
   void dispose() {
+    _scrollCtrl.removeListener(_onScroll);
     _scrollCtrl.dispose();
     super.dispose();
   }

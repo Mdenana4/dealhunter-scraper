@@ -35,7 +35,8 @@ class AlertsScreen extends ConsumerWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.notifications_none, size: 64, color: cs.onSurfaceVariant),
+                Icon(Icons.notifications_none,
+                    size: 64, color: cs.onSurfaceVariant),
                 const SizedBox(height: 12),
                 Text(
                   'No price alerts',
@@ -60,11 +61,13 @@ class AlertsScreen extends ConsumerWidget {
           child: ListView.separated(
             padding: const EdgeInsets.symmetric(vertical: 8),
             itemCount: alerts.length,
-            separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+            separatorBuilder: (_, __) =>
+                const Divider(height: 1, indent: 72),
             itemBuilder: (_, i) => _AlertTile(
               alert: alerts[i],
               onDelete: () async {
-                final uid = ref.read(authStateProvider).valueOrNull?.uid ?? '';
+                final uid =
+                    ref.read(authStateProvider).valueOrNull?.uid ?? '';
                 await ref
                     .read(apiServiceProvider)
                     .deleteAlert(alerts[i]['alert_id'] as String, uid);
@@ -84,10 +87,36 @@ class _AlertTile extends StatelessWidget {
   final Map<String, dynamic> alert;
   final VoidCallback onDelete;
 
+  Future<bool> _confirmDelete(BuildContext context) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Remove alert?'),
+            content: const Text(
+                'You will no longer receive notifications for this price drop.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Remove'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final productId = alert['product_id'] as String? ?? '';
+    // Prefer human-readable title; fall back to product_id
+    final title = alert['title'] as String? ??
+        alert['product_title'] as String? ??
+        productId;
     final marketplace = alert['marketplace_country'] as String? ?? '';
     final targetPrice = alert['target_price'];
     final thresholdPct = alert['alert_threshold_pct'];
@@ -98,7 +127,8 @@ class _AlertTile extends StatelessWidget {
     if (targetPrice != null) {
       subtitle = 'Alert when price ≤ ${_fmtPrice(targetPrice, marketplace)}';
     } else if (thresholdPct != null) {
-      subtitle = 'Alert on ≥ ${thresholdPct.toStringAsFixed(0)}% price drop';
+      subtitle =
+          'Alert on ≥ ${thresholdPct.toStringAsFixed(0)}% price drop';
     } else {
       subtitle = 'Any price drop';
     }
@@ -118,29 +148,10 @@ class _AlertTile extends StatelessWidget {
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
         color: cs.errorContainer,
-        child: Icon(Icons.notifications_off_outlined, color: cs.onErrorContainer),
+        child: Icon(Icons.notifications_off_outlined,
+            color: cs.onErrorContainer),
       ),
-      confirmDismiss: (_) async {
-        return await showDialog<bool>(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: const Text('Remove alert?'),
-            content: const Text(
-                'You will no longer receive notifications for this price drop.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Remove'),
-              ),
-            ],
-          ),
-        ) ??
-            false;
-      },
+      confirmDismiss: (_) => _confirmDelete(context),
       onDismissed: (_) => onDelete(),
       child: ListTile(
         onTap: () => context.go('/home/deal/$productId'),
@@ -150,7 +161,7 @@ class _AlertTile extends StatelessWidget {
               color: cs.onPrimaryContainer, size: 20),
         ),
         title: Text(
-          productId,
+          title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontWeight: FontWeight.w500),
@@ -158,16 +169,19 @@ class _AlertTile extends StatelessWidget {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(subtitle, style: TextStyle(color: cs.primary, fontSize: 13)),
+            Text(subtitle,
+                style: TextStyle(color: cs.primary, fontSize: 13)),
             if (lastAlerted != null)
               Text(
                 'Last triggered: ${_fmtDate(lastAlerted.toString())}',
-                style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                style:
+                    TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
               )
             else if (dateStr != null)
               Text(
                 'Set on $dateStr',
-                style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
+                style:
+                    TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
               ),
           ],
         ),
@@ -175,26 +189,7 @@ class _AlertTile extends StatelessWidget {
           icon: Icon(Icons.delete_outline, color: cs.error),
           tooltip: 'Remove alert',
           onPressed: () async {
-            final confirmed = await showDialog<bool>(
-              context: context,
-              builder: (_) => AlertDialog(
-                title: const Text('Remove alert?'),
-                content: const Text(
-                    'You will no longer receive notifications for this price drop.'),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, false),
-                    child: const Text('Cancel'),
-                  ),
-                  FilledButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    child: const Text('Remove'),
-                  ),
-                ],
-              ),
-            ) ??
-                false;
-            if (confirmed) onDelete();
+            if (await _confirmDelete(context)) onDelete();
           },
         ),
         isThreeLine: true,

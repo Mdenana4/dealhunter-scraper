@@ -1,8 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../models/user_model.dart';
 import '../../providers/app_providers.dart';
 
@@ -16,6 +18,34 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _referralCtrl = TextEditingController();
   bool _applyingReferral = false;
+  bool _notificationsEnabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNotificationPref();
+  }
+
+  Future<void> _loadNotificationPref() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() =>
+          _notificationsEnabled = prefs.getBool('notifications_enabled') ?? true);
+    }
+  }
+
+  Future<void> _toggleNotifications(bool value) async {
+    if (value) {
+      final status = await FirebaseMessaging.instance.requestPermission();
+      if (status.authorizationStatus != AuthorizationStatus.authorized &&
+          status.authorizationStatus != AuthorizationStatus.provisional) {
+        return; // User denied — don't update the toggle
+      }
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('notifications_enabled', value);
+    if (mounted) setState(() => _notificationsEnabled = value);
+  }
 
   @override
   void dispose() {
@@ -130,8 +160,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             title: const Text('Price drop alerts'),
             subtitle: const Text('Get notified when deals drop in price'),
             trailing: Switch(
-              value: true,
-              onChanged: (_) {},
+              value: _notificationsEnabled,
+              onChanged: _toggleNotifications,
             ),
           ),
 

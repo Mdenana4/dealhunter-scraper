@@ -25,6 +25,24 @@ class ApiService {
           }
           handler.next(options);
         },
+        onError: (err, handler) async {
+          if (err.response?.statusCode == 401) {
+            // Token may have expired — force refresh and retry once
+            try {
+              final user = FirebaseAuth.instance.currentUser;
+              if (user != null) {
+                final token = await user.getIdToken(true);
+                final opts = err.requestOptions;
+                opts.headers['Authorization'] = 'Bearer $token';
+                final resp = await _dio.fetch(opts);
+                return handler.resolve(resp);
+              }
+            } catch (_) {
+              // Refresh failed — fall through to original error
+            }
+          }
+          handler.next(err);
+        },
       ),
     );
   }
