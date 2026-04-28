@@ -3,6 +3,7 @@ flask-cors
 firebase-admin
 requests
 beautifulsoup4
+lxml
 cryptography
 schedule
 python-dotenv
