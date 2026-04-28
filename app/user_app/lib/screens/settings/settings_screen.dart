@@ -61,11 +61,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (picked == null || picked == _language) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('language', picked);
+    // Update locale provider — takes effect immediately, no restart needed.
+    ref.read(localeProvider.notifier).state = Locale(picked);
     if (mounted) {
       setState(() => _language = picked);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Language saved. Restart the app to apply.'),
+        SnackBar(
+          content: Text(picked == 'ar'
+              ? 'تم تغيير اللغة إلى العربية'
+              : 'Language changed to English'),
         ),
       );
     }

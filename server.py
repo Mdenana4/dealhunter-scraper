@@ -668,14 +668,30 @@ def mobile_get_deals():
 
         all_docs.sort(key=_disc_sort_key, reverse=True)
 
-        # Drop deals not updated in the last 7 days; they are almost certainly
-        # expired at the store. Fall back to 30-day window if nothing is fresh.
-        def _cutoff(days):
-            return (datetime.utcnow() - timedelta(days=days)).strftime('%Y-%m-%dT%H:%M:%S')
+        # Drop deals not updated in the last N days.
+        # timestamp can be a Firestore DatetimeWithNanoseconds OR an ISO string.
+        def _cutoff_dt(days):
+            return datetime.now(timezone.utc) - timedelta(days=days)
 
-        fresh = [d for d in all_docs if d.to_dict().get('timestamp', '') >= _cutoff(7)]
+        def _doc_dt(doc):
+            ts = doc.to_dict().get('timestamp')
+            if ts is None:
+                return None
+            if hasattr(ts, 'tzinfo'):  # DatetimeWithNanoseconds / datetime
+                if ts.tzinfo is None:
+                    return ts.replace(tzinfo=timezone.utc)
+                return ts
+            if isinstance(ts, str) and ts:
+                try:
+                    return datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                except Exception:
+                    pass
+            return None
+
+        _epoch = datetime.min.replace(tzinfo=timezone.utc)
+        fresh = [d for d in all_docs if (_doc_dt(d) or _epoch) >= _cutoff_dt(7)]
         if not fresh:
-            fresh = [d for d in all_docs if d.to_dict().get('timestamp', '') >= _cutoff(30)]
+            fresh = [d for d in all_docs if (_doc_dt(d) or _epoch) >= _cutoff_dt(30)]
         all_docs = fresh
 
         # Apply min_discount and paginate in memory (Firestore doesn't support !=)

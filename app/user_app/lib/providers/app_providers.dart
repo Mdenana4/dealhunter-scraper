@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/deal_model.dart';
 import '../models/user_model.dart';
@@ -8,6 +9,10 @@ import '../services/api_service.dart';
 // ─── Navigation ────────────────────────────────────────────────────────────
 
 final homeTabIndexProvider = StateProvider<int>((ref) => 0);
+
+// ─── Locale ────────────────────────────────────────────────────────────────
+
+final localeProvider = StateProvider<Locale>((ref) => const Locale('en'));
 
 // ─── Services ──────────────────────────────────────────────────────────────
 

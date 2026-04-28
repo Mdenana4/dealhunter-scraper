@@ -3,8 +3,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'config/router.dart';
+import 'providers/app_providers.dart';
 
 // Must be a top-level function — called when the app is in background/terminated.
 @pragma('vm:entry-point')
@@ -16,17 +19,24 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_backgroundMessageHandler);
-  runApp(const ProviderScope(child: DealHunterApp()));
+  final prefs = await SharedPreferences.getInstance();
+  final langCode = prefs.getString('language') ?? 'en';
+  runApp(ProviderScope(
+    overrides: [
+      localeProvider.overrideWith((ref) => Locale(langCode)),
+    ],
+    child: const DealHunterApp(),
+  ));
 }
 
-class DealHunterApp extends StatefulWidget {
+class DealHunterApp extends ConsumerStatefulWidget {
   const DealHunterApp({super.key});
 
   @override
-  State<DealHunterApp> createState() => _DealHunterAppState();
+  ConsumerState<DealHunterApp> createState() => _DealHunterAppState();
 }
 
-class _DealHunterAppState extends State<DealHunterApp> {
+class _DealHunterAppState extends ConsumerState<DealHunterApp> {
   @override
   void initState() {
     super.initState();
@@ -90,9 +100,17 @@ class _DealHunterAppState extends State<DealHunterApp> {
 
   @override
   Widget build(BuildContext context) {
+    final locale = ref.watch(localeProvider);
     return MaterialApp.router(
       title: 'DealHunter',
       debugShowCheckedModeBanner: false,
+      locale: locale,
+      supportedLocales: const [Locale('en'), Locale('ar')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       theme: ThemeData(
         useMaterial3: true,
         colorSchemeSeed: const Color(0xFF1565C0),
