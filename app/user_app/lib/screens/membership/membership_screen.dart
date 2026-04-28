@@ -22,10 +22,38 @@ const _pricesSAR = {
   'vip':     {'monthly': 219.99,'6months': 1187.95,'yearly': 1979.91},
 };
 
+const _pricesKWD = {
+  'basic':   {'monthly': 4.49,  '6months': 24.25,  'yearly': 40.41},
+  'premium': {'monthly': 8.99,  '6months': 48.55,  'yearly': 80.91},
+  'vip':     {'monthly': 17.99, '6months': 97.15,  'yearly': 161.91},
+};
+
+const _pricesBHD = {
+  'basic':   {'monthly': 5.49,  '6months': 29.65,  'yearly': 49.41},
+  'premium': {'monthly': 10.99, '6months': 59.35,  'yearly': 98.91},
+  'vip':     {'monthly': 21.99, '6months': 118.75, 'yearly': 197.91},
+};
+
+const _pricesQAR = {
+  'basic':   {'monthly': 54.99, '6months': 296.95, 'yearly': 494.91},
+  'premium': {'monthly': 109.99,'6months': 593.95, 'yearly': 989.91},
+  'vip':     {'monthly': 219.99,'6months': 1187.95,'yearly': 1979.91},
+};
+
+const _pricesOMR = {
+  'basic':   {'monthly': 5.99,  '6months': 32.35,  'yearly': 53.91},
+  'premium': {'monthly': 11.99, '6months': 64.75,  'yearly': 107.91},
+  'vip':     {'monthly': 23.99, '6months': 129.55, 'yearly': 215.91},
+};
+
 String _currencyFor(String? country) {
   switch ((country ?? '').toUpperCase()) {
     case 'EG': return 'EGP';
     case 'SA': return 'SAR';
+    case 'KW': return 'KWD';
+    case 'BH': return 'BHD';
+    case 'QA': return 'QAR';
+    case 'OM': return 'OMR';
     default:   return 'AED';
   }
 }
@@ -34,6 +62,10 @@ Map<String, Map<String, double>> _pricesFor(String? country) {
   switch ((country ?? '').toUpperCase()) {
     case 'EG': return _pricesEGP;
     case 'SA': return _pricesSAR;
+    case 'KW': return _pricesKWD;
+    case 'BH': return _pricesBHD;
+    case 'QA': return _pricesQAR;
+    case 'OM': return _pricesOMR;
     default:   return _pricesAED;
   }
 }

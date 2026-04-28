@@ -660,10 +660,13 @@ def mobile_get_deals():
         # Sort in Python to avoid requiring composite Firestore indexes when
         # a where() filter is combined with order_by().
         all_docs = list(q.stream())
-        all_docs.sort(
-            key=lambda doc: int(doc.to_dict().get('discount_percent') or 0),
-            reverse=True,
-        )
+        def _disc_sort_key(doc):
+            try:
+                return int(doc.to_dict().get('discount_percent') or 0)
+            except Exception:
+                return 0
+
+        all_docs.sort(key=_disc_sort_key, reverse=True)
 
         # Drop deals not updated in the last 7 days; they are almost certainly
         # expired at the store. Fall back to 30-day window if nothing is fresh.
@@ -680,14 +683,20 @@ def mobile_get_deals():
         skipped = 0
         for doc in all_docs:
             d = doc.to_dict()
-            if int(d.get('discount_percent') or 0) < min_disc:
+            try:
+                if int(d.get('discount_percent') or 0) < min_disc:
+                    continue
+                if skipped < offset:
+                    skipped += 1
+                    continue
+                results.append(serialize_deal(doc.id, d))
+                if len(results) >= limit:
+                    break
+            except Exception as doc_err:
+                import traceback
+                print(f"[WARN] Skipping bad deal doc {doc.id}: {doc_err}", flush=True)
+                print(traceback.format_exc(), flush=True)
                 continue
-            if skipped < offset:
-                skipped += 1
-                continue
-            results.append(serialize_deal(doc.id, d))
-            if len(results) >= limit:
-                break
 
         return jsonify({
             "success": True,
@@ -697,6 +706,9 @@ def mobile_get_deals():
             "timestamp": now_iso(),
         })
     except Exception as e:
+        import traceback
+        print(f"[ERROR] /api/deals crashed: {e}", flush=True)
+        print(traceback.format_exc(), flush=True)
         return _pt_error(str(e), 500)
 
 
