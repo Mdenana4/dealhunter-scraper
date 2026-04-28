@@ -3,12 +3,40 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/user_model.dart';
 import '../../providers/app_providers.dart';
 
-// Tap Payments AED pricing (matches server-side TIER_PRICES_AED)
-const _prices = {
-  'basic': {'monthly': 14.99, '6months': 80.94, 'yearly': 134.91},
-  'premium': {'monthly': 29.99, '6months': 161.94, 'yearly': 269.91},
-  'vip': {'monthly': 59.99, '6months': 323.94, 'yearly': 539.91},
+// Prices per currency, per billing cycle
+const _pricesEGP = {
+  'basic':   {'monthly': 49.0,  '6months': 264.6,  'yearly': 441.0},
+  'premium': {'monthly': 99.0,  '6months': 534.6,  'yearly': 891.0},
+  'vip':     {'monthly': 199.0, '6months': 1074.6, 'yearly': 1791.0},
 };
+
+const _pricesAED = {
+  'basic':   {'monthly': 14.99, '6months': 80.94,  'yearly': 134.91},
+  'premium': {'monthly': 29.99, '6months': 161.94, 'yearly': 269.91},
+  'vip':     {'monthly': 59.99, '6months': 323.94, 'yearly': 539.91},
+};
+
+const _pricesSAR = {
+  'basic':   {'monthly': 54.99, '6months': 296.95, 'yearly': 494.91},
+  'premium': {'monthly': 109.99,'6months': 593.95, 'yearly': 989.91},
+  'vip':     {'monthly': 219.99,'6months': 1187.95,'yearly': 1979.91},
+};
+
+String _currencyFor(String? country) {
+  switch ((country ?? '').toUpperCase()) {
+    case 'EG': return 'EGP';
+    case 'SA': return 'SAR';
+    default:   return 'AED';
+  }
+}
+
+Map<String, Map<String, double>> _pricesFor(String? country) {
+  switch ((country ?? '').toUpperCase()) {
+    case 'EG': return _pricesEGP;
+    case 'SA': return _pricesSAR;
+    default:   return _pricesAED;
+  }
+}
 
 const _features = {
   'basic': [
@@ -46,6 +74,8 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
   Widget build(BuildContext context) {
     final user = ref.watch(currentUserProvider).valueOrNull;
     final membership = user?.membership ?? const MembershipInfo();
+    final currency = _currencyFor(user?.country);
+    final prices   = _pricesFor(user?.country);
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -61,9 +91,9 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
           Center(
             child: SegmentedButton<String>(
               segments: const [
-                ButtonSegment(value: 'monthly', label: Text('Monthly')),
-                ButtonSegment(value: '6months', label: Text('6 Months')),
-                ButtonSegment(value: 'yearly', label: Text('Yearly')),
+                ButtonSegment(value: 'monthly',  label: Text('Monthly')),
+                ButtonSegment(value: '6months',  label: Text('6 Months')),
+                ButtonSegment(value: 'yearly',   label: Text('Yearly')),
               ],
               selected: {_cycle},
               onSelectionChanged: (s) => setState(() => _cycle = s.first),
@@ -75,8 +105,7 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
               child: Text(
                 'Save 10% vs monthly',
                 textAlign: TextAlign.center,
-                style:
-                    TextStyle(color: Colors.green.shade700, fontSize: 12),
+                style: TextStyle(color: Colors.green.shade700, fontSize: 12),
               ),
             ),
           if (_cycle == 'yearly')
@@ -85,8 +114,7 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
               child: Text(
                 'Save 25% vs monthly',
                 textAlign: TextAlign.center,
-                style:
-                    TextStyle(color: Colors.green.shade700, fontSize: 12),
+                style: TextStyle(color: Colors.green.shade700, fontSize: 12),
               ),
             ),
           const SizedBox(height: 16),
@@ -98,11 +126,13 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
               cycle: _cycle,
               currentTier: membership.tier,
               userId: user?.uid ?? '',
+              currency: currency,
+              prices: prices,
             ),
             const SizedBox(height: 12),
           ],
 
-          // Free features summary
+          // Free plan summary
           const SizedBox(height: 8),
           Card(
             color: cs.surfaceContainerLowest,
@@ -129,8 +159,7 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
                           const SizedBox(width: 8),
                           Text(f,
                               style: TextStyle(
-                                  color: cs.onSurfaceVariant,
-                                  fontSize: 13)),
+                                  color: cs.onSurfaceVariant, fontSize: 13)),
                         ],
                       ),
                     ),
@@ -155,10 +184,10 @@ class _CurrentPlanCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final color = switch (membership.tier) {
-      'vip' => Colors.amber,
+      'vip'     => Colors.amber,
       'premium' => cs.primary,
-      'basic' => Colors.teal,
-      _ => cs.onSurfaceVariant,
+      'basic'   => Colors.teal,
+      _         => cs.onSurfaceVariant,
     };
     return Card(
       child: Padding(
@@ -171,8 +200,7 @@ class _CurrentPlanCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Current Plan',
-                    style: TextStyle(
-                        color: cs.onSurfaceVariant, fontSize: 12)),
+                    style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
                 Text(
                   membership.displayLabel,
                   style: TextStyle(
@@ -189,8 +217,7 @@ class _CurrentPlanCard extends StatelessWidget {
                 'Active since\n'
                 '${membership.activatedAt!.day}/${membership.activatedAt!.month}/${membership.activatedAt!.year}',
                 textAlign: TextAlign.right,
-                style: TextStyle(
-                    fontSize: 11, color: cs.onSurfaceVariant),
+                style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
               ),
           ],
         ),
@@ -207,12 +234,16 @@ class _PlanCard extends StatelessWidget {
     required this.cycle,
     required this.currentTier,
     required this.userId,
+    required this.currency,
+    required this.prices,
   });
 
   final String tier;
   final String cycle;
   final String currentTier;
   final String userId;
+  final String currency;
+  final Map<String, Map<String, double>> prices;
 
   bool get _isCurrent => tier == currentTier;
   bool get _isUpgrade => _tierRank(tier) > _tierRank(currentTier);
@@ -222,14 +253,14 @@ class _PlanCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final cs    = Theme.of(context).colorScheme;
     final color = switch (tier) {
-      'vip' => Colors.amber,
+      'vip'     => Colors.amber,
       'premium' => cs.primary,
-      _ => Colors.teal,
+      _         => Colors.teal,
     };
-    final price = (_prices[tier]?[cycle] ?? 0.0) as double;
-    final label = tier[0].toUpperCase() + tier.substring(1);
+    final price    = (prices[tier]?[cycle] ?? 0.0) as double;
+    final label    = tier[0].toUpperCase() + tier.substring(1);
     final features = _features[tier] ?? [];
 
     return Card(
@@ -264,8 +295,7 @@ class _PlanCard extends StatelessWidget {
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: const Text('Popular',
-                        style: TextStyle(
-                            color: Colors.white, fontSize: 10)),
+                        style: TextStyle(color: Colors.white, fontSize: 10)),
                   ),
                 ],
               ],
@@ -275,7 +305,7 @@ class _PlanCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  'AED ${price.toStringAsFixed(2)}',
+                  '$currency ${price.toStringAsFixed(2)}',
                   style: const TextStyle(
                       fontSize: 22, fontWeight: FontWeight.bold),
                 ),
@@ -333,8 +363,7 @@ class _PlanCard extends StatelessWidget {
     );
   }
 
-  void _showUpgradeSheet(
-      BuildContext context, String tier, double price) {
+  void _showUpgradeSheet(BuildContext context, String tier, double price) {
     showModalBottomSheet(
       context: context,
       builder: (_) => SafeArea(
@@ -349,16 +378,16 @@ class _PlanCard extends StatelessWidget {
                     fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
-              Text('AED ${price.toStringAsFixed(2)} / $cycle'),
+              Text('$currency ${price.toStringAsFixed(2)} / $cycle'),
               const SizedBox(height: 20),
               const Text(
-                'Payment via Tap Payments.\nYou will be redirected to complete the payment.',
+                'Payment coming soon.\nWe will notify you when payment is enabled.',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 20),
               FilledButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Proceed to Payment'),
+                child: const Text('OK'),
               ),
             ],
           ),

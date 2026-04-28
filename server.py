@@ -163,24 +163,47 @@ def detect_fraud_basic(orig, curr, pct) -> dict:
     return {"verdict": verdict, "score": score, "confidence": max(20,min(100,conf)), "reasons": reasons}
 
 def serialize_deal(doc_id, d) -> dict:
-    orig,curr,disc = float(d.get("original_price",0)),float(d.get("current_price",0)),int(d.get("discount_percent",0))
-    f = detect_fraud_basic(orig, curr, disc)
-    # Scraper stores marketplace as 'site' (e.g. "amazon_eg"); 'source' is always "scraper"
-    marketplace = d.get("site") or d.get("marketplace_country") or d.get("source","")
+    orig = float(d.get("original_price") or 0)
+    curr = float(d.get("current_price") or 0)
+    disc = int(d.get("discount_percent") or 0)
+
+    # Prefer the real Kanbkam+Safqa verdict stored by the scraper.
+    # Fall back to the basic math check only when no scraper verdict exists.
+    kb = d.get("kanbkam") or {}
+    kb_verdict = kb.get("verdict", "")
+    if kb_verdict in ("GENUINE", "FAKE", "SUSPICIOUS", "WAIT", "UNVERIFIED"):
+        verdict    = kb_verdict if kb_verdict != "WAIT" else "SUSPICIOUS"
+        fake_score = float(kb.get("fake_score", 50))
+        confidence = float(kb.get("confidence", 65) if "confidence" in kb else (
+            10 if kb_verdict == "GENUINE" else 90 if kb_verdict == "FAKE" else 65))
+        fraud_reasons = ([kb["reason"]] if kb.get("reason") else []) + (
+            ["Rule A: original price inflated"] if kb.get("rule_a_triggered") else []) + (
+            ["Rule B: price never changed"] if kb.get("rule_b_triggered") else [])
+    else:
+        f = detect_fraud_basic(orig, curr, disc)
+        verdict, fake_score, confidence, fraud_reasons = (
+            f["verdict"], f["score"], f["confidence"], f["reasons"])
+
+    marketplace = d.get("site") or d.get("marketplace_country") or d.get("source", "")
     return {
-        "id":doc_id,"title":d.get("title",""),
-        "store":d.get("site_display", marketplace),
+        "id": doc_id, "title": d.get("title", ""),
+        "store": d.get("site_display", marketplace),
         "source": marketplace,
         "marketplace_country": marketplace,
         "product_id": d.get("asin") or d.get("product_id") or doc_id,
-        "current_price":curr,"original_price":orig,
-        "discount_percent":disc,
-        "currency": d.get("currency","EGP"),
-        "image_url":d.get("image_url",""),"product_url":d.get("product_url",""),
-        "category":d.get("category",""),
-        "rating":float(d.get("rating",0)) if d.get("rating") else 0.0,
-        "verdict":f["verdict"],"fake_score":f["score"],
-        "confidence":f["confidence"],"fraud_reasons":f["reasons"],
+        "current_price": curr, "original_price": orig,
+        "discount_percent": disc,
+        "currency": d.get("currency", "EGP"),
+        "image_url": d.get("image_url", ""), "product_url": d.get("product_url", ""),
+        "category": d.get("category", ""),
+        "rating": float(d.get("rating") or 0),
+        "verdict": verdict, "fake_score": fake_score,
+        "confidence": confidence, "fraud_reasons": fraud_reasons,
+        "lowest_price": float(kb.get("lowest_price") or 0),
+        "highest_price": float(kb.get("highest_price") or 0),
+        "verdict_ar": kb.get("verdict_ar", ""),
+        "reason_ar": kb.get("reason_ar", ""),
+        "coupon_codes": kb.get("coupon_codes", []),
     }
 
 # ── Routes ──────────────────────────────────────────────────
@@ -638,7 +661,7 @@ def mobile_get_deals():
         # a where() filter is combined with order_by().
         all_docs = list(q.stream())
         all_docs.sort(
-            key=lambda doc: int(doc.to_dict().get('discount_percent', 0)),
+            key=lambda doc: int(doc.to_dict().get('discount_percent') or 0),
             reverse=True,
         )
 
@@ -657,7 +680,7 @@ def mobile_get_deals():
         skipped = 0
         for doc in all_docs:
             d = doc.to_dict()
-            if int(d.get('discount_percent', 0)) < min_disc:
+            if int(d.get('discount_percent') or 0) < min_disc:
                 continue
             if skipped < offset:
                 skipped += 1

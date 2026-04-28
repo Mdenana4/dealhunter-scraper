@@ -19,6 +19,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _referralCtrl = TextEditingController();
   bool _applyingReferral = false;
   bool _notificationsEnabled = true;
+  String _language = 'en'; // 'en' or 'ar'
 
   @override
   void initState() {
@@ -29,8 +30,44 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _loadNotificationPref() async {
     final prefs = await SharedPreferences.getInstance();
     if (mounted) {
-      setState(() =>
-          _notificationsEnabled = prefs.getBool('notifications_enabled') ?? true);
+      setState(() {
+        _notificationsEnabled = prefs.getBool('notifications_enabled') ?? true;
+        _language = prefs.getString('language') ?? 'en';
+      });
+    }
+  }
+
+  Future<void> _pickLanguage() async {
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (_) => SimpleDialog(
+        title: const Text('Select Language'),
+        children: [
+          RadioListTile<String>(
+            value: 'en',
+            groupValue: _language,
+            title: const Text('English'),
+            onChanged: (v) => Navigator.pop(context, v),
+          ),
+          RadioListTile<String>(
+            value: 'ar',
+            groupValue: _language,
+            title: const Text('العربية'),
+            onChanged: (v) => Navigator.pop(context, v),
+          ),
+        ],
+      ),
+    );
+    if (picked == null || picked == _language) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('language', picked);
+    if (mounted) {
+      setState(() => _language = picked);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Language saved. Restart the app to apply.'),
+        ),
+      );
     }
   }
 
@@ -139,16 +176,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             const Divider(),
           ],
 
-          // Country
-          _SectionHeader(label: 'Region'),
+          // Region & Language
+          _SectionHeader(label: 'Region & Language'),
           ListTile(
             leading: const Icon(Icons.public_outlined),
             title: const Text('Country'),
             subtitle: Text(user?.country ?? 'AE'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: user == null
-                ? null
-                : () => _pickCountry(context, user),
+            onTap: user == null ? null : () => _pickCountry(context, user),
+          ),
+          ListTile(
+            leading: const Icon(Icons.language_outlined),
+            title: const Text('Language'),
+            subtitle: Text(_language == 'ar' ? 'العربية' : 'English'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _pickLanguage,
           ),
 
           const Divider(),
