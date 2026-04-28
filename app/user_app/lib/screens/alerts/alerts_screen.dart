@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import '../../l10n/app_strings.dart';
 import '../../providers/app_providers.dart';
 
 class AlertsScreen extends ConsumerWidget {
@@ -20,11 +21,11 @@ class AlertsScreen extends ConsumerWidget {
           children: [
             Icon(Icons.error_outline, size: 48, color: cs.error),
             const SizedBox(height: 12),
-            Text('Failed to load alerts', style: TextStyle(color: cs.error)),
+            Text(context.s('failed_alerts'), style: TextStyle(color: cs.error)),
             const SizedBox(height: 8),
             TextButton(
               onPressed: () => ref.invalidate(userAlertsProvider),
-              child: const Text('Retry'),
+              child: Text(context.s('retry')),
             ),
           ],
         ),
@@ -39,7 +40,7 @@ class AlertsScreen extends ConsumerWidget {
                     size: 64, color: cs.onSurfaceVariant),
                 const SizedBox(height: 12),
                 Text(
-                  'No price alerts',
+                  context.s('no_alerts'),
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
@@ -48,7 +49,7 @@ class AlertsScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Open any deal and tap "Set Alert"\nto get notified when the price drops.',
+                  context.s('no_alerts_hint'),
                   textAlign: TextAlign.center,
                   style: TextStyle(color: cs.onSurfaceVariant),
                 ),
@@ -91,17 +92,16 @@ class _AlertTile extends StatelessWidget {
     return await showDialog<bool>(
           context: context,
           builder: (_) => AlertDialog(
-            title: const Text('Remove alert?'),
-            content: const Text(
-                'You will no longer receive notifications for this price drop.'),
+            title: Text(context.s('remove_alert')),
+            content: Text(context.s('remove_alert_body')),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
+                child: Text(context.s('cancel')),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(context, true),
-                child: const Text('Remove'),
+                child: Text(context.s('remove')),
               ),
             ],
           ),
@@ -125,12 +125,12 @@ class _AlertTile extends StatelessWidget {
 
     String subtitle;
     if (targetPrice != null) {
-      subtitle = 'Alert when price ≤ ${_fmtPrice(targetPrice, marketplace)}';
+      subtitle = '${context.s('alert_target')} ${_fmtPrice(targetPrice, marketplace)}';
     } else if (thresholdPct != null) {
       subtitle =
-          'Alert on ≥ ${thresholdPct.toStringAsFixed(0)}% price drop';
+          '${context.s('alert_pct')} ${thresholdPct.toStringAsFixed(0)}${context.s('alert_pct_suffix')}';
     } else {
-      subtitle = 'Any price drop';
+      subtitle = context.s('any_price_drop');
     }
 
     String? dateStr;
@@ -173,13 +173,13 @@ class _AlertTile extends StatelessWidget {
                 style: TextStyle(color: cs.primary, fontSize: 13)),
             if (lastAlerted != null)
               Text(
-                'Last triggered: ${_fmtDate(lastAlerted.toString())}',
+                '${context.s('last_triggered')} ${_fmtDate(lastAlerted.toString())}',
                 style:
                     TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
               )
             else if (dateStr != null)
               Text(
-                'Set on $dateStr',
+                '${context.s('set_on')} $dateStr',
                 style:
                     TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
               ),

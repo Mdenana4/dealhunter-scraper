@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../l10n/app_strings.dart';
 import '../../providers/app_providers.dart';
 import '../deals/deals_screen.dart';
 import '../membership/membership_screen.dart';
@@ -9,34 +10,6 @@ import '../settings/settings_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
-
-  static const _destinations = [
-    NavigationDestination(
-      icon: Icon(Icons.local_fire_department_outlined),
-      selectedIcon: Icon(Icons.local_fire_department),
-      label: 'Deals',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.search_outlined),
-      selectedIcon: Icon(Icons.search),
-      label: 'Search',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.bookmark_outline),
-      selectedIcon: Icon(Icons.bookmark),
-      label: 'Saved',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.diamond_outlined),
-      selectedIcon: Icon(Icons.diamond),
-      label: 'Membership',
-    ),
-    NavigationDestination(
-      icon: Icon(Icons.settings_outlined),
-      selectedIcon: Icon(Icons.settings),
-      label: 'Settings',
-    ),
-  ];
 
   static const _screens = [
     DealsScreen(),
@@ -49,6 +22,8 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final index = ref.watch(homeTabIndexProvider);
+    // Watch locale so bottom nav labels re-render on language change.
+    ref.watch(localeProvider);
     return Scaffold(
       body: IndexedStack(
         index: index,
@@ -58,7 +33,33 @@ class HomeScreen extends ConsumerWidget {
         selectedIndex: index,
         onDestinationSelected: (i) =>
             ref.read(homeTabIndexProvider.notifier).state = i,
-        destinations: _destinations,
+        destinations: [
+          NavigationDestination(
+            icon: const Icon(Icons.local_fire_department_outlined),
+            selectedIcon: const Icon(Icons.local_fire_department),
+            label: context.s('nav_deals'),
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.search_outlined),
+            selectedIcon: const Icon(Icons.search),
+            label: context.s('nav_search'),
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.bookmark_outline),
+            selectedIcon: const Icon(Icons.bookmark),
+            label: context.s('nav_saved'),
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.diamond_outlined),
+            selectedIcon: const Icon(Icons.diamond),
+            label: context.s('nav_membership'),
+          ),
+          NavigationDestination(
+            icon: const Icon(Icons.settings_outlined),
+            selectedIcon: const Icon(Icons.settings),
+            label: context.s('nav_settings'),
+          ),
+        ],
       ),
     );
   }

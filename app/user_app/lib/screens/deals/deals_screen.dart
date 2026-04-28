@@ -3,20 +3,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shimmer/shimmer.dart';
+import '../../l10n/app_strings.dart';
 import '../../models/deal_model.dart';
 import '../../providers/app_providers.dart';
 import '../../widgets/deal_widgets.dart';
 
-const _categories = [
-  'All',
-  'Electronics',
-  'Fashion',
-  'Home',
-  'Beauty',
-  'Sports',
-  'Toys',
-  'Books',
-  'Food',
+// Category keys map to S keys for translation
+const _categoryKeys = [
+  ('All', 'cat_all'),
+  ('Electronics', 'cat_electronics'),
+  ('Fashion', 'cat_fashion'),
+  ('Home', 'cat_home'),
+  ('Beauty', 'cat_beauty'),
+  ('Sports', 'cat_sports'),
+  ('Toys', 'cat_toys'),
+  ('Books', 'cat_books'),
+  ('Food', 'cat_food'),
 ];
 
 class DealsScreen extends ConsumerStatefulWidget {
@@ -54,9 +56,7 @@ class _DealsScreenState extends ConsumerState<DealsScreen> {
 
   void _setCategory(String cat) {
     setState(() => _category = cat);
-    ref
-        .read(dealsProvider.notifier)
-        .setCategory(cat == 'All' ? null : cat.toLowerCase());
+    ref.read(dealsProvider.notifier).setCategory(cat == 'All' ? null : cat.toLowerCase());
   }
 
   @override
@@ -92,9 +92,9 @@ class _DealsScreenState extends ConsumerState<DealsScreen> {
                 children: [
                   const Icon(Icons.search_off_rounded, size: 64),
                   const SizedBox(height: 12),
-                  const Text('No deals found'),
+                  Text(context.s('no_deals')),
                   TextButton(
-                      onPressed: _refresh, child: const Text('Refresh')),
+                      onPressed: _refresh, child: Text(context.s('refresh'))),
                 ],
               ),
             );
@@ -141,15 +141,15 @@ class _CategoryBar extends StatelessWidget {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        itemCount: _categories.length,
+        itemCount: _categoryKeys.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (_, i) {
-          final cat = _categories[i];
-          final active = cat == selected;
+          final (key, strKey) = _categoryKeys[i];
+          final active = key == selected;
           return FilterChip(
-            label: Text(cat),
+            label: Text(context.s(strKey)),
             selected: active,
-            onSelected: (_) => onSelect(cat),
+            onSelected: (_) => onSelect(key),
             showCheckmark: false,
           );
         },
@@ -318,7 +318,7 @@ class _ErrorView extends StatelessWidget {
             const SizedBox(height: 12),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 16),
-            FilledButton(onPressed: onRetry, child: const Text('Retry')),
+            FilledButton(onPressed: onRetry, child: Text(context.s('retry'))),
           ],
         ),
       ),

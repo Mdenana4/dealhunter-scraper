@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../l10n/app_strings.dart';
 import '../../models/user_model.dart';
 import '../../providers/app_providers.dart';
 
@@ -19,7 +20,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   final _referralCtrl = TextEditingController();
   bool _applyingReferral = false;
   bool _notificationsEnabled = true;
-  String _language = 'en'; // 'en' or 'ar'
 
   @override
   void initState() {
@@ -32,44 +32,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (mounted) {
       setState(() {
         _notificationsEnabled = prefs.getBool('notifications_enabled') ?? true;
-        _language = prefs.getString('language') ?? 'en';
       });
     }
   }
 
   Future<void> _pickLanguage() async {
+    final currentLang = ref.read(localeProvider).languageCode;
     final picked = await showDialog<String>(
       context: context,
       builder: (_) => SimpleDialog(
-        title: const Text('Select Language'),
+        title: Text(context.s('select_language')),
         children: [
           RadioListTile<String>(
             value: 'en',
-            groupValue: _language,
+            groupValue: currentLang,
             title: const Text('English'),
             onChanged: (v) => Navigator.pop(context, v),
           ),
           RadioListTile<String>(
             value: 'ar',
-            groupValue: _language,
+            groupValue: currentLang,
             title: const Text('العربية'),
             onChanged: (v) => Navigator.pop(context, v),
           ),
         ],
       ),
     );
-    if (picked == null || picked == _language) return;
+    if (picked == null || picked == currentLang) return;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('language', picked);
-    // Update locale provider — takes effect immediately, no restart needed.
     ref.read(localeProvider.notifier).state = Locale(picked);
     if (mounted) {
-      setState(() => _language = picked);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(picked == 'ar'
-              ? 'تم تغيير اللغة إلى العربية'
-              : 'Language changed to English'),
+              ? context.s('lang_changed_ar')
+              : context.s('lang_changed_en')),
         ),
       );
     }
@@ -80,7 +78,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final status = await FirebaseMessaging.instance.requestPermission();
       if (status.authorizationStatus != AuthorizationStatus.authorized &&
           status.authorizationStatus != AuthorizationStatus.provisional) {
-        return; // User denied — don't update the toggle
+        return;
       }
     }
     final prefs = await SharedPreferences.getInstance();
@@ -98,15 +96,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Sign Out'),
-        content: const Text('Are you sure you want to sign out?'),
+        title: Text(context.s('sign_out')),
+        content: Text(context.s('sign_out_confirm')),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel')),
+              child: Text(context.s('cancel'))),
           FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Sign Out')),
+              child: Text(context.s('sign_out'))),
         ],
       ),
     );
@@ -151,9 +149,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final userAsync = ref.watch(currentUserProvider);
     final user = userAsync.valueOrNull;
     final cs = Theme.of(context).colorScheme;
+    final currentLang = ref.watch(localeProvider).languageCode;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: Text(context.s('settings_title'))),
       body: ListView(
         children: [
           // User info
@@ -181,18 +180,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ],
 
           // Region & Language
-          _SectionHeader(label: 'Region & Language'),
+          _SectionHeader(label: context.s('region_language')),
           ListTile(
             leading: const Icon(Icons.public_outlined),
-            title: const Text('Country'),
+            title: Text(context.s('country')),
             subtitle: Text(user?.country ?? 'AE'),
             trailing: const Icon(Icons.chevron_right),
             onTap: user == null ? null : () => _pickCountry(context, user),
           ),
           ListTile(
             leading: const Icon(Icons.language_outlined),
-            title: const Text('Language'),
-            subtitle: Text(_language == 'ar' ? 'العربية' : 'English'),
+            title: Text(context.s('language')),
+            subtitle: Text(currentLang == 'ar' ? 'العربية' : 'English'),
             trailing: const Icon(Icons.chevron_right),
             onTap: _pickLanguage,
           ),
@@ -200,11 +199,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           const Divider(),
 
           // Notifications
-          _SectionHeader(label: 'Notifications'),
+          _SectionHeader(label: context.s('notifications_section')),
           ListTile(
             leading: const Icon(Icons.notifications_outlined),
-            title: const Text('Price drop alerts'),
-            subtitle: const Text('Get notified when deals drop in price'),
+            title: Text(context.s('price_drop_alerts')),
+            subtitle: Text(context.s('price_drop_subtitle')),
             trailing: Switch(
               value: _notificationsEnabled,
               onChanged: _toggleNotifications,
@@ -215,11 +214,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
           // Referral
           if (user != null) ...[
-            _SectionHeader(label: 'Referral'),
+            _SectionHeader(label: context.s('referral_section')),
             if (user.referralCode != null)
               ListTile(
                 leading: const Icon(Icons.card_giftcard_outlined),
-                title: const Text('Your referral code'),
+                title: Text(context.s('your_referral_code')),
                 subtitle: Text(
                   user.referralCode!,
                   style: TextStyle(
@@ -231,7 +230,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   icon: const Icon(Icons.copy_outlined),
                   onPressed: () {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Code copied')),
+                      SnackBar(content: Text(context.s('code_copied'))),
                     );
                   },
                 ),
@@ -246,9 +245,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       child: TextField(
                         controller: _referralCtrl,
                         textCapitalization: TextCapitalization.characters,
-                        decoration: const InputDecoration(
-                          labelText: 'Enter referral code',
-                          border: OutlineInputBorder(),
+                        decoration: InputDecoration(
+                          labelText: context.s('enter_referral'),
+                          border: const OutlineInputBorder(),
                           isDense: true,
                         ),
                       ),
@@ -265,7 +264,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   strokeWidth: 2,
                                   color: Colors.white),
                             )
-                          : const Text('Apply'),
+                          : Text(context.s('apply')),
                     ),
                   ],
                 ),
@@ -274,10 +273,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ],
 
           // About
-          _SectionHeader(label: 'About'),
+          _SectionHeader(label: context.s('about_section')),
           ListTile(
             leading: const Icon(Icons.info_outline),
-            title: const Text('Version'),
+            title: Text(context.s('version')),
             trailing: const Text('1.0.0'),
           ),
 
@@ -288,7 +287,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: OutlinedButton.icon(
               icon: const Icon(Icons.logout),
-              label: const Text('Sign Out'),
+              label: Text(context.s('sign_out')),
               style: OutlinedButton.styleFrom(
                 foregroundColor: cs.error,
               ),
@@ -317,9 +316,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         child: ListView(
           shrinkWrap: true,
           children: [
-            const ListTile(
-              title: Text('Select Country',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
+            ListTile(
+              title: Text(context.s('select_country'),
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
             ),
             for (final (code, name) in countries)
               ListTile(

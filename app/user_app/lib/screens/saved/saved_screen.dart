@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../l10n/app_strings.dart';
 import '../../models/deal_model.dart';
 import '../../providers/app_providers.dart';
 import '../../widgets/deal_widgets.dart';
@@ -16,11 +17,11 @@ class SavedScreen extends StatelessWidget {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Saved'),
-          bottom: const TabBar(
+          title: Text(context.s('saved_title')),
+          bottom: TabBar(
             tabs: [
-              Tab(icon: Icon(Icons.bookmark_outline), text: 'Deals'),
-              Tab(icon: Icon(Icons.notifications_none), text: 'Alerts'),
+              Tab(icon: const Icon(Icons.bookmark_outline), text: context.s('tab_deals')),
+              Tab(icon: const Icon(Icons.notifications_none), text: context.s('tab_alerts')),
             ],
           ),
         ),
@@ -56,11 +57,11 @@ class _SavedDealsTab extends ConsumerWidget {
                     size: 64, color: cs.onSurfaceVariant),
                 const SizedBox(height: 12),
                 Text(
-                  'No saved deals yet',
+                  context.s('no_saved'),
                   style: TextStyle(color: cs.onSurfaceVariant),
                 ),
                 const SizedBox(height: 8),
-                const Text('Tap the bookmark icon on any deal to save it.'),
+                Text(context.s('no_saved_hint')),
               ],
             ),
           );
@@ -90,7 +91,7 @@ class _SavedDealTile extends ConsumerWidget {
     });
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Removed from saved')),
+        SnackBar(content: Text(context.s('removed_from_saved'))),
       );
     }
   }

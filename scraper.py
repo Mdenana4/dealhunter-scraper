@@ -493,6 +493,148 @@ AMAZON_KEYWORDS = [
 ]
 
 
+def _scrape_amazon_deals_page(
+    base_domain="amazon.eg",
+    marketplace_country="amazon_eg",
+    site_display="Amazon Egypt",
+    currency="EGP",
+    country_code="eg",
+):
+    """Scrape the Amazon deals page directly (40-80% off filter). Returns deal count."""
+    # URL with 40-80% discount filter — same as the link the user provided
+    deals_url = (
+        f"https://www.{base_domain}/-/en/deals?"
+        "discounts-widget=%22%7B%22state%22%3A%7B%22rangeRefinementFilters%22%3A"
+        "%7B%22percentOff%22%3A%7B%22min%22%3A40%2C%22max%22%3A80%7D%7D%7D%2C"
+        "%22version%22%3A1%7D%22"
+    )
+    print(f"\n[AMAZON/{country_code.upper()}] Scraping deals page...")
+    total = 0
+
+    for page_num in range(1, 4):  # pages 1–3
+        try:
+            url = deals_url if page_num == 1 else f"{deals_url}&page={page_num}"
+            resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
+            if not resp or resp.status_code != 200:
+                print(f"  Deals page {page_num}: HTTP {resp.status_code if resp else 'no response'}")
+                break
+
+            soup = BeautifulSoup(resp.content, "lxml")
+            products = [
+                p for p in soup.find_all("div", attrs={"data-asin": True})
+                if p.get("data-asin", "").strip()
+            ]
+            if not products:
+                print(f"  Deals page {page_num}: 0 products found, stopping")
+                break
+
+            print(f"  Deals page {page_num}: {len(products)} product divs")
+
+            for product in products:
+                try:
+                    asin = product.get("data-asin", "").strip()
+                    if not asin:
+                        continue
+                    if product.get("data-component-type") == "sp-sponsored-result":
+                        continue
+
+                    title_el = (
+                        product.find("h2") or
+                        product.find("span", class_="a-size-medium") or
+                        product.find("span", class_="a-size-base-plus")
+                    )
+                    if not title_el:
+                        continue
+                    title = title_el.get_text(strip=True)
+                    if not title or len(title) < 6:
+                        continue
+
+                    price_el = product.find("span", class_="a-price-whole")
+                    if not price_el:
+                        continue
+                    current_price = clean_price(price_el.get_text(strip=True))
+                    if current_price < 1:
+                        continue
+
+                    original_price = current_price
+                    orig_block = product.find("span", class_="a-price a-text-price")
+                    if orig_block:
+                        orig_el = orig_block.find("span", class_="a-offscreen")
+                        if orig_el:
+                            original_price = clean_price(orig_el.get_text(strip=True)) or current_price
+
+                    # Try to get discount from badge first (most reliable on deals page)
+                    discount = calculate_discount(original_price, current_price)
+                    badge_el = product.find("span", class_="a-badge-text")
+                    if badge_el:
+                        badge_text = badge_el.get_text(strip=True)
+                        nums = re.findall(r'\d+', badge_text)
+                        if nums and int(nums[0]) >= MIN_DISCOUNT:
+                            discount = int(nums[0])
+                            if original_price <= current_price:
+                                original_price = round(current_price / (1 - discount / 100))
+
+                    if discount < MIN_DISCOUNT:
+                        continue
+
+                    img_el    = product.find("img", class_="s-image")
+                    image_url = img_el.get("src", "") if img_el else ""
+
+                    rating = 0.0
+                    rating_el = product.find("span", class_="a-icon-alt")
+                    if rating_el:
+                        try:
+                            rating = float(rating_el.get_text(strip=True).split(" ")[0])
+                        except Exception:
+                            pass
+
+                    product_url = f"https://www.{base_domain}/dp/{asin}?language=en_AE"
+                    cat = detect_category(title)
+
+                    print(f"    [{discount}%] {title[:40]}...")
+                    kb = check_price_history(
+                        asin=asin,
+                        product_url=product_url,
+                        current_price=current_price,
+                        original_price=original_price,
+                        title=title,
+                        site=marketplace_country,
+                    )
+                    time.sleep(1)
+
+                    deal = build_deal(
+                        title=title,
+                        site=marketplace_country,
+                        site_display=site_display,
+                        category=cat,
+                        current_price=current_price,
+                        original_price=original_price,
+                        discount=discount,
+                        image_url=image_url,
+                        product_url=product_url,
+                        rating=rating,
+                        review_count=None,
+                        asin=asin,
+                        kanbkam_result=kb,
+                        currency=currency,
+                    )
+                    save_deal(deal)
+                    total += 1
+                    time.sleep(0.5)
+
+                except Exception:
+                    continue
+
+            time.sleep(3)
+
+        except Exception as e:
+            print(f"  Amazon/{country_code} deals page error (page {page_num}): {e}")
+            break
+
+    print(f"[AMAZON/{country_code.upper()}] Deals page done. {total} deals.")
+    return total
+
+
 def _scrape_amazon_region(
     base_domain="amazon.eg",
     marketplace_country="amazon_eg",
@@ -638,16 +780,22 @@ def _scrape_amazon_region(
 
 
 def scrape_amazon():
-    """Amazon Egypt (EGP)."""
-    return _scrape_amazon_region()
+    """Amazon Egypt (EGP) — deals page first, then keyword search."""
+    total = _scrape_amazon_deals_page()
+    total += _scrape_amazon_region()
+    return total
 
 def scrape_amazon_ae():
-    """Amazon UAE (AED)."""
-    return _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
+    """Amazon UAE (AED) — deals page first, then keyword search."""
+    total = _scrape_amazon_deals_page("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
+    total += _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
+    return total
 
 def scrape_amazon_sa():
-    """Amazon Saudi Arabia (SAR)."""
-    return _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
+    """Amazon Saudi Arabia (SAR) — deals page first, then keyword search."""
+    total = _scrape_amazon_deals_page("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
+    total += _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
+    return total
 
 
 # ─────────────────────────────────────────────────────

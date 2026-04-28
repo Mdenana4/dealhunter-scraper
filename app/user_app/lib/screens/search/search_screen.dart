@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../l10n/app_strings.dart';
 import '../../models/deal_model.dart';
 import '../../models/user_model.dart';
 import '../../providers/app_providers.dart';
@@ -52,7 +53,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
     if (!membership.canSearch) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Search')),
+        appBar: AppBar(title: Text(context.s('nav_search'))),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(32),
@@ -62,20 +63,20 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 Icon(Icons.lock_outline, size: 64, color: cs.primary),
                 const SizedBox(height: 16),
                 Text(
-                  'Search is a Premium feature',
+                  context.s('search_premium_title'),
                   style: Theme.of(context).textTheme.titleMedium,
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Upgrade to Basic or higher to search across all stores.',
+                  context.s('search_premium_body'),
                   textAlign: TextAlign.center,
                   style: TextStyle(color: cs.onSurfaceVariant),
                 ),
                 const SizedBox(height: 24),
                 FilledButton(
                   onPressed: () => context.go('/home/membership'),
-                  child: const Text('Upgrade Now'),
+                  child: Text(context.s('upgrade_now')),
                 ),
               ],
             ),
@@ -92,7 +93,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           autofocus: false,
           textInputAction: TextInputAction.search,
           decoration: InputDecoration(
-            hintText: 'Search deals…',
+            hintText: context.s('search_hint'),
             border: InputBorder.none,
             suffixIcon: _ctrl.text.isNotEmpty
                 ? IconButton(
@@ -118,7 +119,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               children: [
                 FilterChip(
-                  label: const Text('All'),
+                  label: Text(context.s('cat_all')),
                   selected: _category == null,
                   onSelected: (_) {
                     setState(() => _category = null);
@@ -127,18 +128,18 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   showCheckmark: false,
                 ),
                 const SizedBox(width: 8),
-                for (final cat in [
-                  'Electronics',
-                  'Fashion',
-                  'Home',
-                  'Beauty',
-                  'Sports'
+                for (final entry in [
+                  ('Electronics', 'cat_electronics'),
+                  ('Fashion', 'cat_fashion'),
+                  ('Home', 'cat_home'),
+                  ('Beauty', 'cat_beauty'),
+                  ('Sports', 'cat_sports'),
                 ]) ...[
                   FilterChip(
-                    label: Text(cat),
-                    selected: _category == cat.toLowerCase(),
+                    label: Text(context.s(entry.$2)),
+                    selected: _category == entry.$1.toLowerCase(),
                     onSelected: (_) {
-                      setState(() => _category = cat.toLowerCase());
+                      setState(() => _category = entry.$1.toLowerCase());
                       _search();
                     },
                     showCheckmark: false,
@@ -163,7 +164,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                         Icon(Icons.search,
                             size: 64, color: cs.onSurfaceVariant),
                         const SizedBox(height: 12),
-                        Text('Type to search',
+                        Text(context.s('type_to_search'),
                             style: TextStyle(
                                 color: cs.onSurfaceVariant)),
                       ],
@@ -179,7 +180,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                             size: 64, color: cs.onSurfaceVariant),
                         const SizedBox(height: 12),
                         Text(
-                          'No results for "${_ctrl.text}"',
+                          '${context.s('no_results')} "${_ctrl.text}"',
                           style:
                               TextStyle(color: cs.onSurfaceVariant),
                         ),

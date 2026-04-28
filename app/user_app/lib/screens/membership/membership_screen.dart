@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../l10n/app_strings.dart';
 import '../../models/user_model.dart';
 import '../../providers/app_providers.dart';
 
@@ -111,7 +112,7 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Membership')),
+      appBar: AppBar(title: Text(context.s('membership_title'))),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -122,10 +123,10 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
           // Billing cycle picker
           Center(
             child: SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'monthly',  label: Text('Monthly')),
-                ButtonSegment(value: '6months',  label: Text('6 Months')),
-                ButtonSegment(value: 'yearly',   label: Text('Yearly')),
+              segments: [
+                ButtonSegment(value: 'monthly',  label: Text(context.s('monthly'))),
+                ButtonSegment(value: '6months',  label: Text(context.s('six_months'))),
+                ButtonSegment(value: 'yearly',   label: Text(context.s('yearly'))),
               ],
               selected: {_cycle},
               onSelectionChanged: (s) => setState(() => _cycle = s.first),
@@ -135,7 +136,7 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text(
-                'Save 10% vs monthly',
+                context.s('save_10'),
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.green.shade700, fontSize: 12),
               ),
@@ -144,7 +145,7 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text(
-                'Save 25% vs monthly',
+                context.s('save_25'),
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.green.shade700, fontSize: 12),
               ),
@@ -173,14 +174,14 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Free Plan includes:',
-                      style: TextStyle(fontWeight: FontWeight.w500)),
+                  Text(context.s('free_plan_includes'),
+                      style: const TextStyle(fontWeight: FontWeight.w500)),
                   const SizedBox(height: 8),
-                  for (final f in [
-                    'Browse all deals',
-                    '30-day price history',
-                    'Save up to 10 deals',
-                    'Basic fraud detection',
+                  for (final fKey in [
+                    'free_feat_1',
+                    'free_feat_2',
+                    'free_feat_3',
+                    'free_feat_4',
                   ])
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -189,7 +190,7 @@ class _MembershipScreenState extends ConsumerState<MembershipScreen> {
                           Icon(Icons.check_circle_outline,
                               size: 16, color: cs.onSurfaceVariant),
                           const SizedBox(width: 8),
-                          Text(f,
+                          Text(context.s(fKey),
                               style: TextStyle(
                                   color: cs.onSurfaceVariant, fontSize: 13)),
                         ],
@@ -231,7 +232,7 @@ class _CurrentPlanCard extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Current Plan',
+                Text(context.s('current_plan'),
                     style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12)),
                 Text(
                   membership.displayLabel,
@@ -246,7 +247,7 @@ class _CurrentPlanCard extends StatelessWidget {
             const Spacer(),
             if (membership.activatedAt != null)
               Text(
-                'Active since\n'
+                '${context.s('active_since')}\n'
                 '${membership.activatedAt!.day}/${membership.activatedAt!.month}/${membership.activatedAt!.year}',
                 textAlign: TextAlign.right,
                 style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant),
@@ -326,8 +327,8 @@ class _PlanCard extends StatelessWidget {
                       color: cs.primary,
                       borderRadius: BorderRadius.circular(4),
                     ),
-                    child: const Text('Popular',
-                        style: TextStyle(color: Colors.white, fontSize: 10)),
+                    child: Text(context.s('popular'),
+                        style: const TextStyle(color: Colors.white, fontSize: 10)),
                   ),
                 ],
               ],
@@ -346,10 +347,10 @@ class _PlanCard extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 3),
                   child: Text(
                     cycle == 'monthly'
-                        ? '/month'
+                        ? '/${context.s('monthly').toLowerCase()}'
                         : cycle == '6months'
-                            ? '/6 months'
-                            : '/year',
+                            ? '/${context.s('six_months').toLowerCase()}'
+                            : '/${context.s('yearly').toLowerCase()}',
                     style: TextStyle(
                         color: cs.onSurfaceVariant, fontSize: 12),
                   ),
@@ -374,7 +375,7 @@ class _PlanCard extends StatelessWidget {
               child: _isCurrent
                   ? OutlinedButton(
                       onPressed: null,
-                      child: const Text('Current Plan'),
+                      child: Text(context.s('current_plan_btn')),
                     )
                   : _isUpgrade
                       ? FilledButton(
@@ -382,11 +383,11 @@ class _PlanCard extends StatelessWidget {
                               _showUpgradeSheet(context, tier, price),
                           style: FilledButton.styleFrom(
                               backgroundColor: color),
-                          child: Text('Upgrade to $label'),
+                          child: Text('${context.s('upgrade_to')} $label'),
                         )
                       : OutlinedButton(
                           onPressed: null,
-                          child: const Text('Downgrade'),
+                          child: Text(context.s('downgrade')),
                         ),
             ),
           ],
@@ -405,21 +406,21 @@ class _PlanCard extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Upgrade to ${tier[0].toUpperCase()}${tier.substring(1)}',
+                '${context.s('upgrade_to')} ${tier[0].toUpperCase()}${tier.substring(1)}',
                 style: const TextStyle(
                     fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               Text('$currency ${price.toStringAsFixed(2)} / $cycle'),
               const SizedBox(height: 20),
-              const Text(
-                'Payment coming soon.\nWe will notify you when payment is enabled.',
+              Text(
+                context.s('payment_coming'),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 20),
               FilledButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
+                child: Text(context.s('ok')),
               ),
             ],
           ),
