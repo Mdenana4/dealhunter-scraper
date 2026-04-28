@@ -507,7 +507,7 @@ def _scrape_amazon_region(
     for item in AMAZON_KEYWORDS:
         try:
             url = f"https://www.{base_domain}/s?k={item['k'].replace(' ', '+')}&language=en_AE"
-            resp = fetch_direct(url)
+            resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
             if not resp or resp.status_code != 200:
                 time.sleep(2)
                 continue
@@ -669,10 +669,8 @@ def scrape_jumia():
 
     for url, default_cat in pages:
         try:
-            headers = get_headers()
-            headers["Referer"] = "https://www.jumia.com.eg/"
-            resp = requests.get(url, headers=headers, timeout=20)
-            if resp.status_code != 200:
+            resp = fetch_with_scraperapi(url, render_js=False, country="eg")
+            if not resp or resp.status_code != 200:
                 time.sleep(2)
                 continue
 
