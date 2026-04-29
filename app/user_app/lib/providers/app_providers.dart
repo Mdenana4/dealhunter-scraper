@@ -53,6 +53,7 @@ class DealsNotifier extends StateNotifier<AsyncValue<List<DealModel>>> {
   int _page = 1;
   bool _hasMore = true;
   String? _category;
+  String? _country;
   bool _loading = false;
 
   Future<void> load({bool reset = false}) async {
@@ -69,6 +70,7 @@ class DealsNotifier extends StateNotifier<AsyncValue<List<DealModel>>> {
     try {
       final deals = await _api.getDeals(
         category: _category,
+        country: _country,
         page: _page,
         limit: 30,
       );
@@ -88,6 +90,11 @@ class DealsNotifier extends StateNotifier<AsyncValue<List<DealModel>>> {
 
   Future<void> setCategory(String? category) async {
     _category = category;
+    await load(reset: true);
+  }
+
+  Future<void> setCountry(String? country) async {
+    _country = country;
     await load(reset: true);
   }
 

@@ -51,6 +51,7 @@ class ApiService {
 
   Future<List<DealModel>> getDeals({
     String? category,
+    String? country,
     String? marketplaceCountry,
     double minDiscount = 0,
     int page = 1,
@@ -58,6 +59,7 @@ class ApiService {
   }) async {
     final resp = await _dio.get('/api/deals', queryParameters: {
       if (category != null && category.isNotEmpty) 'category': category,
+      if (country != null) 'country': country,
       if (marketplaceCountry != null) 'marketplace_country': marketplaceCountry,
       if (minDiscount > 0) 'min_discount': minDiscount,
       'page': page,

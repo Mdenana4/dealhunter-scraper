@@ -28,9 +28,19 @@ class DealsScreen extends ConsumerStatefulWidget {
   ConsumerState<DealsScreen> createState() => _DealsScreenState();
 }
 
+// Country options: (code sent to API, string key for translation)
+// null code = All Countries
+const _countries = [
+  (null,  'country_all'),
+  ('eg',  'country_eg'),
+  ('ae',  'country_ae'),
+  ('sa',  'country_sa'),
+];
+
 class _DealsScreenState extends ConsumerState<DealsScreen> {
   final _scrollCtrl = ScrollController();
   String _category = 'All';
+  String? _country; // null = all countries
 
   @override
   void initState() {
@@ -59,6 +69,11 @@ class _DealsScreenState extends ConsumerState<DealsScreen> {
     ref.read(dealsProvider.notifier).setCategory(cat == 'All' ? null : cat.toLowerCase());
   }
 
+  void _setCountry(String? code) {
+    setState(() => _country = code);
+    ref.read(dealsProvider.notifier).setCountry(code);
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(dealsProvider);
@@ -74,10 +89,12 @@ class _DealsScreenState extends ConsumerState<DealsScreen> {
           ),
         ],
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(48),
-          child: _CategoryBar(
-            selected: _category,
-            onSelect: _setCategory,
+          preferredSize: const Size.fromHeight(96),
+          child: Column(
+            children: [
+              _CountryBar(selected: _country, onSelect: _setCountry),
+              _CategoryBar(selected: _category, onSelect: _setCategory),
+            ],
           ),
         ),
       ),
@@ -119,6 +136,39 @@ class _DealsScreenState extends ConsumerState<DealsScreen> {
                 return _DealCard(deal: deals[i]);
               },
             ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ─── Country bar ───────────────────────────────────────────────────────────
+
+class _CountryBar extends StatelessWidget {
+  const _CountryBar({required this.selected, required this.onSelect});
+
+  final String? selected;
+  final ValueChanged<String?> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 48,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        itemCount: _countries.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final (code, strKey) = _countries[i];
+          final active = code == selected;
+          return FilterChip(
+            label: Text(context.s(strKey)),
+            selected: active,
+            onSelected: (_) => onSelect(code),
+            showCheckmark: false,
+            avatar: null,
           );
         },
       ),

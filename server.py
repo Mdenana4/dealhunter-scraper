@@ -638,12 +638,14 @@ def mobile_get_deals():
 
     Query params:
       category             optional string
-      marketplace_country  optional string (amazon_eg, noon_eg, …)
+      country              optional 2-letter code (eg, ae, sa) — filters by site suffix
+      marketplace_country  optional string (amazon_eg, noon_eg, …) — exact match
       min_discount         float, default 0 (filter out low-discount items)
       limit                int, default 50
       page                 int, default 1 (1-based)
     """
     category   = request.args.get('category', '').strip().lower() or None
+    country    = request.args.get('country', '').strip().lower() or None
     mc         = request.args.get('marketplace_country', '').strip().lower() or None
     min_disc   = request.args.get('min_discount', 0.0, type=float)
     limit      = min(request.args.get('limit', 50, type=int), 200)
@@ -660,6 +662,13 @@ def mobile_get_deals():
         # Sort in Python to avoid requiring composite Firestore indexes when
         # a where() filter is combined with order_by().
         all_docs = list(q.stream())
+
+        # Country filter: keep docs whose 'site' ends with _{country} (eg, ae, sa)
+        if country:
+            all_docs = [
+                d for d in all_docs
+                if d.to_dict().get('site', '').endswith(f'_{country}')
+            ]
         def _disc_sort_key(doc):
             try:
                 return int(doc.to_dict().get('discount_percent') or 0)

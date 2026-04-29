@@ -12,6 +12,12 @@ class S {
       'nav_membership': 'Membership',
       'nav_settings': 'Settings',
 
+      // Country filter
+      'country_all': 'All Countries',
+      'country_eg': '🇪🇬 Egypt',
+      'country_ae': '🇦🇪 UAE',
+      'country_sa': '🇸🇦 Saudi Arabia',
+
       // Categories
       'cat_all': 'All',
       'cat_electronics': 'Electronics',
@@ -123,6 +129,12 @@ class S {
       'nav_saved': 'المحفوظات',
       'nav_membership': 'الاشتراك',
       'nav_settings': 'الإعدادات',
+
+      // Country filter
+      'country_all': 'كل الدول',
+      'country_eg': '🇪🇬 مصر',
+      'country_ae': '🇦🇪 الإمارات',
+      'country_sa': '🇸🇦 السعودية',
 
       // Categories
       'cat_all': 'الكل',
