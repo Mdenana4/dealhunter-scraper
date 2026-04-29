@@ -29,7 +29,6 @@ class DealsScreen extends ConsumerStatefulWidget {
 }
 
 // Country options: (code sent to API, string key for translation)
-// null code = All Countries
 const _countries = [
   (null,  'country_all'),
   ('eg',  'country_eg'),
@@ -37,10 +36,19 @@ const _countries = [
   ('sa',  'country_sa'),
 ];
 
+// Source options: (code sent to API, string key)
+const _sources = [
+  (null,      'source_all'),
+  ('amazon',  'source_amazon'),
+  ('noon',    'source_noon'),
+  ('jumia',   'source_jumia'),
+];
+
 class _DealsScreenState extends ConsumerState<DealsScreen> {
   final _scrollCtrl = ScrollController();
   String _category = 'All';
-  String? _country; // null = all countries
+  String? _country;
+  String? _source;
 
   @override
   void initState() {
@@ -74,6 +82,11 @@ class _DealsScreenState extends ConsumerState<DealsScreen> {
     ref.read(dealsProvider.notifier).setCountry(code);
   }
 
+  void _setSource(String? code) {
+    setState(() => _source = code);
+    ref.read(dealsProvider.notifier).setSource(code);
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(dealsProvider);
@@ -89,10 +102,11 @@ class _DealsScreenState extends ConsumerState<DealsScreen> {
           ),
         ],
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(96),
+          preferredSize: const Size.fromHeight(144),
           child: Column(
             children: [
               _CountryBar(selected: _country, onSelect: _setCountry),
+              _SourceBar(selected: _source, onSelect: _setSource),
               _CategoryBar(selected: _category, onSelect: _setCategory),
             ],
           ),
@@ -169,6 +183,38 @@ class _CountryBar extends StatelessWidget {
             onSelected: (_) => onSelect(code),
             showCheckmark: false,
             avatar: null,
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ─── Source bar ────────────────────────────────────────────────────────────
+
+class _SourceBar extends StatelessWidget {
+  const _SourceBar({required this.selected, required this.onSelect});
+
+  final String? selected;
+  final ValueChanged<String?> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 48,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        itemCount: _sources.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final (code, strKey) = _sources[i];
+          final active = code == selected;
+          return FilterChip(
+            label: Text(context.s(strKey)),
+            selected: active,
+            onSelected: (_) => onSelect(code),
+            showCheckmark: false,
           );
         },
       ),

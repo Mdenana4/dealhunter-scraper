@@ -150,17 +150,21 @@ def detect_fraud_safqa(orig, curr, pct, low, high) -> dict:
 
 def detect_fraud_basic(orig, curr, pct) -> dict:
     reasons, score, conf = [], 0, 65
-    if orig > 0:
-        calc = round((orig-curr)/orig*100)
-        if abs(pct-calc)>10:
-            reasons.append(f"Math mismatch: {pct}% vs {calc}%"); score+=40
-    if curr > 0 and orig > 0:
-        ratio = orig/curr
-        if ratio > 3.0: reasons.append(f"Extreme {ratio:.1f}x"); score+=40; conf-=10
-        elif ratio > 2.0: reasons.append(f"High {ratio:.1f}x"); score+=20
-    if pct > 70: reasons.append(f"Very high {pct}%"); score+=20
-    verdict = "FAKE" if score>=60 else "SUSPICIOUS" if score>=35 else "GENUINE"
-    return {"verdict": verdict, "score": score, "confidence": max(20,min(100,conf)), "reasons": reasons}
+    if orig > 0 and curr > 0:
+        ratio = orig / curr
+        calc  = round((orig - curr) / orig * 100)
+        if abs(pct - calc) > 10:
+            reasons.append(f"Math mismatch: claimed {pct}% but calculated {calc}%"); score += 40
+        if ratio > 3.5 and pct > 65:
+            reasons.append(f"Extreme {ratio:.1f}x ratio with {pct}% claimed — 'was' price likely inflated")
+            score += 65; conf -= 15
+        elif ratio > 3.0:
+            reasons.append(f"Very high {ratio:.1f}x ratio"); score += 45; conf -= 10
+        elif ratio > 2.0:
+            reasons.append(f"High {ratio:.1f}x ratio"); score += 20
+    if pct > 75: reasons.append(f"Very high {pct}% claimed discount"); score += 20
+    verdict = "FAKE" if score >= 60 else "SUSPICIOUS" if score >= 35 else "GENUINE"
+    return {"verdict": verdict, "score": score, "confidence": max(20, min(100, conf)), "reasons": reasons}
 
 def serialize_deal(doc_id, d) -> dict:
     orig = float(d.get("original_price") or 0)
@@ -171,15 +175,26 @@ def serialize_deal(doc_id, d) -> dict:
     # Fall back to the basic math check only when no scraper verdict exists.
     kb = d.get("kanbkam") or {}
     kb_verdict = kb.get("verdict", "")
-    if kb_verdict in ("GENUINE", "FAKE", "SUSPICIOUS", "WAIT", "UNVERIFIED"):
-        verdict    = kb_verdict if kb_verdict != "WAIT" else "SUSPICIOUS"
+    _rank = {"FAKE": 4, "SUSPICIOUS": 3, "WAIT": 2, "GENUINE": 1, "UNVERIFIED": 0}
+
+    if kb_verdict in ("GENUINE", "FAKE", "SUSPICIOUS", "WAIT"):
+        verdict    = "SUSPICIOUS" if kb_verdict == "WAIT" else kb_verdict
         fake_score = float(kb.get("fake_score", 50))
         confidence = float(kb.get("confidence", 65) if "confidence" in kb else (
             10 if kb_verdict == "GENUINE" else 90 if kb_verdict == "FAKE" else 65))
         fraud_reasons = ([kb["reason"]] if kb.get("reason") else []) + (
             ["Rule A: original price inflated"] if kb.get("rule_a_triggered") else []) + (
             ["Rule B: price never changed"] if kb.get("rule_b_triggered") else [])
+        # Even with a stored verdict, cross-check with basic ratio analysis.
+        # If the ratio-based check is MORE suspicious, upgrade the verdict.
+        f = detect_fraud_basic(orig, curr, disc)
+        if _rank.get(f["verdict"], 0) > _rank.get(verdict, 0):
+            verdict       = f["verdict"]
+            fake_score    = max(fake_score, float(f["score"]))
+            confidence    = f["confidence"]
+            fraud_reasons = f["reasons"] + fraud_reasons
     else:
+        # No price history stored (UNVERIFIED or missing) — use ratio analysis only
         f = detect_fraud_basic(orig, curr, disc)
         verdict, fake_score, confidence, fraud_reasons = (
             f["verdict"], f["score"], f["confidence"], f["reasons"])
@@ -646,6 +661,7 @@ def mobile_get_deals():
     """
     category   = request.args.get('category', '').strip().lower() or None
     country    = request.args.get('country', '').strip().lower() or None
+    source     = request.args.get('source', '').strip().lower() or None   # amazon | noon | jumia
     mc         = request.args.get('marketplace_country', '').strip().lower() or None
     min_disc   = request.args.get('min_discount', 0.0, type=float)
     limit      = min(request.args.get('limit', 50, type=int), 200)
@@ -668,6 +684,13 @@ def mobile_get_deals():
             all_docs = [
                 d for d in all_docs
                 if d.to_dict().get('site', '').endswith(f'_{country}')
+            ]
+
+        # Source filter: amazon_ | noon_ | jumia_ prefix
+        if source:
+            all_docs = [
+                d for d in all_docs
+                if d.to_dict().get('site', '').startswith(f'{source}_')
             ]
         def _disc_sort_key(doc):
             try:

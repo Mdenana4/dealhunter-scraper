@@ -18,6 +18,12 @@ class S {
       'country_ae': '🇦🇪 UAE',
       'country_sa': '🇸🇦 Saudi Arabia',
 
+      // Source filter
+      'source_all': 'All Stores',
+      'source_amazon': '📦 Amazon',
+      'source_noon': '🟡 Noon',
+      'source_jumia': '🛒 Jumia',
+
       // Categories
       'cat_all': 'All',
       'cat_electronics': 'Electronics',
@@ -135,6 +141,12 @@ class S {
       'country_eg': '🇪🇬 مصر',
       'country_ae': '🇦🇪 الإمارات',
       'country_sa': '🇸🇦 السعودية',
+
+      // Source filter
+      'source_all': 'كل المتاجر',
+      'source_amazon': '📦 أمازون',
+      'source_noon': '🟡 نون',
+      'source_jumia': '🛒 جوميا',
 
       // Categories
       'cat_all': 'الكل',

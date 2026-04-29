@@ -511,26 +511,39 @@ def apply_rules_ab(current_price, original_price, lowest_price, highest_price,
 
 
 def local_verdict(current_price, original_price):
-    """Fallback when both Kanbkam and Safqa are unreachable"""
+    """Fallback when both Kanbkam and Safqa are unreachable.
+    Uses price ratio to give the most conservative safe verdict.
+    """
     ratio = original_price / current_price if current_price > 0 else 1
-    if ratio > 3:
-        v, va, e, fs = "SUSPICIOUS", "مشبوه - نسبة مرتفعة جداً", "⚠️", 65
-        reason = f"Original EGP {original_price:,.0f} is {ratio:.1f}x current. No price history available to verify."
-    elif ratio > 2:
+    disc  = round((original_price - current_price) / original_price * 100) if original_price > 0 else 0
+
+    if ratio > 3.5 and disc > 65:
+        # e.g. SAR 380 → 89 (4.3x, 77%) — almost certainly inflated "was" price
+        v, va, e, fs = "FAKE", "خصم مزيف — نسبة مرتفعة جداً بدون تاريخ سعر", "❌", 82
+        reason = (f"LIKELY FAKE (ratio {ratio:.1f}x, {disc}% claimed discount). "
+                  f"No verified price history — 'was' price of {original_price:,.0f} "
+                  f"appears artificially inflated.")
+    elif ratio > 3.0:
+        v, va, e, fs = "SUSPICIOUS", "مشبوه - نسبة مرتفعة جداً", "⚠️", 68
+        reason = (f"SUSPICIOUS (ratio {ratio:.1f}x). "
+                  f"Original {original_price:,.0f} is very high vs current {current_price:,.0f}. "
+                  f"Price history unavailable to confirm.")
+    elif ratio > 2.0:
         v, va, e, fs = "SUSPICIOUS", "مشبوه", "⚠️", 45
         reason = f"High ratio ({ratio:.1f}x). Price history unavailable."
     else:
         v, va, e, fs = "UNVERIFIED", "غير مؤكد", "❓", 30
         reason = "Price history unavailable. Cannot verify."
+
     return {
         "kanbkam_checked": False, "safqa_checked": False,
-        "source_used": "none",    "kanbkam_url": "",  "safqa_url": "",
-        "lowest_price": 0,        "highest_price": 0,
-        "rule_a_triggered": False,"rule_b_triggered": False,
-        "verdict": v,             "verdict_ar": va,   "emoji": e,
-        "fake_score": fs,         "reason": reason,   "reason_ar": reason,
-        "near_lowest": False,     "suggested_wait_price": 0,
-        "coupon_codes": [],       "coupon_display": None,
+        "source_used": "ratio_only", "kanbkam_url": "", "safqa_url": "",
+        "lowest_price": 0,         "highest_price": 0,
+        "rule_a_triggered": False, "rule_b_triggered": False,
+        "verdict": v,              "verdict_ar": va,  "emoji": e,
+        "fake_score": fs,          "reason": reason,  "reason_ar": reason,
+        "near_lowest": False,      "suggested_wait_price": 0,
+        "coupon_codes": [],        "coupon_display": None,
         "checked_at": now_iso()
     }
 

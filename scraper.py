@@ -1453,10 +1453,18 @@ def _scrape_noon_region(
     for term, default_cat in search_terms:
         try:
             url = f"https://www.noon.com/{region_path}/search/?q={term.replace(' ', '+')}&limit=48&sort%5Bby%5D=discount&sort%5Bdir%5D=desc"
-            resp = fetch_with_scraperapi(url, render_js=True, country=country_code)
+            # Try without JS rendering first — Noon (Next.js) embeds full product
+            # data in __NEXT_DATA__ even in static HTML, which is faster and cheaper.
+            resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
             if not resp or resp.status_code != 200:
                 time.sleep(2)
                 continue
+            # Only fall back to JS rendering if __NEXT_DATA__ is absent
+            if "__NEXT_DATA__" not in (resp.text or "") and "window.__INITIAL" not in (resp.text or ""):
+                resp = fetch_with_scraperapi(url, render_js=True, country=country_code)
+                if not resp or resp.status_code != 200:
+                    time.sleep(2)
+                    continue
 
             content = resp.text
             products_found = 0
