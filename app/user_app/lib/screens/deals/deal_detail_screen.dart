@@ -476,21 +476,21 @@ class _VerifyResult extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final verdict     = data['verdict'] as String? ?? 'uncertain';
-    final confidence  = (data['confidence'] as num?)?.toDouble() ?? 50.0;
+    final verdict     = data['verdict'] as String? ?? 'unverified';
+    final confidence  = (data['confidence'] as num?)?.toDouble() ?? 30.0;
     final explanation = data['explanation'] as String? ?? '';
     final redFlags    = (data['red_flags'] as List?)?.map((e) => e.toString()).toList() ?? [];
     final recommendation = data['recommendation'] as String? ?? '';
     final histHigh    = (data['historical_high'] as num?)?.toDouble() ?? 0;
     final histLow     = (data['historical_low']  as num?)?.toDouble() ?? 0;
     final sourceUsed  = data['source_used'] as String? ?? '';
-    final safqaFound  = data['safqa_found']   == true;
-    final kanbkamFound = data['kanbkam_found'] == true;
+    final dataFound   = data['data_found'] == true;
 
     final (icon, color, label) = switch (verdict) {
-      'genuine'  => (Icons.verified_rounded,  Colors.green,  'Genuine Deal'),
-      'fake'     => (Icons.cancel_rounded,    Colors.red,    'Fake Discount'),
-      _          => (Icons.warning_rounded,   Colors.orange, 'Suspicious'),
+      'genuine'    => (Icons.verified_rounded,  Colors.green,  'Genuine Deal'),
+      'fake'       => (Icons.cancel_rounded,    Colors.red,    'Fake Discount'),
+      'uncertain'  => (Icons.warning_rounded,   Colors.orange, 'Suspicious'),
+      _            => (Icons.help_outline,      Colors.grey,   'Could Not Verify'),
     };
 
     return Column(
@@ -536,15 +536,13 @@ class _VerifyResult extends StatelessWidget {
           ),
         ],
 
-        // Source badges
+        // Source badge
         const SizedBox(height: 10),
         Wrap(spacing: 6, children: [
-          if (safqaFound)
-            _Badge('Safqa ✓', Colors.blue.shade700),
-          if (kanbkamFound)
-            _Badge('Kanbkam ✓', Colors.orange.shade700),
-          if (!safqaFound && !kanbkamFound)
-            _Badge('Ratio analysis only', Colors.grey.shade600),
+          if (dataFound && sourceUsed.isNotEmpty)
+            _Badge('✓ ${sourceUsed}', Colors.blue.shade700),
+          if (!dataFound)
+            _Badge('No price history available', Colors.grey.shade600),
         ]),
 
         // Explanation
