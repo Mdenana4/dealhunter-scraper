@@ -1535,6 +1535,44 @@ def _send_multicast(tokens: list, notification, data: dict) -> tuple:
     return success, failure
 
 
+@app.route('/api/debug/noon')
+def debug_noon():
+    """Diagnostic: fetch a Noon page and return what we see. Admin-only."""
+    SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY", "")
+    region   = request.args.get("region", "egypt-en")
+    q        = request.args.get("q", "samsung")
+    render   = request.args.get("render", "false").lower() == "true"
+    url = f"https://www.noon.com/{region}/search/?q={q}&limit=48&sort%5Bby%5D=discount&sort%5Bdir%5D=desc"
+    try:
+        if SCRAPER_API_KEY:
+            r = requests.get("http://api.scraperapi.com", params={
+                "api_key": SCRAPER_API_KEY, "url": url,
+                "render": "true" if render else "false",
+                "country_code": region[:2], "premium": "false",
+            }, timeout=60)
+        else:
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+        status = r.status_code
+        body   = r.text
+        nd_match = re.search(r'<script id="__NEXT_DATA__"[^>]*>\s*({.+?})\s*</script>', body, re.DOTALL)
+        nd = None
+        nd_keys = []
+        if nd_match:
+            try:
+                nd = json.loads(nd_match.group(1))
+                pp = nd.get("props", {}).get("pageProps", {})
+                nd_keys = list(pp.keys())
+            except Exception:
+                pass
+        return jsonify({
+            "url": url, "status": status, "body_len": len(body),
+            "has_next_data": bool(nd_match), "page_props_keys": nd_keys,
+            "body_snippet": body[:2000],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.errorhandler(404)
 def not_found(e): return jsonify({"success":False,"error":"Not found"}),404
 @app.errorhandler(500)

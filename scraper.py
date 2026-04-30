@@ -1397,34 +1397,49 @@ def scrape_sharaf_dg():
 # ─────────────────────────────────────────────────────
 def _process_noon_item(src, default_cat, region_path="egypt-en", currency="EGP"):
     """Parse a single Noon product dict. Returns tuple or None."""
-    title = src.get("name", "") or src.get("title", "")
+    title = (src.get("name") or src.get("title") or src.get("productName") or "").strip()
     if not title:
         return None
-    cp = clean_price(str(
-        src.get("price", {}).get("value", 0) if isinstance(src.get("price"), dict) else
-        src.get("sale_price", 0) or src.get("price", 0)
-    ))
-    op = clean_price(str(
-        src.get("price", {}).get("was", cp) if isinstance(src.get("price"), dict) else
-        src.get("was_price", cp) or src.get("original_price", cp) or cp
-    ))
-    if cp < 50:
-        return None
-    if currency == "EGP" and not price_in_range(cp):
+
+    # Current price — try multiple known field shapes
+    p = src.get("price")
+    if isinstance(p, dict):
+        cp_raw = p.get("now") or p.get("value") or p.get("sale_price") or p.get("current") or 0
+        op_raw = p.get("before_price") or p.get("was") or p.get("before") or p.get("original") or cp_raw
+        disc_stored = p.get("discount_percent") or p.get("discount") or 0
+    else:
+        cp_raw = src.get("sale_price") or src.get("current_price") or src.get("now_price") or p or 0
+        op_raw = src.get("was_price") or src.get("original_price") or src.get("before_price") or cp_raw
+        disc_stored = src.get("discount_percent") or src.get("discount") or 0
+
+    cp = clean_price(str(cp_raw))
+    op = clean_price(str(op_raw))
+
+    if cp < 1:
         return None
     if op < cp:
         op = cp
+
     disc = calculate_discount(op, cp)
-    if disc < MIN_DISCOUNT:
+    # Accept if either our calculated disc OR the stored disc_percent meets MIN_DISCOUNT
+    if disc < MIN_DISCOUNT and int(disc_stored or 0) < MIN_DISCOUNT:
         return None
-    img_keys = src.get("image_keys", [])
-    img  = f"https://f.nooncdn.com/p/{img_keys[0]}.jpg" if img_keys else (src.get("image", "") or "")
-    sku  = src.get("sku", "") or src.get("id", "")
-    purl = f"https://www.noon.com/{region_path}/{sku}/" if sku else ""
-    rating = float(src.get("rating", {}).get("value", 0) if isinstance(src.get("rating"), dict) else src.get("rating", 0) or 0)
-    rc     = int(src.get("rating", {}).get("count", 0) if isinstance(src.get("rating"), dict) else src.get("review_count", 0) or 0) or None
-    cat    = detect_category(title) or default_cat
-    return title, cp, op, disc, img, purl, rating, rc, cat
+
+    img_keys = src.get("image_keys") or []
+    img = f"https://f.nooncdn.com/p/{img_keys[0]}.jpg" if img_keys else (
+        src.get("image_key") and f"https://f.nooncdn.com/p/{src['image_key']}.jpg" or
+        src.get("image") or src.get("thumbnail") or ""
+    )
+    sku  = src.get("sku") or src.get("product_id") or src.get("id") or ""
+    purl = f"https://www.noon.com/{region_path}/{sku}/" if sku else src.get("url") or ""
+
+    r = src.get("rating")
+    rating = float(r.get("value") or r.get("average") or 0 if isinstance(r, dict) else r or 0)
+    rc_raw = src.get("review_count") or src.get("reviews_count") or (
+        r.get("count") or r.get("total") if isinstance(r, dict) else 0) or 0
+    rc = int(rc_raw) or None
+    cat = detect_category(title) or default_cat
+    return title, cp, op, disc or int(disc_stored), img, purl, rating, rc, cat
 
 
 def _parse_noon_products(content, default_cat, region_path, currency, marketplace_country,
@@ -1481,19 +1496,26 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
 
     # Method A: __NEXT_DATA__
     nd = extract_next_data(content)
+    print(f"    [noon parse] content={len(content)}B nd={'yes' if nd else 'no'}")
     if nd:
+        pp = nd.get("props", {}).get("pageProps", {})
         hits = (
-            nd.get("props", {}).get("pageProps", {}).get("catalog", {}).get("hits", []) or
-            nd.get("props", {}).get("pageProps", {}).get("hits", []) or
-            nd.get("props", {}).get("pageProps", {}).get("products", []) or
+            pp.get("catalog", {}).get("hits", []) or
+            pp.get("initialState", {}).get("catalog", {}).get("hits", []) or
+            pp.get("hits", []) or
+            pp.get("products", []) or
+            pp.get("items", []) or
+            nd.get("props", {}).get("initialState", {}).get("catalog", {}).get("hits", []) or
             _walk(nd)
         )
+        print(f"    [noon parse] Method A hits={len(hits)}")
         if hits:
             saved += _save_items(hits)
             if saved:
                 return saved
 
     # Method B: regex JSON patterns
+    b_found = 0
     for pattern in [
         r'window\.__INITIAL_STATE__\s*=\s*({.+?});\s*(?:window|</script>)',
         r'"products"\s*:\s*(\[.+?\])',
@@ -1512,12 +1534,14 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                  data.get("products", []))
                 if data else json.loads(raw)
             )
+            b_found = len(items) if items else 0
             if items:
                 saved += _save_items(items)
                 if saved:
                     return saved
         except Exception:
             continue
+    print(f"    [noon parse] Method B items={b_found}")
 
     # Method C: HTML product cards (rendered DOM)
     soup = BeautifulSoup(content, "lxml")
