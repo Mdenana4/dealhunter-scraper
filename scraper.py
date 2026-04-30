@@ -1427,6 +1427,156 @@ def _process_noon_item(src, default_cat, region_path="egypt-en", currency="EGP")
     return title, cp, op, disc, img, purl, rating, rc, cat
 
 
+def _parse_noon_products(content, default_cat, region_path, currency, marketplace_country,
+                         site_display, country_code):
+    """
+    Try every known method to extract Noon products from HTML/JSON content.
+    Returns count of deals saved.
+    """
+    saved = 0
+
+    # ── Helper: walk any JSON tree for product-shaped objects ─────────────
+    def _walk(obj, depth=0):
+        if depth > 10 or not isinstance(obj, (dict, list)):
+            return []
+        if isinstance(obj, list):
+            out = []
+            for x in obj:
+                out.extend(_walk(x, depth + 1))
+            return out
+        # Noon product: has sku/id AND name AND price
+        has_id    = "sku" in obj or "product_id" in obj
+        has_name  = "name" in obj or "title" in obj or "productName" in obj
+        has_price = "price" in obj or "sale_price" in obj or "now" in obj
+        if has_id and has_name and has_price:
+            return [obj]
+        out = []
+        for v in obj.values():
+            out.extend(_walk(v, depth + 1))
+        return out
+
+    def _save_items(items):
+        count = 0
+        for item in items:
+            try:
+                src = item.get("_source", item)
+                parsed = _process_noon_item(src, default_cat, region_path, currency)
+                if not parsed:
+                    continue
+                title, cp, op, disc, img, purl, rating, rc, cat = parsed
+                kb = check_price_history(product_url=purl, current_price=cp,
+                                         original_price=op, title=title,
+                                         site=marketplace_country)
+                deal = build_deal(title=title, site=marketplace_country,
+                                  site_display=site_display, category=cat,
+                                  current_price=cp, original_price=op,
+                                  discount=disc, image_url=img, product_url=purl,
+                                  rating=rating, review_count=rc,
+                                  kanbkam_result=kb, currency=currency)
+                save_deal(deal)
+                count += 1
+            except Exception:
+                continue
+        return count
+
+    # Method A: __NEXT_DATA__
+    nd = extract_next_data(content)
+    if nd:
+        hits = (
+            nd.get("props", {}).get("pageProps", {}).get("catalog", {}).get("hits", []) or
+            nd.get("props", {}).get("pageProps", {}).get("hits", []) or
+            nd.get("props", {}).get("pageProps", {}).get("products", []) or
+            _walk(nd)
+        )
+        if hits:
+            saved += _save_items(hits)
+            if saved:
+                return saved
+
+    # Method B: regex JSON patterns
+    for pattern in [
+        r'window\.__INITIAL_STATE__\s*=\s*({.+?});\s*(?:window|</script>)',
+        r'"products"\s*:\s*(\[.+?\])',
+        r'"hits"\s*:\s*\{"hits"\s*:\s*(\[.+?\])',
+        r'"catalog"\s*:\s*\{[^}]*"hits"\s*:\s*(\[.+?\])',
+    ]:
+        m = re.search(pattern, content, re.DOTALL)
+        if not m:
+            continue
+        try:
+            raw = m.group(1)
+            data = json.loads(raw) if raw.startswith('{') else None
+            items = (
+                (data.get("catalog", {}).get("hits", []) or
+                 data.get("hits", {}).get("hits", []) or
+                 data.get("products", []))
+                if data else json.loads(raw)
+            )
+            if items:
+                saved += _save_items(items)
+                if saved:
+                    return saved
+        except Exception:
+            continue
+
+    # Method C: HTML product cards (rendered DOM)
+    soup = BeautifulSoup(content, "lxml")
+    blocks = (
+        soup.find_all("div", attrs={"data-qa": "product-block"}) or
+        soup.find_all("div", attrs={"data-testid": "product-block"}) or
+        soup.find_all("div", class_=lambda c: c and any(
+            k in str(c) for k in ("productContainer", "ProductCard", "product-card"))) or
+        soup.find_all("article", class_=lambda c: c and "product" in str(c).lower())
+    )
+    for p in blocks:
+        try:
+            title_el = (p.find(attrs={"data-qa": "product-name"}) or
+                        p.find(class_=lambda c: c and "name" in str(c).lower()) or
+                        p.find("h2") or p.find("p"))
+            if not title_el:
+                continue
+            title = title_el.get_text(strip=True)
+            if not title or len(title) < 5:
+                continue
+            price_el = (p.find(attrs={"data-qa": "price-now"}) or
+                        p.find(class_=lambda c: c and "price" in str(c).lower()))
+            if not price_el:
+                continue
+            cp = clean_price(price_el.get_text())
+            if cp < 50:
+                continue
+            orig_el = (p.find(attrs={"data-qa": "price-was"}) or
+                       p.find("del") or
+                       p.find(class_=lambda c: c and "was" in str(c).lower()))
+            op = clean_price(orig_el.get_text()) if orig_el else cp
+            if op < cp:
+                op = cp
+            disc = calculate_discount(op, cp)
+            if disc < MIN_DISCOUNT:
+                continue
+            link_el = p.find("a", href=True)
+            href = link_el["href"] if link_el else ""
+            purl = ("https://www.noon.com" + href
+                    if href.startswith("/") else href)
+            img_el = p.find("img")
+            img = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+            cat = detect_category(title) or default_cat
+            kb = check_price_history(product_url=purl, current_price=cp,
+                                     original_price=op, title=title,
+                                     site=marketplace_country)
+            deal = build_deal(title=title, site=marketplace_country,
+                              site_display=site_display, category=cat,
+                              current_price=cp, original_price=op,
+                              discount=disc, image_url=img, product_url=purl,
+                              kanbkam_result=kb, currency=currency)
+            save_deal(deal)
+            saved += 1
+        except Exception:
+            continue
+
+    return saved
+
+
 def _scrape_noon_region(
     region_path="egypt-en",
     marketplace_country="noon_eg",
@@ -1437,6 +1587,31 @@ def _scrape_noon_region(
     """Scrape any Noon regional store. Called by the three wrappers below."""
     print(f"\n[NOON/{country_code.upper()}] Starting — {site_display}...")
     total = 0
+
+    # ── Phase 1: Deals / sale pages (server-side rendered, most reliable) ──
+    deals_pages = [
+        f"https://www.noon.com/{region_path}/deals/?limit=48&sort%5Bby%5D=discount_percent&sort%5Bdir%5D=desc",
+        f"https://www.noon.com/{region_path}/flash-sale/?limit=48",
+        f"https://www.noon.com/{region_path}/sale/?limit=48&sort%5Bby%5D=discount_percent",
+    ]
+    for dp_url in deals_pages:
+        try:
+            resp = fetch_with_scraperapi(dp_url, render_js=False, country=country_code)
+            if resp and resp.status_code == 200:
+                n = _parse_noon_products(resp.text, "general", region_path, currency,
+                                         marketplace_country, site_display, country_code)
+                if n == 0:
+                    resp2 = fetch_with_scraperapi(dp_url, render_js=True, country=country_code)
+                    if resp2 and resp2.status_code == 200:
+                        n = _parse_noon_products(resp2.text, "general", region_path, currency,
+                                                 marketplace_country, site_display, country_code)
+                print(f"  [NOON/{country_code.upper()}] Deals page: {n} deals")
+                total += n
+                time.sleep(3)
+        except Exception as e:
+            print(f"  [NOON/{country_code.upper()}] Deals page error: {e}")
+
+    # ── Phase 2: Category search terms ─────────────────────────────────────
     search_terms = [
         ("samsung galaxy",  "electronics"), ("iphone",     "electronics"),
         ("laptop",          "electronics"), ("headphones", "electronics"),
@@ -1454,192 +1629,20 @@ def _scrape_noon_region(
         try:
             url = f"https://www.noon.com/{region_path}/search/?q={term.replace(' ', '+')}&limit=48&sort%5Bby%5D=discount&sort%5Bdir%5D=desc"
 
-            # Helper: recursively find product dicts (have 'sku' + 'name') in any JSON tree
-            def _walk_for_noon_hits(obj, depth=0):
-                if depth > 8 or not isinstance(obj, (dict, list)):
-                    return []
-                if isinstance(obj, list):
-                    results = []
-                    for x in obj:
-                        results.extend(_walk_for_noon_hits(x, depth + 1))
-                    return results
-                if "sku" in obj and ("name" in obj or "title" in obj):
-                    return [obj]
-                results = []
-                for v in obj.values():
-                    results.extend(_walk_for_noon_hits(v, depth + 1))
-                return results
-
-            def _hits_from_nd(nd):
-                if not nd:
-                    return []
-                return (
-                    nd.get("props", {}).get("pageProps", {}).get("catalog", {}).get("hits", []) or
-                    nd.get("props", {}).get("pageProps", {}).get("hits", []) or
-                    _walk_for_noon_hits(nd)
-                )
-
-            # Step 1: try without JS (fast, cheap)
+            # Try without JS first, fall back to JS if no products
             resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
             if not resp or resp.status_code != 200:
                 time.sleep(2)
                 continue
-
-            content = resp.text
-            hits = _hits_from_nd(extract_next_data(content))
-
-            # Step 2: fall back to JS rendering if static page gave 0 products.
-            # Noon now loads products client-side; __NEXT_DATA__ is present but empty.
-            if not hits:
+            n = _parse_noon_products(resp.text, default_cat, region_path, currency,
+                                     marketplace_country, site_display, country_code)
+            if n == 0:
                 resp2 = fetch_with_scraperapi(url, render_js=True, country=country_code)
                 if resp2 and resp2.status_code == 200:
-                    content = resp2.text
-                    hits = _hits_from_nd(extract_next_data(content))
-                    print(f"  [NOON/{country_code.upper()}] JS-render for '{term}': {len(hits)} hits")
-
-            products_found = 0
-
-            # Method 0: __NEXT_DATA__ hits (static or JS-rendered)
-            nd = extract_next_data(content)
-            if hits:
-                for item in hits:
-                    try:
-                        parsed = _process_noon_item(item.get("_source", item), default_cat, region_path, currency)
-                        if not parsed:
-                            continue
-                        title, cp, op, disc, img, purl, rating, rc, cat = parsed
-                        kb = check_price_history(product_url=purl, current_price=cp,
-                                                 original_price=op, title=title, site=marketplace_country)
-                        deal = build_deal(title=title, site=marketplace_country, site_display=site_display,
-                                          category=cat, current_price=cp, original_price=op,
-                                          discount=disc, image_url=img, product_url=purl,
-                                          rating=rating, review_count=rc, kanbkam_result=kb,
-                                          currency=currency)
-                        save_deal(deal)
-                        total += 1
-                        products_found += 1
-                    except Exception:
-                        continue
-
-            # Method 1: regex JSON patterns
-            json_patterns = [
-                r'window\.__INITIAL_STATE__\s*=\s*({.+?});\s*(?:window|</script>)',
-                r'"products"\s*:\s*(\[.+?\])',
-                r'"hits"\s*:\s*\{"hits"\s*:\s*(\[.+?\])',
-            ]
-
-            if products_found == 0:
-                for pattern in json_patterns:
-                    match = re.search(pattern, content, re.DOTALL)
-                    if not match:
-                        continue
-                    try:
-                        raw = match.group(1)
-                        if raw.startswith('{'):
-                            data = json.loads(raw)
-                            items = (
-                                data.get("catalog", {}).get("hits", []) or
-                                data.get("hits", {}).get("hits", []) or
-                                data.get("products", []) or []
-                            )
-                        else:
-                            items = json.loads(raw)
-
-                        for item in items:
-                            try:
-                                parsed = _process_noon_item(item.get("_source", item), default_cat, region_path, currency)
-                                if not parsed:
-                                    continue
-                                title, cp, op, disc, img, purl, rating, rc, cat = parsed
-                                kb = check_price_history(product_url=purl, current_price=cp,
-                                                         original_price=op, title=title, site=marketplace_country)
-                                deal = build_deal(title=title, site=marketplace_country, site_display=site_display,
-                                                  category=cat, current_price=cp, original_price=op,
-                                                  discount=disc, image_url=img, product_url=purl,
-                                                  rating=rating, review_count=rc, kanbkam_result=kb,
-                                                  currency=currency)
-                                save_deal(deal)
-                                total += 1
-                                products_found += 1
-                            except Exception:
-                                continue
-
-                        if products_found > 0:
-                            break
-                    except Exception:
-                        continue
-
-            # Method 2: HTML fallback
-            if products_found == 0:
-                soup = BeautifulSoup(content, "lxml")
-                product_blocks = (
-                    soup.find_all("div", attrs={"data-qa": "product-block"}) or
-                    soup.find_all("div", class_=lambda c: c and "productContainer" in str(c)) or
-                    soup.find_all("article")
-                )
-                for p in product_blocks:
-                    try:
-                        title_el = (
-                            p.find(class_=lambda c: c and "name" in str(c)) or
-                            p.find("h2") or
-                            p.find("p", class_=lambda c: c and "name" in str(c))
-                        )
-                        if not title_el:
-                            continue
-                        title = title_el.get_text(strip=True)
-                        if not title or len(title) < 5:
-                            continue
-
-                        price_el = (
-                            p.find("strong", class_=lambda c: c and "price" in str(c)) or
-                            p.find("span",   class_=lambda c: c and "price" in str(c)) or
-                            p.find(class_="price")
-                        )
-                        if not price_el:
-                            continue
-                        cp = clean_price(price_el.get_text())
-                        if cp < 50:
-                            continue
-                        if currency == "EGP" and not price_in_range(cp):
-                            continue
-
-                        orig_el = (
-                            p.find("span", class_=lambda c: c and ("was" in str(c) or "old" in str(c))) or
-                            p.find("del")
-                        )
-                        op = clean_price(orig_el.get_text()) if orig_el else cp
-                        if op < cp:
-                            op = cp
-                        disc = calculate_discount(op, cp)
-                        if disc < MIN_DISCOUNT:
-                            continue
-
-                        link_el = p.find("a", href=True)
-                        href    = link_el["href"] if link_el else ""
-                        purl    = "https://www.noon.com" + href if href.startswith("/") else href
-
-                        img_el = p.find("img")
-                        img    = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
-                        cat    = detect_category(title) or default_cat
-
-                        kb = check_price_history(
-                            product_url=purl, current_price=cp,
-                            original_price=op, title=title, site=marketplace_country,
-                        )
-
-                        deal = build_deal(
-                            title=title, site=marketplace_country, site_display=site_display,
-                            category=cat, current_price=cp, original_price=op,
-                            discount=disc, image_url=img, product_url=purl,
-                            kanbkam_result=kb, currency=currency,
-                        )
-                        save_deal(deal)
-                        total += 1
-                        products_found += 1
-                    except Exception:
-                        continue
-
-            print(f"  [NOON/{country_code.upper()}] '{term}': {products_found} deals")
+                    n = _parse_noon_products(resp2.text, default_cat, region_path, currency,
+                                             marketplace_country, site_display, country_code)
+            print(f"  [NOON/{country_code.upper()}] '{term}': {n} deals")
+            total += n
             time.sleep(2)
 
         except Exception as e:
