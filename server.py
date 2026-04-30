@@ -150,6 +150,11 @@ def detect_fraud_safqa(orig, curr, pct, low, high) -> dict:
 
 def detect_fraud_basic(orig, curr, pct) -> dict:
     reasons, score, conf = [], 0, 65
+    # Reconstruct original price from claimed discount when it's missing in storage.
+    # e.g. curr=89, pct=77  →  orig ≈ 387. Allows ratio check to run.
+    if orig == 0 and curr > 0 and 0 < pct < 100:
+        orig = round(curr / (1 - pct / 100), 2)
+        reasons.append(f"Original price not stored — reconstructed as {orig:.0f} from {pct}% claim")
     if orig > 0 and curr > 0:
         ratio = orig / curr
         calc  = round((orig - curr) / orig * 100)
@@ -675,9 +680,9 @@ def mobile_get_deals():
         if mc:
             q = q.where('site', '==', mc)   # scraper stores marketplace in 'site'
 
-        # Sort in Python to avoid requiring composite Firestore indexes when
-        # a where() filter is combined with order_by().
-        all_docs = list(q.stream())
+        # Cap at 1000 docs to prevent streaming an unbounded collection
+        # (causes memory exhaustion / 60-second Firestore timeout).
+        all_docs = list(q.limit(1000).stream())
 
         # Country filter: keep docs whose 'site' ends with _{country} (eg, ae, sa)
         if country:

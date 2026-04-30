@@ -1453,46 +1453,55 @@ def _scrape_noon_region(
     for term, default_cat in search_terms:
         try:
             url = f"https://www.noon.com/{region_path}/search/?q={term.replace(' ', '+')}&limit=48&sort%5Bby%5D=discount&sort%5Bdir%5D=desc"
-            # Try without JS rendering first — Noon (Next.js) embeds full product
-            # data in __NEXT_DATA__ even in static HTML, which is faster and cheaper.
-            resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
-            if not resp or resp.status_code != 200:
-                time.sleep(2)
-                continue
-            # Only fall back to JS rendering if __NEXT_DATA__ is absent
-            if "__NEXT_DATA__" not in (resp.text or "") and "window.__INITIAL" not in (resp.text or ""):
-                resp = fetch_with_scraperapi(url, render_js=True, country=country_code)
-                if not resp or resp.status_code != 200:
-                    time.sleep(2)
-                    continue
 
-            content = resp.text
-            products_found = 0
-
-            # Method 0: __NEXT_DATA__ (Noon uses Next.js — most reliable without JS rendering)
-            nd = extract_next_data(content)
-            if nd:
-                def _walk_for_noon_hits(obj, depth=0):
-                    if depth > 8 or not isinstance(obj, (dict, list)):
-                        return []
-                    if isinstance(obj, list):
-                        results = []
-                        for x in obj:
-                            results.extend(_walk_for_noon_hits(x, depth + 1))
-                        return results
-                    # A Noon product has 'sku' and 'name'
-                    if "sku" in obj and ("name" in obj or "title" in obj):
-                        return [obj]
+            # Helper: recursively find product dicts (have 'sku' + 'name') in any JSON tree
+            def _walk_for_noon_hits(obj, depth=0):
+                if depth > 8 or not isinstance(obj, (dict, list)):
+                    return []
+                if isinstance(obj, list):
                     results = []
-                    for v in obj.values():
-                        results.extend(_walk_for_noon_hits(v, depth + 1))
+                    for x in obj:
+                        results.extend(_walk_for_noon_hits(x, depth + 1))
                     return results
+                if "sku" in obj and ("name" in obj or "title" in obj):
+                    return [obj]
+                results = []
+                for v in obj.values():
+                    results.extend(_walk_for_noon_hits(v, depth + 1))
+                return results
 
-                hits = (
+            def _hits_from_nd(nd):
+                if not nd:
+                    return []
+                return (
                     nd.get("props", {}).get("pageProps", {}).get("catalog", {}).get("hits", []) or
                     nd.get("props", {}).get("pageProps", {}).get("hits", []) or
                     _walk_for_noon_hits(nd)
                 )
+
+            # Step 1: try without JS (fast, cheap)
+            resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
+            if not resp or resp.status_code != 200:
+                time.sleep(2)
+                continue
+
+            content = resp.text
+            hits = _hits_from_nd(extract_next_data(content))
+
+            # Step 2: fall back to JS rendering if static page gave 0 products.
+            # Noon now loads products client-side; __NEXT_DATA__ is present but empty.
+            if not hits:
+                resp2 = fetch_with_scraperapi(url, render_js=True, country=country_code)
+                if resp2 and resp2.status_code == 200:
+                    content = resp2.text
+                    hits = _hits_from_nd(extract_next_data(content))
+                    print(f"  [NOON/{country_code.upper()}] JS-render for '{term}': {len(hits)} hits")
+
+            products_found = 0
+
+            # Method 0: __NEXT_DATA__ hits (static or JS-rendered)
+            nd = extract_next_data(content)
+            if hits:
                 for item in hits:
                     try:
                         parsed = _process_noon_item(item.get("_source", item), default_cat, region_path, currency)

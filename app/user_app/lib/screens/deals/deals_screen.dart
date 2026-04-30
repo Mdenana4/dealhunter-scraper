@@ -102,7 +102,7 @@ class _DealsScreenState extends ConsumerState<DealsScreen> {
           ),
         ],
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(144),
+          preferredSize: const Size.fromHeight(150),
           child: Column(
             children: [
               _CountryBar(selected: _country, onSelect: _setCountry),
