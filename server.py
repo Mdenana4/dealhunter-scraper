@@ -827,85 +827,154 @@ def mobile_search():
 @app.route('/api/verify')
 def mobile_verify():
     """
-    Fake-discount verification for one product.
+    On-demand fake-discount verification. Called when the user taps
+    "Verify Discount" on a deal detail screen.
 
-    Query params: marketplace_country, product_id
-    Returns: verdict ('genuine'|'fake'|'uncertain'), confidence, explanation,
-             red_flags, recommendation
+    Query params (all required when calling from the app):
+      marketplace_country   e.g. amazon_eg
+      product_id            ASIN or SKU
+      product_url           full product URL (used for Safqa ssearch)
+      original_price        float — the claimed "was" price
+      current_price         float — current sale price
+      discount_percent      int   — claimed discount %
+
+    Strategy:
+      1. Safqa ssearch (works for Amazon EG/AE/SA, Noon, Jumia)
+      2. Kanbkam scrape  (Amazon EG only, ASIN required)
+      3. Ratio analysis  (always runs as safety net)
     """
-    mc  = request.args.get('marketplace_country', '').strip()
-    pid = request.args.get('product_id', '').strip()
+    mc   = request.args.get('marketplace_country', '').strip()
+    pid  = request.args.get('product_id', '').strip()
+    url  = request.args.get('product_url', '').strip()
+    orig = request.args.get('original_price', 0, type=float)
+    curr = request.args.get('current_price',  0, type=float)
+    disc = request.args.get('discount_percent', 0, type=int)
+
     if not mc or not pid:
-        return jsonify({"success": False, "error": "marketplace_country and product_id required"}), 400
+        return jsonify({"success": False,
+                        "error": "marketplace_country and product_id required"}), 400
     if pid.startswith(mc + "_"):
         pid = pid[len(mc) + 1:]
 
+    # If the app didn't pass prices, look them up from the deals collection
+    if not orig or not curr:
+        try:
+            matches = list(db.collection('deals').where('asin', '==', pid).limit(1).stream())
+            if not matches:
+                doc = db.collection('deals').document(pid).get()
+                if doc.exists:
+                    matches = [doc]
+            if matches:
+                d    = matches[0].to_dict()
+                orig = orig or float(d.get('original_price') or 0)
+                curr = curr or float(d.get('current_price')  or 0)
+                disc = disc or int(d.get('discount_percent') or 0)
+                url  = url  or d.get('product_url', '')
+        except Exception:
+            pass
+
     try:
-        # Try price_tracker collection first (populated after scraper fix)
-        p = None
-        product_ref = (db.collection('price_tracker')
-                         .document(mc)
-                         .collection('products')
-                         .document(pid))
-        product_doc = product_ref.get()
-        if product_doc.exists:
-            p = product_doc.to_dict()
-        else:
-            # Fall back to the deals collection (pid = doc_id or asin)
-            deal_doc = db.collection('deals').document(pid).get()
-            if deal_doc.exists:
-                p = deal_doc.to_dict()
-                p['url'] = p.get('product_url', '')
-            else:
-                # Search by asin field
-                matches = list(db.collection('deals')
-                                 .where('asin', '==', pid)
-                                 .limit(1).stream())
-                if matches:
-                    p = matches[0].to_dict()
-                    p['url'] = p.get('product_url', '')
+        safqa_found   = False
+        kanbkam_found = False
+        historical_low  = 0.0
+        historical_high = 0.0
+        sources = []
 
-        if not p:
-            return jsonify({"success": False, "error": "Product not found"}), 404
+        # ── 1. Safqa ssearch ────────────────────────────────────────────────
+        if url and curr > 0:
+            hist = get_safqa_history(url, curr)
+            if hist.get('found'):
+                safqa_found     = True
+                historical_low  = hist.get('lowest',  0)
+                historical_high = hist.get('highest', 0)
+                sources.append('Safqa')
 
-        curr = float(p.get('current_price', 0))
-        orig = float(p.get('original_price', 0))
-        disc = int(p.get('discount_percent', 0))
-        url  = p.get('url', p.get('product_url', ''))
+        # ── 2. Kanbkam (Amazon EG, needs ASIN) ─────────────────────────────
+        if mc == 'amazon_eg' and pid and re.match(r'^[A-Z0-9]{10}$', pid):
+            try:
+                from fake_checker import check_kanbkam
+                kb = check_kanbkam(pid)
+                if kb.get('found'):
+                    kanbkam_found = True
+                    sources.append('Kanbkam')
+                    # Take the most conservative (lowest) highest price from either source
+                    kb_high = kb.get('highest_price', 0)
+                    kb_low  = kb.get('lowest_price',  0)
+                    if historical_high == 0:
+                        historical_high = kb_high
+                        historical_low  = kb_low
+                    else:
+                        historical_high = min(historical_high, kb_high) if kb_high > 0 else historical_high
+                        historical_low  = min(historical_low,  kb_low)  if kb_low  > 0 else historical_low
+            except Exception as kb_err:
+                print(f"[VERIFY] Kanbkam error: {kb_err}")
 
-        # Try Safqa enhanced detection first
-        hist   = get_safqa_history(url, curr) if url and curr > 0 else {"found": False}
-        if hist.get('found') and orig > 0:
-            fraud = detect_fraud_safqa(orig, curr, disc,
-                                       hist.get('lowest', 0), hist.get('highest', 0))
+        # ── 3. Choose detection method ───────────────────────────────────────
+        source_label = ' + '.join(sources) if sources else 'listing data'
+        if (safqa_found or kanbkam_found) and orig > 0:
+            fraud = detect_fraud_safqa(orig, curr, disc, historical_low, historical_high)
         else:
             fraud = detect_fraud_basic(orig, curr, disc)
 
-        # Map verdict to mobile app's expected values
-        verdict_map = {'GENUINE': 'genuine', 'FAKE': 'fake', 'SUSPICIOUS': 'uncertain'}
+        # ── 4. Build red flags list ──────────────────────────────────────────
+        red_flags = list(fraud.get('reasons', []))
+        currency  = 'EGP' if 'eg' in mc else ('AED' if 'ae' in mc else 'SAR')
+
+        if historical_high > 0 and orig > historical_high:
+            red_flags.insert(0,
+                f"Claimed 'was' {currency} {orig:.0f} but highest price EVER recorded "
+                f"was only {currency} {historical_high:.0f} — the original price is inflated.")
+        if historical_low > 0:
+            real_disc = round((historical_high - curr) / historical_high * 100) if historical_high > 0 else 0
+            if disc - real_disc > 10:
+                red_flags.append(
+                    f"Real saving vs true highest price: {real_disc}% "
+                    f"(not the claimed {disc}%).")
+
+        # ── 5. Map to app's verdict values ───────────────────────────────────
+        verdict_map = {'GENUINE': 'genuine', 'FAKE': 'fake',
+                       'SUSPICIOUS': 'uncertain', 'WAIT': 'uncertain'}
         verdict = verdict_map.get(fraud['verdict'], 'uncertain')
 
-        explanation = (
-            f"Price checked against {'90-day Safqa history' if hist.get('found') else 'listing data'}. "
-            f"Original: EGP {orig:.0f} · Current: EGP {curr:.0f} · Claimed: {disc}% off."
-        )
+        if historical_high > 0:
+            explanation = (
+                f"Checked live against {source_label}. "
+                f"Highest price ever: {currency} {historical_high:.0f} · "
+                f"Claimed 'was': {currency} {orig:.0f} · "
+                f"Now: {currency} {curr:.0f}."
+            )
+        else:
+            explanation = (
+                f"Checked against listing data (no price history found). "
+                f"Claimed 'was': {currency} {orig:.0f} · "
+                f"Now: {currency} {curr:.0f} · {disc}% off."
+            )
+
         recommendation = (
-            "This looks like a genuine deal — good time to buy!" if verdict == 'genuine'
-            else "We detected signs of price manipulation — proceed with caution."
-            if verdict == 'uncertain'
-            else "This discount appears fake. The original price may have been inflated."
+            "This looks like a genuine deal — good time to buy!"
+            if verdict == 'genuine' else
+            "Price manipulation detected — the original price was likely never real."
+            if verdict == 'fake' else
+            "Some suspicious signals — check price history before buying."
         )
 
         return jsonify({
-            "success":        True,
-            "verdict":        verdict,
-            "confidence":     fraud['confidence'],
-            "explanation":    explanation,
-            "red_flags":      fraud.get('reasons', []),
-            "recommendation": recommendation,
-            "checked_at":     now_iso(),
+            "success":          True,
+            "verdict":          verdict,
+            "confidence":       fraud['confidence'],
+            "explanation":      explanation,
+            "red_flags":        red_flags,
+            "recommendation":   recommendation,
+            "historical_high":  historical_high,
+            "historical_low":   historical_low,
+            "safqa_found":      safqa_found,
+            "kanbkam_found":    kanbkam_found,
+            "source_used":      source_label,
+            "checked_at":       now_iso(),
         })
     except Exception as e:
+        import traceback
+        print(f"[VERIFY] Error: {e}\n{traceback.format_exc()}", flush=True)
         return _pt_error(str(e), 500)
 
 

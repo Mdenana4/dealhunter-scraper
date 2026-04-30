@@ -105,11 +105,19 @@ class ApiService {
 
   Future<Map<String, dynamic>> verify(
     String marketplaceCountry,
-    String productId,
-  ) async {
+    String productId, {
+    String? productUrl,
+    double? originalPrice,
+    double? currentPrice,
+    int? discountPercent,
+  }) async {
     final resp = await _dio.get('/api/verify', queryParameters: {
       'marketplace_country': marketplaceCountry,
       'product_id': productId,
+      if (productUrl != null && productUrl.isNotEmpty) 'product_url': productUrl,
+      if (originalPrice != null) 'original_price': originalPrice,
+      if (currentPrice != null) 'current_price': currentPrice,
+      if (discountPercent != null) 'discount_percent': discountPercent,
     });
     return resp.data as Map<String, dynamic>;
   }

@@ -363,113 +363,271 @@ class _DealDetailBody extends ConsumerWidget {
 
 // ─── Verify card ───────────────────────────────────────────────────────────
 
-class _VerifyCard extends ConsumerWidget {
+class _VerifyCard extends ConsumerStatefulWidget {
   const _VerifyCard({required this.deal});
-
   final DealModel deal;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final key = (
-      marketplaceCountry: deal.source,
-      productId: deal.productId,
-    );
-    final verifyAsync = ref.watch(verifyProvider(key));
+  ConsumerState<_VerifyCard> createState() => _VerifyCardState();
+}
+
+class _VerifyCardState extends ConsumerState<_VerifyCard> {
+  bool _checking = false;
+  Map<String, dynamic>? _result;
+  String? _error;
+
+  Future<void> _verify() async {
+    setState(() { _checking = true; _error = null; });
+    try {
+      final data = await ref.read(apiServiceProvider).verify(
+        widget.deal.source,
+        widget.deal.productId,
+        productUrl: widget.deal.productUrl,
+        originalPrice: widget.deal.originalPrice,
+        currentPrice: widget.deal.currentPrice,
+        discountPercent: widget.deal.discountPercent,
+      );
+      setState(() { _result = data; _checking = false; });
+    } catch (e) {
+      setState(() { _error = 'Verification failed. Try again.'; _checking = false; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
 
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: verifyAsync.when(
-          loading: () => const Row(
-            children: [
-              SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2)),
-              SizedBox(width: 12),
-              Text('Verifying discount...'),
-            ],
-          ),
-          error: (_, __) => Row(
-            children: [
-              Icon(Icons.help_outline, color: cs.onSurfaceVariant),
-              const SizedBox(width: 12),
-              const Text('Verification unavailable'),
-            ],
-          ),
-          data: (data) {
-            final verdict = data['verdict'] as String? ?? 'uncertain';
-            final confidence =
-                (data['confidence'] as num?)?.toDouble() ?? 50.0;
-            final explanation =
-                data['explanation'] as String? ?? '';
-            final redFlags =
-                (data['red_flags'] as List?)?.map((e) => e.toString()).toList() ??
-                    [];
-
-            final (icon, color, label) = switch (verdict) {
-              'genuine' => (
-                  Icons.verified_rounded,
-                  Colors.green,
-                  'Genuine Deal'
-                ),
-              'fake' => (Icons.cancel_rounded, Colors.red, 'Fake Discount'),
-              _ => (Icons.warning_rounded, Colors.orange, 'Uncertain'),
-            };
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(icon, color: color, size: 24),
-                    const SizedBox(width: 8),
-                    Text(label,
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold, color: color)),
-                    const Spacer(),
-                    Text(
-                      '${confidence.toStringAsFixed(0)}% confidence',
-                      style: TextStyle(
-                          fontSize: 12, color: cs.onSurfaceVariant),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                LinearProgressIndicator(
-                  value: confidence / 100,
-                  color: color,
-                  backgroundColor: color.withValues(alpha: 0.16),
-                ),
-                if (explanation.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(explanation,
-                      style: TextStyle(
-                          fontSize: 13, color: cs.onSurfaceVariant)),
-                ],
-                for (final flag in redFlags) ...[
-                  const SizedBox(height: 4),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.flag_outlined,
-                          size: 14, color: Colors.red.shade400),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(flag,
-                            style: const TextStyle(fontSize: 12)),
-                      ),
-                    ],
-                  ),
-                ],
-              ],
-            );
-          },
-        ),
+        child: _checking
+            ? const Row(children: [
+                SizedBox(width: 20, height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2)),
+                SizedBox(width: 12),
+                Expanded(child: Text(
+                  'Checking Safqa & Kanbkam for real price history…',
+                  style: TextStyle(fontSize: 13),
+                )),
+              ])
+            : _result == null
+                ? _VerifyPrompt(
+                    deal: widget.deal,
+                    onVerify: _verify,
+                    error: _error,
+                  )
+                : _VerifyResult(data: _result!, currency: widget.deal.currency,
+                    onRecheck: _verify),
       ),
     );
   }
+}
+
+class _VerifyPrompt extends StatelessWidget {
+  const _VerifyPrompt({required this.deal, required this.onVerify, this.error});
+
+  final DealModel deal;
+  final VoidCallback onVerify;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(children: [
+          Icon(Icons.shield_outlined, color: cs.primary),
+          const SizedBox(width: 8),
+          const Text('Is this discount real?',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+        ]),
+        const SizedBox(height: 6),
+        Text(
+          'We\'ll check Safqa & Kanbkam for the real price history to verify '
+          'if the "was" price was ever genuine.',
+          style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+        ),
+        if (error != null) ...[
+          const SizedBox(height: 8),
+          Text(error!, style: TextStyle(fontSize: 12, color: cs.error)),
+        ],
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            icon: const Icon(Icons.search_rounded, size: 18),
+            label: Text(error != null ? 'Try Again' : 'Verify Discount'),
+            onPressed: onVerify,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _VerifyResult extends StatelessWidget {
+  const _VerifyResult({required this.data, required this.currency, required this.onRecheck});
+
+  final Map<String, dynamic> data;
+  final String currency;
+  final VoidCallback onRecheck;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final verdict     = data['verdict'] as String? ?? 'uncertain';
+    final confidence  = (data['confidence'] as num?)?.toDouble() ?? 50.0;
+    final explanation = data['explanation'] as String? ?? '';
+    final redFlags    = (data['red_flags'] as List?)?.map((e) => e.toString()).toList() ?? [];
+    final recommendation = data['recommendation'] as String? ?? '';
+    final histHigh    = (data['historical_high'] as num?)?.toDouble() ?? 0;
+    final histLow     = (data['historical_low']  as num?)?.toDouble() ?? 0;
+    final sourceUsed  = data['source_used'] as String? ?? '';
+    final safqaFound  = data['safqa_found']   == true;
+    final kanbkamFound = data['kanbkam_found'] == true;
+
+    final (icon, color, label) = switch (verdict) {
+      'genuine'  => (Icons.verified_rounded,  Colors.green,  'Genuine Deal'),
+      'fake'     => (Icons.cancel_rounded,    Colors.red,    'Fake Discount'),
+      _          => (Icons.warning_rounded,   Colors.orange, 'Suspicious'),
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Verdict row
+        Row(children: [
+          Icon(icon, color: color, size: 26),
+          const SizedBox(width: 8),
+          Text(label, style: TextStyle(
+              fontWeight: FontWeight.bold, color: color, fontSize: 16)),
+          const Spacer(),
+          Text('${confidence.toStringAsFixed(0)}% confident',
+              style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+        ]),
+        const SizedBox(height: 6),
+        LinearProgressIndicator(
+          value: confidence / 100,
+          color: color,
+          backgroundColor: color.withValues(alpha: 0.15),
+        ),
+
+        // Historical price boxes (show only when data found)
+        if (histHigh > 0) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHighest,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _PriceStat('Historical High',
+                    '$currency ${histHigh.toStringAsFixed(0)}', Colors.red.shade600),
+                if (histLow > 0)
+                  _PriceStat('Historical Low',
+                      '$currency ${histLow.toStringAsFixed(0)}', Colors.green.shade600),
+                _PriceStat('Source', sourceUsed, cs.primary),
+              ],
+            ),
+          ),
+        ],
+
+        // Source badges
+        const SizedBox(height: 10),
+        Wrap(spacing: 6, children: [
+          if (safqaFound)
+            _Badge('Safqa ✓', Colors.blue.shade700),
+          if (kanbkamFound)
+            _Badge('Kanbkam ✓', Colors.orange.shade700),
+          if (!safqaFound && !kanbkamFound)
+            _Badge('Ratio analysis only', Colors.grey.shade600),
+        ]),
+
+        // Explanation
+        if (explanation.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Text(explanation,
+              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+        ],
+
+        // Red flags
+        for (final flag in redFlags) ...[
+          const SizedBox(height: 6),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(Icons.flag_rounded, size: 13, color: Colors.red.shade400),
+            const SizedBox(width: 6),
+            Expanded(child: Text(flag, style: const TextStyle(fontSize: 12))),
+          ]),
+        ],
+
+        // Recommendation
+        if (recommendation.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: color.withValues(alpha: 0.3)),
+            ),
+            child: Text(recommendation,
+                style: TextStyle(fontSize: 12, color: color,
+                    fontWeight: FontWeight.w500)),
+          ),
+        ],
+
+        // Recheck
+        const SizedBox(height: 10),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            icon: const Icon(Icons.refresh, size: 14),
+            label: const Text('Re-check', style: TextStyle(fontSize: 12)),
+            onPressed: onRecheck,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PriceStat extends StatelessWidget {
+  const _PriceStat(this.label, this.value, this.color);
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Column(children: [
+    Text(label, style: TextStyle(
+        fontSize: 10, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+    const SizedBox(height: 2),
+    Text(value, style: TextStyle(
+        fontWeight: FontWeight.bold, fontSize: 13, color: color)),
+  ]);
+}
+
+class _Badge extends StatelessWidget {
+  const _Badge(this.label, this.color);
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: color.withValues(alpha: 0.4)),
+    ),
+    child: Text(label, style: TextStyle(fontSize: 11, color: color,
+        fontWeight: FontWeight.w500)),
+  );
 }
 
 // ─── Price history chart ───────────────────────────────────────────────────
