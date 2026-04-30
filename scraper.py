@@ -26,7 +26,7 @@ from scraper_health import health as _health
 load_dotenv()
 
 MIN_DISCOUNT    = int(os.getenv("MIN_DISCOUNT", 40))
-INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 3))
+INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 60))
 SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY", "")
 
 # ─── Price filter: skip products outside this EGP range ───────────────────────
@@ -270,8 +270,11 @@ def extract_next_data(html_text):
     return {}
 
 
+_SCRAPERAPI_EXHAUSTED = False  # set True when monthly quota gone
+
 def fetch_with_scraperapi(url, render_js=True, country="eg"):
-    if not SCRAPER_API_KEY:
+    global _SCRAPERAPI_EXHAUSTED
+    if not SCRAPER_API_KEY or _SCRAPERAPI_EXHAUSTED:
         return fetch_direct(url)
     try:
         params = {
@@ -284,6 +287,9 @@ def fetch_with_scraperapi(url, render_js=True, country="eg"):
         resp = requests.get("http://api.scraperapi.com", params=params, timeout=60)
         if resp.status_code == 200:
             return resp
+        if resp.status_code == 403 and "exhausted" in resp.text.lower():
+            _SCRAPERAPI_EXHAUSTED = True
+            print("⚠️  ScraperAPI credits exhausted — switching to direct fetch for this cycle")
         return fetch_direct(url)
     except Exception as e:
         print(f"    ScraperAPI error: {e}")
@@ -294,6 +300,29 @@ def fetch_direct(url, mobile=False):
         return requests.get(url, headers=get_headers(mobile=mobile), timeout=20)
     except Exception as e:
         print(f"    Direct fetch error: {e}")
+        return None
+
+def fetch_noon_direct(url, country_code="eg"):
+    """Direct fetch for Noon with realistic browser headers. No proxy needed for most pages."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Referer": "https://www.noon.com/",
+        "sec-ch-ua": '"Chromium";v="124","Google Chrome";v="124"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Cache-Control": "max-age=0",
+    }
+    try:
+        resp = requests.get(url, headers=headers, timeout=30, allow_redirects=True)
+        return resp
+    except Exception as e:
+        print(f"    Noon direct error: {e}")
         return None
 
 
@@ -1612,6 +1641,13 @@ def _scrape_noon_region(
     print(f"\n[NOON/{country_code.upper()}] Starting — {site_display}...")
     total = 0
 
+    def _noon_fetch(url):
+        """Try direct first (free), fall back to ScraperAPI only if needed."""
+        resp = fetch_noon_direct(url, country_code)
+        if resp and resp.status_code == 200 and len(resp.text) > 5000:
+            return resp
+        return fetch_with_scraperapi(url, render_js=False, country=country_code)
+
     # ── Phase 1: Deals / sale pages (server-side rendered, most reliable) ──
     deals_pages = [
         f"https://www.noon.com/{region_path}/deals/?limit=48&sort%5Bby%5D=discount_percent&sort%5Bdir%5D=desc",
@@ -1620,7 +1656,7 @@ def _scrape_noon_region(
     ]
     for dp_url in deals_pages:
         try:
-            resp = fetch_with_scraperapi(dp_url, render_js=False, country=country_code)
+            resp = _noon_fetch(dp_url)
             if resp and resp.status_code == 200:
                 n = _parse_noon_products(resp.text, "general", region_path, currency,
                                          marketplace_country, site_display, country_code)
@@ -1653,8 +1689,8 @@ def _scrape_noon_region(
         try:
             url = f"https://www.noon.com/{region_path}/search/?q={term.replace(' ', '+')}&limit=48&sort%5Bby%5D=discount&sort%5Bdir%5D=desc"
 
-            # Try without JS first, fall back to JS if no products
-            resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
+            # Try direct first (free), then ScraperAPI, then JS render
+            resp = _noon_fetch(url)
             if not resp or resp.status_code != 200:
                 time.sleep(2)
                 continue

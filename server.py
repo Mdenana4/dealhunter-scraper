@@ -1537,40 +1537,54 @@ def _send_multicast(tokens: list, notification, data: dict) -> tuple:
 
 @app.route('/api/debug/noon')
 def debug_noon():
-    """Diagnostic: fetch a Noon page and return what we see. Admin-only."""
+    """Diagnostic: fetch a Noon page via direct + ScraperAPI and compare."""
     SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY", "")
-    region   = request.args.get("region", "egypt-en")
-    q        = request.args.get("q", "samsung")
-    render   = request.args.get("render", "false").lower() == "true"
+    region = request.args.get("region", "egypt-en")
+    q      = request.args.get("q", "samsung")
     url = f"https://www.noon.com/{region}/search/?q={q}&limit=48&sort%5Bby%5D=discount&sort%5Bdir%5D=desc"
-    try:
-        if SCRAPER_API_KEY:
-            r = requests.get("http://api.scraperapi.com", params={
-                "api_key": SCRAPER_API_KEY, "url": url,
-                "render": "true" if render else "false",
-                "country_code": region[:2], "premium": "false",
-            }, timeout=60)
-        else:
-            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
-        status = r.status_code
-        body   = r.text
+
+    def _analyse(r):
+        if not r:
+            return {"status": None, "body_len": 0, "has_next_data": False,
+                    "page_props_keys": [], "body_snippet": ""}
+        body = r.text
         nd_match = re.search(r'<script id="__NEXT_DATA__"[^>]*>\s*({.+?})\s*</script>', body, re.DOTALL)
-        nd = None
         nd_keys = []
         if nd_match:
             try:
                 nd = json.loads(nd_match.group(1))
-                pp = nd.get("props", {}).get("pageProps", {})
-                nd_keys = list(pp.keys())
+                nd_keys = list(nd.get("props", {}).get("pageProps", {}).keys())
             except Exception:
                 pass
-        return jsonify({
-            "url": url, "status": status, "body_len": len(body),
-            "has_next_data": bool(nd_match), "page_props_keys": nd_keys,
-            "body_snippet": body[:2000],
-        })
+        return {"status": r.status_code, "body_len": len(body),
+                "has_next_data": bool(nd_match), "page_props_keys": nd_keys,
+                "body_snippet": body[:1500]}
+
+    direct_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9", "Referer": "https://www.noon.com/",
+    }
+    try:
+        direct_r = requests.get(url, headers=direct_headers, timeout=20, allow_redirects=True)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        direct_r = None
+
+    scraper_r = None
+    if SCRAPER_API_KEY:
+        try:
+            scraper_r = requests.get("http://api.scraperapi.com", params={
+                "api_key": SCRAPER_API_KEY, "url": url,
+                "render": "false", "country_code": region[:2], "premium": "false",
+            }, timeout=60)
+        except Exception:
+            pass
+
+    return jsonify({
+        "url": url,
+        "direct": _analyse(direct_r),
+        "scraperapi": _analyse(scraper_r),
+    })
 
 
 @app.errorhandler(404)
