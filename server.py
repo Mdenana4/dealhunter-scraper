@@ -1535,6 +1535,21 @@ def _send_multicast(tokens: list, notification, data: dict) -> tuple:
     return success, failure
 
 
+@app.route('/api/debug/scraper-log')
+def scraper_log():
+    """Read the last N lines of the scraper log file."""
+    lines = int(request.args.get("lines", 100))
+    try:
+        with open("/tmp/scraper.log", "r") as f:
+            content = f.read()
+        tail = content[-lines * 120:]  # ~120 chars per line estimate
+        return jsonify({"log": tail, "total_bytes": len(content)})
+    except FileNotFoundError:
+        return jsonify({"error": "Scraper log not found — scraper may not have started yet"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/debug/noon')
 def debug_noon():
     """Diagnostic: fetch a Noon page via direct + ScraperAPI and compare."""
