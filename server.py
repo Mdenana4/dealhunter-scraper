@@ -1638,12 +1638,13 @@ def admin_check_auth():
 @app.route('/api/v1/admin/offers')
 def admin_offers():
     """Admin: paginated deal list with optional source/category filters."""
-    source   = request.args.get('source')
-    category = request.args.get('category')
-    limit    = min(int(request.args.get('limit', 50)), 200)
+    source      = request.args.get('source')
+    source_type = request.args.get('source_type', 'site')  # 'site' or 'source'
+    category    = request.args.get('category')
+    limit       = min(int(request.args.get('limit', 50)), 500)
     try:
         q = db.collection('deals').order_by('timestamp', direction=firestore.Query.DESCENDING)
-        if source:   q = q.where('site',     '==', source)
+        if source:   q = q.where(source_type, '==', source)
         if category: q = q.where('category', '==', category)
         docs = list(q.limit(limit).stream())
         deals = []
@@ -1769,9 +1770,12 @@ def admin_team():
 def admin_notifications():
     """Admin: list sent notifications."""
     try:
-        docs = list(db.collection('notifications')
-                    .order_by('sent_at', direction=firestore.Query.DESCENDING)
-                    .limit(100).stream())
+        try:
+            docs = list(db.collection('notifications')
+                        .order_by('sent_at', direction=firestore.Query.DESCENDING)
+                        .limit(100).stream())
+        except Exception:
+            docs = list(db.collection('notifications').limit(100).stream())
         notifs = []
         for d in docs:
             data = d.to_dict() or {}
@@ -1779,7 +1783,112 @@ def admin_notifications():
             notifs.append({'id': d.id, **data})
         return jsonify({'success': True, 'notifications': notifs})
     except Exception as e:
+        return jsonify({'success': True, 'notifications': []})
+
+
+# ── Generic Firestore proxy (admin panel only) ──────────────────────────────
+_PROXY_COLLECTIONS = {
+    'deals', 'users', 'admin', 'admin_users', 'notifications',
+    'user_groups', 'special_offers', 'tier_config', 'tier_history',
+    'fake_checks', 'scraper_health',
+}
+
+
+@app.route('/api/v1/admin/db/<collection>', methods=['GET', 'POST'])
+@app.route('/api/v1/admin/db/<collection>/<doc_id>', methods=['GET', 'PATCH', 'PUT', 'DELETE'])
+def admin_db_proxy(collection, doc_id=None):
+    """Generic Firestore CRUD proxy for the admin panel."""
+    if collection not in _PROXY_COLLECTIONS:
+        return jsonify({'success': False, 'error': 'Collection not allowed'}), 403
+    try:
+        cref = db.collection(collection)
+        if request.method == 'GET':
+            if doc_id:
+                doc = cref.document(doc_id).get()
+                if not doc.exists:
+                    return jsonify({'success': False, 'error': 'Not found'}), 404
+                data = {k: _ts(v) for k, v in (doc.to_dict() or {}).items()}
+                return jsonify({'success': True, 'id': doc.id, **data})
+            else:
+                q = cref
+                where_f = request.args.get('where_field')
+                where_v = request.args.get('where_value')
+                order_by = request.args.get('order_by')
+                order_dir = request.args.get('order_dir', 'asc')
+                lim = int(request.args.get('limit', 100))
+                if where_f and where_v:
+                    q = q.where(where_f, '==', where_v)
+                if order_by:
+                    direction = (firestore.Query.DESCENDING if order_dir == 'desc'
+                                 else firestore.Query.ASCENDING)
+                    q = q.order_by(order_by, direction=direction)
+                items = [{'id': d.id, **{k: _ts(v) for k, v in (d.to_dict() or {}).items()}}
+                         for d in q.limit(lim).stream()]
+                return jsonify({'success': True, 'items': items})
+        elif request.method == 'POST':
+            data = request.get_json() or {}
+            _, ref = cref.add(data)
+            return jsonify({'success': True, 'id': ref.id})
+        elif request.method == 'PATCH':
+            if not doc_id:
+                return jsonify({'success': False, 'error': 'doc_id required'}), 400
+            cref.document(doc_id).update(request.get_json() or {})
+            return jsonify({'success': True})
+        elif request.method == 'PUT':
+            if not doc_id:
+                return jsonify({'success': False, 'error': 'doc_id required'}), 400
+            merge = request.args.get('merge', 'false').lower() == 'true'
+            cref.document(doc_id).set(request.get_json() or {}, merge=merge)
+            return jsonify({'success': True})
+        elif request.method == 'DELETE':
+            if not doc_id:
+                return jsonify({'success': False, 'error': 'doc_id required'}), 400
+            cref.document(doc_id).delete()
+            return jsonify({'success': True})
+    except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# Convenience aliases used by existing admin.html code
+@app.route('/api/v1/user-groups', methods=['POST'])
+def create_user_group():
+    data = request.get_json() or {}
+    data.setdefault('created_at', datetime.now(timezone.utc).isoformat())
+    _, ref = db.collection('user_groups').add(data)
+    return jsonify({'success': True, 'id': ref.id})
+
+
+@app.route('/api/v1/special-offers', methods=['POST'])
+def create_special_offer():
+    data = request.get_json() or {}
+    data.setdefault('created_at', datetime.now(timezone.utc).isoformat())
+    data.setdefault('is_active', True)
+    data.setdefault('used_count', 0)
+    _, ref = db.collection('special_offers').add(data)
+    return jsonify({'success': True, 'id': ref.id})
+
+
+@app.route('/api/v1/users/<user_id>/daily-limit', methods=['PUT'])
+def update_user_daily_limit(user_id):
+    data = request.get_json() or {}
+    limit = data.get('daily_deal_limit')
+    if not limit:
+        return jsonify({'success': False, 'error': 'daily_deal_limit required'}), 400
+    db.collection('users').document(user_id).update({
+        'daily_deal_limit': int(limit), 'custom_daily_limit': True,
+        'updated_at': datetime.now(timezone.utc).isoformat(),
+    })
+    return jsonify({'success': True})
+
+
+@app.route('/api/v1/users/<user_id>', methods=['DELETE'])
+def delete_user(user_id):
+    try:
+        fb_auth.delete_user(user_id)
+    except Exception:
+        pass
+    db.collection('users').document(user_id).delete()
+    return jsonify({'success': True})
 
 
 @app.route('/api/v1/admin/sources')

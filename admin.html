@@ -1226,17 +1226,12 @@ async function handleSignup(event) {
     const result = await auth.createUserWithEmailAndPassword(email, password);
 
     // Create admin_users doc
-    await db.collection('admin_users').doc(email).set({
-      email: email,
-      name: name,
-      role: 'owner',
-      permissions: ['sources', 'deals', 'users', 'notifications', 'checker', 'competitors', 'scraper_control'],
-      status: 'active',
-      added_at: new Date().toISOString(),
-      added_by: 'signup',
-      last_login: new Date().toISOString(),
-      notes: 'First admin user (auto-created)'
-    });
+    await dbp('admin_users',email,'PUT',{
+      email, name, role:'owner',
+      permissions:['sources','deals','users','notifications','checker','competitors','scraper_control'],
+      status:'active', added_at:new Date().toISOString(), added_by:'signup',
+      last_login:new Date().toISOString(), notes:'First admin user (auto-created)'
+    },'merge=true');
 
     // Success
     errorDiv.classList.remove('show');
@@ -1267,9 +1262,7 @@ function getCurrentAdmin() {
 // Update last login
 async function updateLastLogin(email) {
   try {
-    await db.collection('admin_users').doc(email).update({
-      last_login: new Date().toISOString()
-    });
+    await dbp('admin_users', email, 'PATCH', {last_login: new Date().toISOString()});
   } catch (e) {
     console.error('Error updating last login:', e);
   }
@@ -1343,16 +1336,9 @@ async function saveTeamMember() {
       ? ['deals', 'users', 'notifications', 'checker']
       : ['deals', 'checker'];
 
-    await db.collection('admin_users').doc(email).set({
-      email: email,
-      name: name,
-      role: role,
-      permissions: permissions,
-      status: status,
-      added_at: editingTeamEmail ? undefined : new Date().toISOString(),
-      added_by: editingTeamEmail ? undefined : admin.email,
-      notes: notes
-    }, { merge: true });
+    const teamData = {email, name, role, permissions, status, notes};
+    if(!editingTeamEmail){teamData.added_at=new Date().toISOString();teamData.added_by=admin.email;}
+    await dbp('admin_users', email, 'PUT', teamData, 'merge=true');
 
     showToast(editingTeamEmail ? 'Team member updated' : 'Team member added');
     closeTeamModal();
@@ -1376,13 +1362,10 @@ function openPermissionModal(email, name) {
   document.querySelectorAll('#permission-modal input[type="checkbox"]').forEach(cb => cb.checked = false);
 
   // Load user permissions
-  db.collection('admin_users').doc(email).get().then(doc => {
-    if (doc.exists) {
-      const perms = doc.data().permissions || [];
-      perms.forEach(perm => {
-        const cb = document.querySelector(`#perm-${perm}`);
-        if (cb) cb.checked = true;
-      });
+  dbp('admin_users',email).then(async r=>{
+    if(r.ok){
+      const d=await r.json();
+      (d.permissions||[]).forEach(perm=>{const cb=document.querySelector(`#perm-${perm}`);if(cb)cb.checked=true;});
     }
     document.getElementById('permission-modal').classList.add('show');
   });
@@ -1408,9 +1391,7 @@ async function savePermissions() {
   });
 
   try {
-    await db.collection('admin_users').doc(editingTeamEmail).update({
-      permissions: permissions
-    });
+    await dbp('admin_users', editingTeamEmail, 'PATCH', {permissions});
     showToast('Permissions updated');
     closePermissionModal();
     loadTeam();
@@ -1474,7 +1455,7 @@ async function removeTeamMember(email) {
   if (!confirm(`Remove ${email} from team?`)) return;
 
   try {
-    await db.collection('admin_users').doc(email).delete();
+    await dbp('admin_users', email, 'DELETE');
     showToast('Team member removed');
     loadTeam();
   } catch (error) {
@@ -1610,6 +1591,13 @@ async function genId(site,url,price){
 
 // ── MONITOR ────────────────────────────────────
 function apiHdr(){return{headers:{'Authorization':'Bearer '+localStorage.getItem('adminToken')}};}
+async function dbp(col,docId,method,body,params){
+  const url='/api/v1/admin/db/'+col+(docId?'/'+encodeURIComponent(docId):'')+(params?'?'+params:'');
+  const h={...apiHdr().headers};
+  const opts={method:method||'GET',headers:h};
+  if(body){h['Content-Type']='application/json';opts.body=JSON.stringify(body);}
+  return fetch(url,opts);
+}
 
 async function loadMonitor(){
   document.getElementById('ts').textContent='Updated: '+new Date().toLocaleTimeString();
@@ -1820,9 +1808,9 @@ function filterDeals(){
       </div></td>
     </tr>`).join('');
 }
-async function toggleFeat(id,f){await db.collection('deals').doc(id).update({featured:!f});toast(f?'Unpinned':'Pinned to top');loadDeals();}
-async function toggleHide(id,h){await db.collection('deals').doc(id).update({hidden:!h});toast(h?'Now visible':'Hidden from users');loadDeals();}
-async function delDeal(id){if(!confirm('Delete permanently?'))return;await db.collection('deals').doc(id).delete();toast('Deleted');loadDeals();}
+async function toggleFeat(id,f){await dbp('deals',id,'PATCH',{featured:!f});toast(f?'Unpinned':'Pinned to top');loadDeals();}
+async function toggleHide(id,h){await dbp('deals',id,'PATCH',{hidden:!h});toast(h?'Now visible':'Hidden from users');loadDeals();}
+async function delDeal(id){if(!confirm('Delete permanently?'))return;await dbp('deals',id,'DELETE');toast('Deleted');loadDeals();}
 
 // ── SOURCES ────────────────────────────────────
 function openSrcModal(){
@@ -1895,11 +1883,11 @@ async function saveSource(){
   const siteId=name.toLowerCase().replace(/[^a-z0-9]/g,'_');
   const data={id:siteId,site_name:name,site_name_ar:nameAr,site_url:url,status,frequency_minutes:freq,notes,updated_at:new Date().toISOString()};
   if(editingSourceId){
-    await db.collection('admin').doc(editingSourceId).update(data);
+    await dbp('admin',editingSourceId,'PATCH',data);
     toast('Source updated: '+name);
   }else{
     data.created_at=new Date().toISOString();
-    await db.collection('admin').add(data);
+    await dbp('admin',null,'POST',data);
     toast('Source added: '+name+' — now visible in Monitor');
   }
   closeSrcModal();
@@ -1907,8 +1895,8 @@ async function saveSource(){
 }
 async function editSource(docId){
   try{
-    const doc=await db.collection('admin').doc(docId).get();
-    const s=doc.data();
+    const r=await dbp('admin',docId);
+    const s=await r.json();
     editingSourceId=docId;
     document.getElementById('src-modal-title').textContent='Edit Source / تعديل المصدر';
     document.getElementById('sn-save-btn').textContent='Update Source';
@@ -1924,7 +1912,7 @@ async function editSource(docId){
 }
 async function delSource(docId){
   if(!confirm('Delete this source? Its deals will remain in the database.'))return;
-  await db.collection('admin').doc(docId).delete();
+  await dbp('admin',docId,'DELETE');
   toast('Source deleted');
   loadSources();
 }
@@ -2021,15 +2009,10 @@ async function updateDailyLimit(userId,newLimit){
     const idToken = await auth.currentUser.getIdToken();
     console.log('🔑 Token obtained, calling API...');  // DEBUG
 
-    const response = await fetch('/api/v1/users/' + userId + '/daily-limit', {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${idToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        daily_deal_limit: parseInt(newLimit)
-      })
+    const response = await dbp('users', userId, 'PATCH', {
+      daily_deal_limit: parseInt(newLimit),
+      custom_daily_limit: true,
+      updated_at: new Date().toISOString()
     });
 
     console.log('📡 API Response received:', response.status);  // DEBUG
@@ -2056,13 +2039,7 @@ async function deleteUser(userId,userName){
 
   try{
     const idToken = await auth.currentUser.getIdToken();
-    const response = await fetch('/api/v1/users/' + userId, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${idToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    const response = await dbp('users', userId, 'DELETE');
 
     const data = await response.json();
     if (response.ok) {
@@ -2100,15 +2077,12 @@ async function changeUserTier(userId,newTier,oldTier){
       updateData.stripe_subscription_id=null;
     }
 
-    await db.collection('users').doc(userId).update(updateData);
+    await dbp('users',userId,'PATCH',updateData);
 
     // Log to tier history
-    await db.collection('tier_history').add({
-      user_id:userId,
-      from_tier:oldTier,
-      to_tier:newTier,
-      changed_at:new Date().toISOString(),
-      method:'admin_manual',
+    await dbp('tier_history',null,'POST',{
+      user_id:userId, from_tier:oldTier, to_tier:newTier,
+      changed_at:new Date().toISOString(), method:'admin_manual',
       changed_by:currentAdmin?.email||'unknown'
     });
     toast('✓ User tier changed: '+oldTier+' → '+newTier);
@@ -2134,19 +2108,10 @@ async function saveUser(){
     // Call server API to create user
     const idToken = await auth.currentUser.getIdToken();
 
-    const response = await fetch('/api/v1/admin/users', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${idToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        email,
-        phone,
-        name,
-        tier,
-        notes
-      })
+    const response = await dbp('users', null, 'POST', {
+      email, phone, name, tier: tier||'free', notes,
+      daily_deal_limit: {free:50,trial:100,premium:500,vip:99999}[tier]||50,
+      created_at: new Date().toISOString(), source: 'manual_admin'
     });
 
     const responseData = await response.json();
@@ -2250,7 +2215,7 @@ async function saveNotif(){
       notifData.group_id = groupId;
     }
 
-    await db.collection('notifications').add(notifData);
+    await dbp('notifications', null, 'POST', notifData);
 
     // Send notification via API
     if (auth.currentUser) {
@@ -2359,7 +2324,7 @@ async function addManualDeal(){
     lowest_price_ever:0,click_count:0,buy_click_count:0
   };
   try{
-    await db.collection('deals').doc(dealId).set(deal);
+    await dbp('deals',dealId,'PUT',deal);
     toast('Deal saved! '+disc+'% OFF — '+fakeResult.emoji+' '+fakeResult.verdict);
     ['m-title','m-title-ar','m-url','m-price','m-orig','m-img','m-rating','m-reviews','m-coupon'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('dp').style.display='none';
@@ -2368,8 +2333,9 @@ async function addManualDeal(){
 }
 async function loadManualDeals(){
   try{
-    const snap=await db.collection('deals').where('source','==','manual').orderBy('timestamp','desc').limit(10).get();
-    const deals=snap.docs.map(d=>d.data());
+    const r=await fetch('/api/v1/admin/offers?source=manual&source_type=source&limit=10',apiHdr());
+    const d=r.ok?await r.json():{deals:[]};
+    const deals=d.deals||[];
     document.getElementById('manual-tb').innerHTML=deals.length?deals.map(d=>`
       <tr>
         <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;">${d.title}</td>
@@ -2577,7 +2543,7 @@ function runChecker(kanbkamOverride){
 async function saveCheckerResult(){
   if(!lastCheckerResult){toast('Run an analysis first');return;}
   const r=lastCheckerResult;
-  await db.collection('fake_checks').add({
+  await dbp('fake_checks', null, 'POST', {
     title:r.title||'Unknown',url:r.url||'',
     current_price:r.price,original_price:r.orig,
     discount_percent:r.disc,category:r.cat,platform:r.platform,
@@ -2682,25 +2648,20 @@ function openTierEditModal(tier){
 
   document.getElementById('tier-modal-title').textContent = 'Edit ' + tier.toUpperCase() + ' Tier';
 
-  // Load tier data from Firestore
-  db.collection('tier_config').doc(tier).get().then(doc => {
-    if(doc.exists) {
-      const t = doc.data();
-      document.getElementById('tm-daily-limit').value = t.daily_limit || 50;
-      document.getElementById('tm-price').value = t.price || 0;
-      document.getElementById('tm-features').value = (t.features || []).join(', ');
+  dbp('tier_config',tier).then(async r=>{
+    const defaults={free:50,trial:100,premium:500,vip:99999};
+    if(r.ok){
+      const t=await r.json();
+      document.getElementById('tm-daily-limit').value=t.daily_limit||defaults[tier]||50;
+      document.getElementById('tm-price').value=t.price||0;
+      document.getElementById('tm-features').value=(t.features||[]).join(', ');
     } else {
-      // No custom config, show defaults
-      const defaults = {free: 50, trial: 100, premium: 500, vip: 99999};
-      document.getElementById('tm-daily-limit').value = defaults[tier] || 50;
-      document.getElementById('tm-price').value = 0;
-      document.getElementById('tm-features').value = '';
+      document.getElementById('tm-daily-limit').value=defaults[tier]||50;
+      document.getElementById('tm-price').value=0;
+      document.getElementById('tm-features').value='';
     }
     document.getElementById('tier-modal').classList.add('show');
-  }).catch(e => {
-    console.error('Error loading tier:', e);
-    toast('Error loading tier data');
-  });
+  }).catch(()=>{toast('Error loading tier data');});
 }
 
 function closeTierModal(){
@@ -2730,8 +2691,7 @@ async function saveTier(){
 
     console.log('💾 Saving tier to Firestore:', tierName, tierData);  // DEBUG
 
-    // Save directly to Firestore (admin users can do this)
-    await db.collection('tier_config').doc(tierName).set(tierData, { merge: true });
+    await dbp('tier_config', tierName, 'PUT', tierData, 'merge=true');
 
     console.log('✓ Tier saved successfully');  // DEBUG
     toast('✓ Tier saved: ' + tierName);
@@ -2811,39 +2771,20 @@ async function saveGroup(){
 
   try{
     if(editingGroupId) {
-      // Update existing group
-      await db.collection('user_groups').doc(editingGroupId).update({
-        group_name: name,
-        tier: tier,
-        daily_budget: budget,
-        members: members,
-        updated_at: new Date().toISOString()
+      await dbp('user_groups',editingGroupId,'PATCH',{
+        group_name:name, tier:tier, daily_budget:budget, members:members,
+        updated_at:new Date().toISOString()
       });
-      toast('✓ Group updated: ' + name);
-      editingGroupId = null;
+      toast('✓ Group updated: '+name);
+      editingGroupId=null;
     } else {
-      // Create new group via API
-      const idToken = await auth.currentUser.getIdToken();
-      const response = await fetch('/api/v1/user-groups', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${idToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          group_name: name,
-          tier: tier,
-          daily_budget: budget,
-          members: members
-        })
+      const response = await dbp('user_groups',null,'POST',{
+        group_name:name, tier:tier, daily_budget:budget, members:members,
+        created_at:new Date().toISOString(), admin_email:currentAdmin?.email||''
       });
-
       const data = await response.json();
-      if(!response.ok){
-        toast('Error: ' + (data.error || 'Failed to create group'));
-        return;
-      }
-      toast('✓ Group created: ' + name);
+      if(!response.ok){toast('Error: '+(data.error||'Failed to create group'));return;}
+      toast('✓ Group created: '+name);
     }
     closeGroupModal();
     loadGroups();
@@ -2855,29 +2796,22 @@ async function saveGroup(){
 
 let editingGroupId = null;
 
-function editGroup(id){
-  editingGroupId = id;
-  // Load group data from Firestore
-  db.collection('user_groups').doc(id).get().then(doc => {
-    if(doc.exists) {
-      const g = doc.data();
-      document.getElementById('gm-name').value = g.group_name || '';
-      document.getElementById('gm-tier').value = g.tier || '';
-      document.getElementById('gm-budget').value = g.daily_budget || '';
-      document.getElementById('gm-members').value = (g.members || []).map(m => m.email).join('\n');
-      document.getElementById('group-modal').classList.add('show');
-    }
-  });
+async function editGroup(id){
+  editingGroupId=id;
+  const r=await dbp('user_groups',id);
+  const g=r.ok?await r.json():{};
+  document.getElementById('gm-name').value=g.group_name||'';
+  document.getElementById('gm-tier').value=g.tier||'';
+  document.getElementById('gm-budget').value=g.daily_budget||'';
+  document.getElementById('gm-members').value=(g.members||[]).map(m=>m.email).join('\n');
+  document.getElementById('group-modal').classList.add('show');
 }
 
 async function deleteGroup(id){
-  if(confirm('Delete this group?')) {
-    try{
-      await db.collection('user_groups').doc(id).delete();
-      toast('Group deleted');
-      loadGroups();
-    }catch(e){ toast('Error deleting group'); }
-  }
+  if(!confirm('Delete this group?'))return;
+  const r=await dbp('user_groups',id,'DELETE');
+  if(r.ok){toast('Group deleted');loadGroups();}
+  else toast('Error deleting group');
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2886,16 +2820,9 @@ async function deleteGroup(id){
 
 async function loadOffers(){
   try{
-    const token = localStorage.getItem('adminToken');
-    const response = await fetch('/api/v1/admin/offers', {
-      headers: { 'Authorization': 'Bearer ' + token }
-    });
-
-    let offers = [];
-    if (response.ok) {
-      const data = await response.json();
-      offers = data.offers || [];
-    }
+    const r=await dbp('special_offers',null,'GET',null,'order_by=created_at&order_dir=desc&limit=100');
+    const d=r.ok?await r.json():{items:[]};
+    const offers=d.items||[];
 
     document.getElementById('offers-tb').innerHTML = offers.length ? offers.map(o => `
       <tr>
@@ -2972,13 +2899,12 @@ function updateOfferTargetFields(){
 
 async function loadGroupsForDropdown(){
   try{
-    const snap = await db.collection('user_groups').get();
-    const groups = snap.docs.map(doc => doc.data());
-    const select = document.getElementById('om-group');
-    select.innerHTML = groups.length ? groups.map(g => `<option value="${g.id}">${g.group_name}</option>`).join('') : '<option>No groups found</option>';
-  }catch(e){
-    console.error('Error loading groups:', e);
-  }
+    const r=await fetch('/api/v1/admin/groups',apiHdr());
+    const d=r.ok?await r.json():{groups:[]};
+    const groups=d.groups||[];
+    const select=document.getElementById('om-group');
+    select.innerHTML=groups.length?groups.map(g=>`<option value="${g.id}">${g.group_name}</option>`).join(''):'<option>No groups found</option>';
+  }catch(e){console.error('Error loading groups:',e);}
 }
 
 let editingOfferId = null;
@@ -3009,29 +2935,17 @@ async function saveOffer(){
     else if(type === 'free_days') offerData.days = value;
     else offerData.amount = value;
 
-    if(editingOfferId) {
-      // Update existing offer
-      await db.collection('special_offers').doc(editingOfferId).update(offerData);
-      toast('✓ Offer updated: ' + name);
-      editingOfferId = null;
+    if(editingOfferId){
+      await dbp('special_offers',editingOfferId,'PATCH',offerData);
+      toast('✓ Offer updated: '+name);
+      editingOfferId=null;
     } else {
-      // Create new offer
-      const idToken = await auth.currentUser.getIdToken();
-      const response = await fetch('/api/v1/special-offers', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${idToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(offerData)
-      });
-
-      const responseData = await response.json();
-      if(!response.ok){
-        toast('Error: ' + (responseData.error || 'Failed to create offer'));
-        return;
-      }
-      toast('✓ Offer created: ' + name);
+      offerData.created_at=new Date().toISOString();
+      offerData.is_active=true; offerData.used_count=0;
+      const response=await dbp('special_offers',null,'POST',offerData);
+      const responseData=await response.json();
+      if(!response.ok){toast('Error: '+(responseData.error||'Failed to create offer'));return;}
+      toast('✓ Offer created: '+name);
     }
     closeOfferModal();
     loadOffers();
@@ -3043,40 +2957,31 @@ async function saveOffer(){
 
 function editOffer(id){
   editingOfferId = id;
-  db.collection('special_offers').doc(id).get().then(doc => {
-    if(doc.exists) {
-      const o = doc.data();
-      document.getElementById('om-name').value = o.name || '';
-      document.getElementById('om-type').value = o.type || 'discount';
-      updateOfferFields();
-
-      if(o.type === 'discount') document.getElementById('om-value').value = o.discount_percent || '';
-      else if(o.type === 'free_days') document.getElementById('om-value').value = o.days || '';
-      else document.getElementById('om-value').value = o.amount || '';
-
-      if(o.target_tier) document.getElementById('om-target').value = 'tier:' + o.target_tier;
-      else if(o.target_group) document.getElementById('om-target').value = 'group';
-      else if(o.target_user) document.getElementById('om-target').value = 'user';
-      else document.getElementById('om-target').value = 'all';
-
-      document.getElementById('om-group').value = o.target_group || '';
-      document.getElementById('om-user').value = o.target_user || '';
-      document.getElementById('om-expires').value = o.valid_until ? o.valid_until.split('T')[0] : '';
-
-      updateOfferTargetFields();
-      document.getElementById('offer-modal').classList.add('show');
-    }
+  dbp('special_offers',id).then(async r=>{
+    const o=r.ok?await r.json():{};
+    document.getElementById('om-name').value=o.name||'';
+    document.getElementById('om-type').value=o.type||'discount';
+    updateOfferFields();
+    if(o.type==='discount') document.getElementById('om-value').value=o.discount_percent||'';
+    else if(o.type==='free_days') document.getElementById('om-value').value=o.days||'';
+    else document.getElementById('om-value').value=o.amount||'';
+    if(o.target_tier) document.getElementById('om-target').value='tier:'+o.target_tier;
+    else if(o.target_group) document.getElementById('om-target').value='group';
+    else if(o.target_user) document.getElementById('om-target').value='user';
+    else document.getElementById('om-target').value='all';
+    document.getElementById('om-group').value=o.target_group||'';
+    document.getElementById('om-user').value=o.target_user||'';
+    document.getElementById('om-expires').value=o.valid_until?o.valid_until.split('T')[0]:'';
+    updateOfferTargetFields();
+    document.getElementById('offer-modal').classList.add('show');
   });
 }
 
 async function deleteOffer(id){
-  if(confirm('Delete this offer?')) {
-    try{
-      await db.collection('special_offers').doc(id).delete();
-      toast('Offer deleted');
-      loadOffers();
-    }catch(e){ toast('Error deleting offer'); }
-  }
+  if(!confirm('Delete this offer?'))return;
+  const r=await dbp('special_offers',id,'DELETE');
+  if(r.ok){toast('Offer deleted');loadOffers();}
+  else toast('Error deleting offer');
 }
 
 // ── AUTO REFRESH ───────────────────────────────
