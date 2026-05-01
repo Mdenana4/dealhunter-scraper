@@ -1086,40 +1086,54 @@ try {
 
 // Check auth on page load
 window.addEventListener('DOMContentLoaded', () => {
+  console.log('[AUTH] DOMContentLoaded — starting auth check');
   checkAuthentication();
 });
 
 // Check if user is authenticated
 function checkAuthentication() {
   auth.onAuthStateChanged(async (user) => {
+    console.log('[AUTH] onAuthStateChanged fired. user=', user ? user.email : 'null');
     if (user) {
       // User is logged in — check if they're an admin via API
       try {
+        console.log('[AUTH] Getting ID token for', user.email);
         const token = await user.getIdToken();
+        console.log('[AUTH] Got token, calling /api/v1/admin/check-auth');
         const response = await fetch('/api/v1/admin/check-auth', {
           headers: { 'Authorization': 'Bearer ' + token }
         });
 
+        console.log('[AUTH] check-auth response status:', response.status);
         if (response.ok) {
           const data = await response.json();
+          console.log('[AUTH] check-auth data:', data);
           if (data.is_admin) {
             currentAdmin = { uid: user.uid, email: user.email, ...data };
             localStorage.setItem('currentAdmin', JSON.stringify(currentAdmin));
             localStorage.setItem('adminToken', token);
             showDashboard();
             updateLastLogin(user.email);
+          } else {
+            // User logged in but not an admin
+            console.warn('[AUTH] Not an admin:', user.email);
+            showError('Access denied: You are not registered as an admin.');
+            logout();
+          }
         } else {
-          // User logged in but not an admin
-          showError('Access denied: You are not registered as an admin.');
+          const errText = await response.text();
+          console.error('[AUTH] check-auth non-ok:', response.status, errText);
+          showError('Error checking admin status. (HTTP ' + response.status + ')');
           logout();
         }
       } catch (error) {
-        console.error('Auth error:', error);
-        showError('Error checking admin status.');
+        console.error('[AUTH] Exception during auth check:', error);
+        showError('Error checking admin status: ' + error.message);
         logout();
       }
     } else {
       // No user logged in
+      console.log('[AUTH] No user logged in — showing login page');
       currentAdmin = null;
       localStorage.removeItem('currentAdmin');
       showLoginPage();
@@ -1154,7 +1168,11 @@ function showDashboard() {
 
   document.getElementById('page-monitor').classList.add('active');
   document.getElementById('page-monitor').style.display = 'block';
+  console.log('[DASHBOARD] showDashboard() — loading all panels');
   loadMonitor();
+  loadTierPricing();
+  loadGroups();
+  loadOffers();
 }
 
 // Toggle between login and signup
@@ -2582,7 +2600,7 @@ async function loadTierPricing(){
     };
 
     // Load tier data from API instead of Firestore
-    const token = await getCurrentAdmin().getToken?.() || localStorage.getItem('adminToken');
+    const token = await getCurrentAdmin()?.getToken?.() || localStorage.getItem('adminToken');
     const response = await fetch('/api/v1/admin/tiers', {
       headers: { 'Authorization': 'Bearer ' + token }
     });
@@ -3062,10 +3080,6 @@ async function deleteOffer(id){
 
 // ── AUTO REFRESH ───────────────────────────────
 setInterval(()=>{if(document.getElementById('page-monitor').classList.contains('active'))loadMonitor();},60000);
-loadMonitor();
-loadTierPricing();
-loadGroups();
-loadOffers();
 </script>
 </body>
 </html>

@@ -1669,10 +1669,32 @@ def admin_groups():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/v1/admin/tiers')
+def admin_tiers():
+    """Admin: list tier configurations from Firestore (or return defaults)."""
+    defaults = [
+        {'name': 'free',    'daily_limit': 50,    'price': 0,  'features': ['View Deals']},
+        {'name': 'trial',   'daily_limit': 100,   'price': 0,  'features': ['View Deals', 'Price History', 'Groups']},
+        {'name': 'premium', 'daily_limit': 500,   'price': 5,  'features': ['View Deals', 'Price History', 'Groups', 'Gift Deals']},
+        {'name': 'vip',     'daily_limit': 99999, 'price': 10, 'features': ['All Premium Features', 'Priority Support']},
+    ]
+    try:
+        docs = list(db.collection('tiers').stream())
+        if docs:
+            tiers = [{'name': d.id, **d.to_dict()} for d in docs]
+        else:
+            tiers = defaults
+        return jsonify({'success': True, 'tiers': tiers})
+    except Exception as e:
+        return jsonify({'success': True, 'tiers': defaults})
+
+
 @app.route('/admin')
 @app.route('/admin.html')
 def serve_admin():
-    return send_from_directory('.', 'admin.html')
+    resp = send_from_directory('.', 'admin.html')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
 
 @app.errorhandler(404)
 def not_found(e): return jsonify({"success":False,"error":"Not found"}),404
