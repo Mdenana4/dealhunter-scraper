@@ -1692,7 +1692,9 @@ def admin_tiers():
 @app.route('/admin')
 @app.route('/admin.html')
 def serve_admin():
-    return send_from_directory('.', 'admin.html')
+    resp = send_from_directory('.', 'admin.html')
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
 
 @app.errorhandler(404)
 def not_found(e): return jsonify({"success":False,"error":"Not found"}),404

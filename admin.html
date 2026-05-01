@@ -2600,7 +2600,7 @@ async function loadTierPricing(){
     };
 
     // Load tier data from API instead of Firestore
-    const token = await getCurrentAdmin().getToken?.() || localStorage.getItem('adminToken');
+    const token = await getCurrentAdmin()?.getToken?.() || localStorage.getItem('adminToken');
     const response = await fetch('/api/v1/admin/tiers', {
       headers: { 'Authorization': 'Bearer ' + token }
     });
