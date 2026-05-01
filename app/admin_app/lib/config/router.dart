@@ -7,6 +7,8 @@ import '../screens/users/users_list_screen.dart';
 import '../screens/groups/groups_screen.dart';
 import '../screens/sources/sources_screen.dart';
 import '../screens/notifications/notifications_screen.dart';
+import '../screens/deals/deals_screen.dart';
+import '../screens/scraper/scraper_screen.dart';
 
 final adminRouter = GoRouter(
   initialLocation: '/',
@@ -36,35 +38,13 @@ final adminRouter = GoRouter(
     ),
   ),
   routes: [
-    GoRoute(
-      path: '/login',
-      name: 'login',
-      builder: (_, __) => const AdminLoginScreen(),
-    ),
-    GoRoute(
-      path: '/',
-      name: 'dashboard',
-      builder: (_, __) => const DashboardScreen(),
-    ),
-    GoRoute(
-      path: '/users',
-      name: 'users',
-      builder: (_, __) => const UsersListScreen(),
-    ),
-    GoRoute(
-      path: '/groups',
-      name: 'groups',
-      builder: (_, __) => const GroupsScreen(),
-    ),
-    GoRoute(
-      path: '/sources',
-      name: 'sources',
-      builder: (_, __) => const SourcesScreen(),
-    ),
-    GoRoute(
-      path: '/notifications',
-      name: 'notifications',
-      builder: (_, __) => const NotificationsScreen(),
-    ),
+    GoRoute(path: '/login',         name: 'login',         builder: (_, __) => const AdminLoginScreen()),
+    GoRoute(path: '/',              name: 'dashboard',     builder: (_, __) => const DashboardScreen()),
+    GoRoute(path: '/users',         name: 'users',         builder: (_, __) => const UsersListScreen()),
+    GoRoute(path: '/groups',        name: 'groups',        builder: (_, __) => const GroupsScreen()),
+    GoRoute(path: '/sources',       name: 'sources',       builder: (_, __) => const SourcesScreen()),
+    GoRoute(path: '/notifications', name: 'notifications', builder: (_, __) => const NotificationsScreen()),
+    GoRoute(path: '/deals',         name: 'deals',         builder: (_, __) => const DealsScreen()),
+    GoRoute(path: '/scraper',       name: 'scraper',       builder: (_, __) => const ScraperScreen()),
   ],
 );

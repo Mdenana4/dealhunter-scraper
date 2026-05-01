@@ -311,4 +311,59 @@ class AdminFirestoreService {
             .map((d) => {'id': d.id, ...d.data()})
             .toList());
   }
+
+  // ─── DEALS ────────────────────────────────────────────────────────────────
+
+  /// Paginated deal fetch. Returns (docs, lastDocument) for cursor-based paging.
+  Future<(List<Map<String, dynamic>>, DocumentSnapshot?)> getDeals({
+    String? source,
+    String? category,
+    DocumentSnapshot? startAfter,
+    int limit = 30,
+  }) async {
+    Query<Map<String, dynamic>> q = _db
+        .collection('deals')
+        .orderBy('timestamp', descending: true);
+
+    if (source != null)   q = q.where('site',     isEqualTo: source);
+    if (category != null) q = q.where('category', isEqualTo: category);
+    if (startAfter != null) q = q.startAfterDocument(startAfter);
+    q = q.limit(limit);
+
+    final snap = await q.get();
+    final docs = snap.docs
+        .map((d) => <String, dynamic>{'id': d.id, ...d.data()})
+        .toList();
+    final last = snap.docs.isNotEmpty ? snap.docs.last : null;
+    return (docs, last);
+  }
+
+  Future<void> deleteDeal(String dealId) async {
+    await _db.collection('deals').doc(dealId).delete();
+  }
+
+  Future<void> flagDealAsFake(String dealId) async {
+    await _db.collection('deals').doc(dealId).update({
+      'fake_verdict':      'FAKE',
+      'manually_flagged':  true,
+      'flagged_at':        DateTime.now().toIso8601String(),
+    });
+  }
+
+  // ─── SCRAPER HISTORY ──────────────────────────────────────────────────────
+
+  /// Returns the last N scraper health cycles, newest first.
+  Future<List<Map<String, dynamic>>> getScraperHistory({int limit = 8}) async {
+    final snap = await _db
+        .collection('scraper_health')
+        .orderBy('timestamp', descending: true)
+        .limit(limit + 1)   // fetch one extra to skip 'latest' if present
+        .get();
+
+    return snap.docs
+        .where((d) => d.id != 'latest')
+        .take(limit)
+        .map((d) => <String, dynamic>{'id': d.id, ...d.data()})
+        .toList();
+  }
 }

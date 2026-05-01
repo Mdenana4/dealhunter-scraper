@@ -228,6 +228,18 @@ class DashboardScreen extends ConsumerWidget {
                     color: Colors.purple,
                     onTap: () => context.go('/notifications'),
                   ),
+                  _ActionCard(
+                    icon: Icons.local_offer_rounded,
+                    label: 'Deals',
+                    color: Colors.green.shade700,
+                    onTap: () => context.go('/deals'),
+                  ),
+                  _ActionCard(
+                    icon: Icons.monitor_heart_rounded,
+                    label: 'Scraper',
+                    color: Colors.indigo,
+                    onTap: () => context.go('/scraper'),
+                  ),
                 ],
               ),
 

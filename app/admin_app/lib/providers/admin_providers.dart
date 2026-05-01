@@ -41,3 +41,9 @@ final sourcesStreamProvider =
 final notificationLogProvider =
     StreamProvider<List<Map<String, dynamic>>>((ref) =>
         ref.watch(adminServiceProvider).watchNotificationLog());
+
+// ─── Scraper history ──────────────────────────────────────────────────────
+
+final scraperHistoryProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) =>
+        ref.watch(adminServiceProvider).getScraperHistory());
