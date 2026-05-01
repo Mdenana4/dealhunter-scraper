@@ -1602,6 +1602,40 @@ def debug_noon():
     })
 
 
+@app.route('/api/v1/admin/offers')
+def admin_offers():
+    """Admin: paginated deal list with optional source/category filters."""
+    source   = request.args.get('source')
+    category = request.args.get('category')
+    limit    = min(int(request.args.get('limit', 50)), 200)
+    try:
+        q = db.collection('deals').order_by('timestamp', direction=firestore.Query.DESCENDING)
+        if source:   q = q.where('site',     '==', source)
+        if category: q = q.where('category', '==', category)
+        docs = list(q.limit(limit).stream())
+        deals = []
+        for d in docs:
+            data = d.to_dict() or {}
+            ts = data.get('timestamp')
+            if hasattr(ts, 'isoformat'):
+                data['timestamp'] = ts.isoformat()
+            deals.append({'id': d.id, **data})
+        return jsonify({'success': True, 'deals': deals, 'count': len(deals)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/groups')
+def admin_groups():
+    """Admin: list all user groups."""
+    try:
+        docs = list(db.collection('user_groups').stream())
+        groups = [{'id': d.id, **d.to_dict()} for d in docs]
+        return jsonify({'success': True, 'groups': groups})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/admin')
 @app.route('/admin.html')
 def serve_admin():
