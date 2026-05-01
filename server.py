@@ -1602,6 +1602,39 @@ def debug_noon():
     })
 
 
+@app.route('/api/v1/admin/check-auth')
+def admin_check_auth():
+    """Verify Firebase token and confirm the user is in admin_users (by UID or email)."""
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return jsonify({'is_admin': False, 'error': 'Missing token'}), 401
+    token = auth_header[7:]
+    try:
+        decoded = fb_auth.verify_id_token(token)
+        uid   = decoded['uid']
+        email = decoded.get('email', '')
+
+        # Check by UID first, then by email (support both doc ID conventions)
+        doc = db.collection('admin_users').document(uid).get()
+        if not doc.exists and email:
+            doc = db.collection('admin_users').document(email).get()
+
+        if not doc.exists:
+            return jsonify({'is_admin': False})
+
+        data = doc.to_dict() or {}
+        return jsonify({
+            'is_admin':    True,
+            'uid':         uid,
+            'email':       email,
+            'role':        data.get('role', 'admin'),
+            'permissions': data.get('permissions', []),
+            'name':        data.get('name', ''),
+        })
+    except Exception as e:
+        return jsonify({'is_admin': False, 'error': str(e)}), 401
+
+
 @app.route('/api/v1/admin/offers')
 def admin_offers():
     """Admin: paginated deal list with optional source/category filters."""
