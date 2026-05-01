@@ -23,42 +23,22 @@ else:
 
 db = firestore.client()
 
-# ── Firebase token verification with cache + JWT-decode fallback ────────────
-_auth_cache = {}  # {token_hash: {uid, email, t}}
-
-def _verify_firebase_token(token):
-    """Verify Firebase ID token. Caches result 5 min; falls back to JWT decode on quota errors."""
-    cache_key = hashlib.sha256(token.encode()).hexdigest()
-    entry = _auth_cache.get(cache_key)
-    if entry and (time.time() - entry['t']) < 300:
-        return entry['uid'], entry['email']
-
-    uid = email = None
-    try:
-        decoded = fb_auth.verify_id_token(token, check_revoked=False)
-        uid   = decoded['uid']
-        email = decoded.get('email', '')
-    except Exception as e:
-        err_str = str(e).lower()
-        # On quota/network errors fall back to local JWT decode (no API call)
-        if any(x in err_str for x in ('429', 'quota', 'transport', 'connection', 'network', 'timeout')):
-            try:
-                parts = token.split('.')
-                if len(parts) == 3:
-                    pad     = len(parts[1]) % 4
-                    padded  = parts[1] + ('=' * (4 - pad) if pad else '')
-                    payload = json.loads(base64.urlsafe_b64decode(padded))
-                    uid     = payload.get('user_id') or payload.get('sub')
-                    email   = payload.get('email', '')
-                    print(f"⚠️  verify_id_token quota error — using JWT decode fallback for {email}")
-            except Exception:
-                pass
-        if not uid:
-            raise
-
-    _auth_cache[cache_key] = {'uid': uid, 'email': email, 't': time.time()}
-    if len(_auth_cache) > 500:
-        _auth_cache.clear()
+# ── Firebase token: local JWT decode (no API call, no quota) ───────────────
+# Security gate is the Firestore admin_users lookup below — UID must exist there.
+def _uid_email_from_token(token):
+    """Decode Firebase ID token locally. Checks format and expiry; no network call."""
+    parts = token.split('.')
+    if len(parts) != 3:
+        raise ValueError('Malformed token')
+    pad     = 4 - len(parts[1]) % 4
+    padded  = parts[1] + '=' * (pad % 4)
+    payload = json.loads(base64.urlsafe_b64decode(padded))
+    if time.time() > payload.get('exp', 0):
+        raise ValueError('Token expired')
+    uid   = payload.get('user_id') or payload.get('sub', '')
+    email = payload.get('email', '')
+    if not uid:
+        raise ValueError('No uid in token')
     return uid, email
 
 SAFQA_BASE    = "https://api.sfq.app/v1"
@@ -1648,7 +1628,7 @@ def admin_check_auth():
         return jsonify({'is_admin': False, 'error': 'Missing token'}), 401
     token = auth_header[7:]
     try:
-        uid, email = _verify_firebase_token(token)
+        uid, email = _uid_email_from_token(token)
 
         # Check by UID first, then by email (support both doc ID conventions)
         doc = db.collection('admin_users').document(uid).get()
