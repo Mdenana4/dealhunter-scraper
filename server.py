@@ -1535,6 +1535,165 @@ def _send_multicast(tokens: list, notification, data: dict) -> tuple:
     return success, failure
 
 
+@app.route('/api/debug/scraper-log')
+def scraper_log():
+    """Read the last N lines of the scraper log file."""
+    lines = int(request.args.get("lines", 100))
+    try:
+        with open("/tmp/scraper.log", "r") as f:
+            content = f.read()
+        tail = content[-lines * 120:]  # ~120 chars per line estimate
+        return jsonify({"log": tail, "total_bytes": len(content)})
+    except FileNotFoundError:
+        return jsonify({"error": "Scraper log not found — scraper may not have started yet"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/debug/noon')
+def debug_noon():
+    """Diagnostic: fetch a Noon page via direct + ScraperAPI and compare."""
+    SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY", "")
+    region = request.args.get("region", "egypt-en")
+    q      = request.args.get("q", "samsung")
+    url = f"https://www.noon.com/{region}/search/?q={q}&limit=48&sort%5Bby%5D=discount&sort%5Bdir%5D=desc"
+
+    def _analyse(r):
+        if not r:
+            return {"status": None, "body_len": 0, "has_next_data": False,
+                    "page_props_keys": [], "body_snippet": ""}
+        body = r.text
+        nd_match = re.search(r'<script id="__NEXT_DATA__"[^>]*>\s*({.+?})\s*</script>', body, re.DOTALL)
+        nd_keys = []
+        if nd_match:
+            try:
+                nd = json.loads(nd_match.group(1))
+                nd_keys = list(nd.get("props", {}).get("pageProps", {}).keys())
+            except Exception:
+                pass
+        return {"status": r.status_code, "body_len": len(body),
+                "has_next_data": bool(nd_match), "page_props_keys": nd_keys,
+                "body_snippet": body[:1500]}
+
+    direct_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9", "Referer": "https://www.noon.com/",
+    }
+    try:
+        direct_r = requests.get(url, headers=direct_headers, timeout=20, allow_redirects=True)
+    except Exception as e:
+        direct_r = None
+
+    scraper_r = None
+    if SCRAPER_API_KEY:
+        try:
+            scraper_r = requests.get("http://api.scraperapi.com", params={
+                "api_key": SCRAPER_API_KEY, "url": url,
+                "render": "false", "country_code": region[:2], "premium": "false",
+            }, timeout=60)
+        except Exception:
+            pass
+
+    return jsonify({
+        "url": url,
+        "direct": _analyse(direct_r),
+        "scraperapi": _analyse(scraper_r),
+    })
+
+
+@app.route('/api/v1/admin/check-auth')
+def admin_check_auth():
+    """Verify Firebase token and confirm the user is in admin_users (by UID or email)."""
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return jsonify({'is_admin': False, 'error': 'Missing token'}), 401
+    token = auth_header[7:]
+    try:
+        decoded = fb_auth.verify_id_token(token)
+        uid   = decoded['uid']
+        email = decoded.get('email', '')
+
+        # Check by UID first, then by email (support both doc ID conventions)
+        doc = db.collection('admin_users').document(uid).get()
+        if not doc.exists and email:
+            doc = db.collection('admin_users').document(email).get()
+
+        if not doc.exists:
+            return jsonify({'is_admin': False})
+
+        data = doc.to_dict() or {}
+        return jsonify({
+            'is_admin':    True,
+            'uid':         uid,
+            'email':       email,
+            'role':        data.get('role', 'admin'),
+            'permissions': data.get('permissions', []),
+            'name':        data.get('name', ''),
+        })
+    except Exception as e:
+        return jsonify({'is_admin': False, 'error': str(e)}), 401
+
+
+@app.route('/api/v1/admin/offers')
+def admin_offers():
+    """Admin: paginated deal list with optional source/category filters."""
+    source   = request.args.get('source')
+    category = request.args.get('category')
+    limit    = min(int(request.args.get('limit', 50)), 200)
+    try:
+        q = db.collection('deals').order_by('timestamp', direction=firestore.Query.DESCENDING)
+        if source:   q = q.where('site',     '==', source)
+        if category: q = q.where('category', '==', category)
+        docs = list(q.limit(limit).stream())
+        deals = []
+        for d in docs:
+            data = d.to_dict() or {}
+            ts = data.get('timestamp')
+            if hasattr(ts, 'isoformat'):
+                data['timestamp'] = ts.isoformat()
+            deals.append({'id': d.id, **data})
+        return jsonify({'success': True, 'deals': deals, 'count': len(deals)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/groups')
+def admin_groups():
+    """Admin: list all user groups."""
+    try:
+        docs = list(db.collection('user_groups').stream())
+        groups = [{'id': d.id, **d.to_dict()} for d in docs]
+        return jsonify({'success': True, 'groups': groups})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/tiers')
+def admin_tiers():
+    """Admin: list tier configurations from Firestore (or return defaults)."""
+    defaults = [
+        {'name': 'free',    'daily_limit': 50,    'price': 0,  'features': ['View Deals']},
+        {'name': 'trial',   'daily_limit': 100,   'price': 0,  'features': ['View Deals', 'Price History', 'Groups']},
+        {'name': 'premium', 'daily_limit': 500,   'price': 5,  'features': ['View Deals', 'Price History', 'Groups', 'Gift Deals']},
+        {'name': 'vip',     'daily_limit': 99999, 'price': 10, 'features': ['All Premium Features', 'Priority Support']},
+    ]
+    try:
+        docs = list(db.collection('tiers').stream())
+        if docs:
+            tiers = [{'name': d.id, **d.to_dict()} for d in docs]
+        else:
+            tiers = defaults
+        return jsonify({'success': True, 'tiers': tiers})
+    except Exception as e:
+        return jsonify({'success': True, 'tiers': defaults})
+
+
+@app.route('/admin')
+@app.route('/admin.html')
+def serve_admin():
+    return send_from_directory('.', 'admin.html')
+
 @app.errorhandler(404)
 def not_found(e): return jsonify({"success":False,"error":"Not found"}),404
 @app.errorhandler(500)
