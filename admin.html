@@ -1609,25 +1609,25 @@ async function genId(site,url,price){
 }
 
 // ── MONITOR ────────────────────────────────────
+function apiHdr(){return{headers:{'Authorization':'Bearer '+localStorage.getItem('adminToken')}};}
+
 async function loadMonitor(){
   document.getElementById('ts').textContent='Updated: '+new Date().toLocaleTimeString();
   try{
-    const snap=await db.collection('deals').get();
-    const deals=snap.docs.map(d=>({id:d.id,...d.data()}));
+    const r=await fetch('/api/v1/admin/stats',apiHdr());
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const st=await r.json();
+    const deals=st.latest_deals||[];
 
-    // Load analytics
-    let clicks=0,buys=0;
-    deals.forEach(d=>{clicks+=d.click_count||0;buys+=d.buy_click_count||0;});
-    document.getElementById('s-total').textContent=deals.length;
-    document.getElementById('s-clicks').textContent=clicks;
-    document.getElementById('s-buys').textContent=buys;
+    document.getElementById('s-total').textContent=st.total_deals||0;
+    document.getElementById('s-clicks').textContent=st.clicks||0;
+    document.getElementById('s-buys').textContent=st.buys||0;
+    document.getElementById('s-users').textContent=st.total_users||0;
 
-    const uSnap=await db.collection('users').get();
-    document.getElementById('s-users').textContent=uSnap.size;
-
-    // Load ALL sources
-    const cSnap=await db.collection('admin').get();
-    const customSrcs=cSnap.docs.map(doc=>({docId:doc.id,...doc.data()})).filter(s=>s.site_name&&s.site_url);
+    const customSrcs=(st.custom_sources||[]).filter(s=>s.site_name&&s.site_url);
+    const siteCounts=st.site_counts||{};
+    const siteLastDeal=st.site_last||{};
+    const siteFakeCount=st.site_fake||{};
 
     const allSrcs=[
       {id:'amazon_eg',    site_name:'Amazon Egypt',   site_name_ar:'أمازون مصر', site_url:'https://www.amazon.eg',                    status:'active',frequency_minutes:3},
@@ -1640,15 +1640,6 @@ async function loadMonitor(){
       {id:'sahla_eg',     site_name:'Sahla Egypt',    site_name_ar:'سهلة',       site_url:'https://sahlaapp.com/',                    status:'active',frequency_minutes:3},
       ...customSrcs.map(s=>({...s,id:s.id||s.docId}))
     ];
-
-    // Per-source deal counts and last deal time
-    const siteCounts={},siteLastDeal={},siteFakeCount={};
-    deals.forEach(d=>{
-      const s=d.site||'unknown';
-      siteCounts[s]=(siteCounts[s]||0)+1;
-      if(!siteLastDeal[s]||new Date(d.timestamp)>new Date(siteLastDeal[s]))siteLastDeal[s]=d.timestamp;
-      if(d.fake_verdict==='SUSPICIOUS'||d.fake_verdict==='FAKE')siteFakeCount[s]=(siteFakeCount[s]||0)+1;
-    });
 
     // Dynamic source stat cards
     const statsDiv=document.getElementById('source-stats');
@@ -1678,7 +1669,7 @@ async function loadMonitor(){
     }).join('');
 
     // Category chart
-    const cats={};deals.forEach(d=>{const c=d.category||'general';cats[c]=(cats[c]||0)+1;});
+    const cats=st.cat_counts||{};
     const maxC=Math.max(...Object.values(cats),1);
     const cc={electronics:'#E24B4A',fashion:'#185FA5',home:'#854F0B',beauty:'#993556',sports:'#3B6D11',toys:'#7F77DD',grocery:'#639922',books:'#5F5E5A',automotive:'#0F6E56',general:'#888'};
     document.getElementById('cat-chart').innerHTML=Object.entries(cats).sort((a,b)=>b[1]-a[1]).map(([c,n])=>`
@@ -1691,7 +1682,7 @@ async function loadMonitor(){
     // Site chart
     document.getElementById('site-chart').innerHTML=allSrcs.map(s=>{
       const n=siteCounts[s.id]||0;
-      const pct=deals.length>0?Math.round(n/deals.length*100):0;
+      const pct=st.total_deals>0?Math.round(n/st.total_deals*100):0;
       return`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:11px;">
         <span style="width:90px;color:#888;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.site_name}</span>
         <div class="pt" style="flex:1;"><div class="pf" style="width:${pct}%;background:#E24B4A;"></div></div>
@@ -1700,8 +1691,7 @@ async function loadMonitor(){
     }).join('')||'<div class="empty"><div class="et">No data</div></div>';
 
     // Latest 10 deals
-    const latest=deals.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp)).slice(0,10);
-    document.getElementById('latest-tb').innerHTML=latest.map(d=>`
+    document.getElementById('latest-tb').innerHTML=deals.map(d=>`
       <tr>
         <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;" title="${d.title}">${d.title}</td>
         <td>${sb(d.site,d.site_display)}</td>
@@ -1725,15 +1715,20 @@ function setCat(cat,el){
 async function loadDeals(){
   document.getElementById('deals-tb').innerHTML='<tr><td colspan="13" class="loading">Loading...</td></tr>';
   try{
-    // Update site filter with custom sources
-    const cSnap=await db.collection('admin').get();
-    const custom=cSnap.docs.map(d=>({docId:d.id,...d.data()})).filter(s=>s.site_name);
-    const sel=document.getElementById('df-site');
-    while(sel.options.length>3)sel.remove(3);
-    custom.forEach(s=>{const o=document.createElement('option');o.value=s.id||s.docId;o.textContent=s.site_name;sel.appendChild(o);});
-
-    const snap=await db.collection('deals').orderBy('timestamp','desc').limit(500).get();
-    allDeals=snap.docs.map(doc=>({id:doc.id,...doc.data()}));
+    const [srcR, dealR] = await Promise.all([
+      fetch('/api/v1/admin/sources', apiHdr()),
+      fetch('/api/v1/admin/offers?limit=200', apiHdr())
+    ]);
+    if(srcR.ok){
+      const sd=await srcR.json();
+      const custom=(sd.sources||[]).filter(s=>s.site_name);
+      const sel=document.getElementById('df-site');
+      while(sel.options.length>3)sel.remove(3);
+      custom.forEach(s=>{const o=document.createElement('option');o.value=s.id||s.docId;o.textContent=s.site_name;sel.appendChild(o);});
+    }
+    if(!dealR.ok) throw new Error('HTTP '+dealR.status);
+    const dd=await dealR.json();
+    allDeals=dd.deals||[];
     renderDeals(allDeals);
   }catch(e){document.getElementById('deals-tb').innerHTML='<tr><td colspan="13" class="loading">Error: '+e.message+'</td></tr>';}
 }
@@ -1844,13 +1839,14 @@ function closeSrcModal(){document.getElementById('src-modal').classList.remove('
 
 async function loadSources(){
   try{
-    const dSnap=await db.collection('deals').get();
-    const deals=dSnap.docs.map(d=>d.data());
-    const siteCounts={};
-    deals.forEach(d=>{siteCounts[d.site]=(siteCounts[d.site]||0)+1;});
-
-    const cSnap=await db.collection('admin').get();
-    const custom=cSnap.docs.map(doc=>({docId:doc.id,...doc.data()})).filter(s=>s.site_name&&s.site_url);
+    const [statsR, srcR] = await Promise.all([
+      fetch('/api/v1/admin/stats', apiHdr()),
+      fetch('/api/v1/admin/sources', apiHdr())
+    ]);
+    const st=statsR.ok?await statsR.json():{site_counts:{},latest_deals:[]};
+    const srcData=srcR.ok?await srcR.json():{sources:[]};
+    const siteCounts=st.site_counts||{};
+    const custom=(srcData.sources||[]).filter(s=>s.site_name&&s.site_url).map(s=>({docId:s.id,...s}));
 
     const defaults=[
       {docId:'__amz',    id:'amazon_eg',    site_name:'Amazon Egypt',   site_name_ar:'أمازون مصر', site_url:'https://www.amazon.eg',               status:'active',frequency_minutes:3,isDefault:true},
@@ -1882,9 +1878,9 @@ async function loadSources(){
         }</td>
       </tr>`).join('');
 
-    const recent=deals.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp)).slice(0,30);
+    const recent=(st.latest_deals||[]).slice(0,30);
     document.getElementById('act-log').innerHTML=recent.map(d=>
-      `[${ft(d.timestamp)}] ${(d.site_display||d.site||'').toUpperCase()}: ${d.title.substring(0,55)} | ${d.discount_percent}% OFF | EGP ${(d.current_price||0).toLocaleString()} | ${d.fake_emoji||''} ${d.fake_verdict||''}`
+      `[${ft(d.timestamp)}] ${(d.site_display||d.site||'').toUpperCase()}: ${(d.title||'').substring(0,55)} | ${d.discount_percent}% OFF | EGP ${(d.current_price||0).toLocaleString()} | ${d.fake_emoji||''} ${d.fake_verdict||''}`
     ).join('\n')||'No activity yet';
   }catch(e){toast('Sources error: '+e.message);}
 }
@@ -1936,8 +1932,10 @@ async function delSource(docId){
 // ── USERS ──────────────────────────────────────
 async function loadUsers(){
   try{
-    const snap=await db.collection('users').get();
-    const users=snap.docs.map(doc=>({id:doc.id,...doc.data()}));
+    const r=await fetch('/api/v1/admin/users',apiHdr());
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    const users=d.users||[];
     console.log('📊 Loaded users:', users.length, users);  // DEBUG
     const free=users.filter(u=>u.tier==='free'||u.tier==='registered_free').length;
     const trial=users.filter(u=>u.tier==='trial').length;
@@ -1996,8 +1994,8 @@ async function loadUsers(){
 
     // Tier change history
     try{
-      const histSnap=await db.collection('tier_history').orderBy('changed_at','desc').limit(50).get();
-      const history=histSnap.docs.map(d=>({id:d.id,...d.data()}));
+      const histR=await fetch('/api/v1/admin/tier-history',apiHdr());
+      const history=histR.ok?(await histR.json()).history||[]:[];
       document.getElementById('tier-history-tb').innerHTML=history.length?history.map(h=>`
         <tr>
           <td style="font-family:monospace;font-size:9px;color:#888;">${(h.user_id||'').substring(0,14)}...</td>
@@ -2178,8 +2176,10 @@ async function saveUser(){
 // ── NOTIFICATIONS ──────────────────────────────
 async function loadNotifs(){
   try{
-    const snap=await db.collection('notifications').orderBy('sent_at','desc').get();
-    const ns=snap.docs.map(d=>({id:d.id,...d.data()}));
+    const r=await fetch('/api/v1/admin/notifications',apiHdr());
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    const ns=d.notifications||[];
     document.getElementById('notif-tb').innerHTML=ns.length?ns.map(n=>`
       <tr>
         <td style="font-weight:500;font-size:11px;">${n.title||'—'}<br>${n.title_ar?`<span style="font-size:9px;color:#aaa;direction:rtl;">${n.title_ar}</span>`:''}</td>
@@ -2212,8 +2212,9 @@ function updateNotifTargetOptions() {
 
 async function loadNotifGroups() {
   try {
-    const snap = await db.collection('user_groups').get();
-    const groups = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const r = await fetch('/api/v1/admin/groups', apiHdr());
+    const d = r.ok ? await r.json() : {groups:[]};
+    const groups = d.groups || [];
     const select = document.getElementById('nt-group-id');
     select.innerHTML = groups.length ? groups.map(g => `<option value="${g.id}">${g.group_name}</option>`).join('') : '<option>No groups found</option>';
   } catch (e) {

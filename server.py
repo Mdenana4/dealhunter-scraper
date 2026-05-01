@@ -1669,6 +1669,161 @@ def admin_groups():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+def _ts(val):
+    return val.isoformat() if hasattr(val, 'isoformat') else val
+
+
+@app.route('/api/v1/admin/stats')
+def admin_stats():
+    """Monitor stats: deals, users, per-source breakdown, latest deals."""
+    try:
+        deal_docs = list(db.collection('deals').stream())
+        deals = [d.to_dict() for d in deal_docs]
+        deal_ids = [d.id for d in deal_docs]
+
+        clicks = sum(int(d.get('click_count') or 0) for d in deals)
+        buys   = sum(int(d.get('buy_click_count') or 0) for d in deals)
+
+        site_counts, site_last, site_fake, cat_counts = {}, {}, {}, {}
+        for d in deals:
+            s = d.get('site', 'unknown')
+            site_counts[s] = site_counts.get(s, 0) + 1
+            ts = _ts(d.get('timestamp'))
+            if ts and (s not in site_last or ts > site_last[s]):
+                site_last[s] = ts
+            if d.get('fake_verdict') in ('SUSPICIOUS', 'FAKE'):
+                site_fake[s] = site_fake.get(s, 0) + 1
+            c = d.get('category', 'general')
+            cat_counts[c] = cat_counts.get(c, 0) + 1
+
+        user_docs = list(db.collection('users').stream())
+        custom_docs = list(db.collection('admin').stream())
+        custom_sources = [{'id': d.id, **d.to_dict()} for d in custom_docs]
+
+        latest = sorted(deals, key=lambda x: str(x.get('timestamp') or ''), reverse=True)[:10]
+        for i, d in enumerate(latest):
+            latest[i] = {**d, 'id': deal_ids[deals.index(d)],
+                         'timestamp': _ts(d.get('timestamp'))}
+
+        return jsonify({
+            'success': True,
+            'total_deals': len(deals),
+            'total_users': len(user_docs),
+            'clicks': clicks, 'buys': buys,
+            'site_counts': site_counts,
+            'site_last': site_last,
+            'site_fake': site_fake,
+            'cat_counts': cat_counts,
+            'custom_sources': custom_sources,
+            'latest_deals': latest,
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/users')
+def admin_users():
+    """Admin: list all app users."""
+    try:
+        docs = list(db.collection('users').stream())
+        users = []
+        for d in docs:
+            data = d.to_dict() or {}
+            for k in ('created_at', 'last_login', 'tier_upgraded_at'):
+                data[k] = _ts(data.get(k))
+            users.append({'id': d.id, **data})
+        return jsonify({'success': True, 'users': users, 'count': len(users)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/users/<user_id>', methods=['PATCH'])
+def admin_update_user(user_id):
+    """Admin: update a user document (tier, daily_deal_limit, etc.)."""
+    try:
+        data = request.get_json() or {}
+        for k in ('created_at', 'last_login', 'tier_upgraded_at'):
+            data.pop(k, None)
+        db.collection('users').document(user_id).update(data)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/team')
+def admin_team():
+    """Admin: list all admin_users."""
+    try:
+        docs = list(db.collection('admin_users').stream())
+        team = []
+        for d in docs:
+            data = d.to_dict() or {}
+            data['last_login'] = _ts(data.get('last_login'))
+            team.append({'id': d.id, 'email': data.get('email', d.id), **data})
+        return jsonify({'success': True, 'team': team})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/notifications')
+def admin_notifications():
+    """Admin: list sent notifications."""
+    try:
+        docs = list(db.collection('notifications')
+                    .order_by('sent_at', direction=firestore.Query.DESCENDING)
+                    .limit(100).stream())
+        notifs = []
+        for d in docs:
+            data = d.to_dict() or {}
+            data['sent_at'] = _ts(data.get('sent_at'))
+            notifs.append({'id': d.id, **data})
+        return jsonify({'success': True, 'notifications': notifs})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/sources')
+def admin_sources():
+    """Admin: custom scraper sources from 'admin' collection."""
+    try:
+        docs = list(db.collection('admin').stream())
+        sources = [{'id': d.id, **d.to_dict()} for d in docs]
+        return jsonify({'success': True, 'sources': sources})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/v1/admin/tier-history')
+def admin_tier_history():
+    """Admin: tier change log."""
+    try:
+        docs = list(db.collection('tier_history')
+                    .order_by('changed_at', direction=firestore.Query.DESCENDING)
+                    .limit(50).stream())
+        history = []
+        for d in docs:
+            data = d.to_dict() or {}
+            data['changed_at'] = _ts(data.get('changed_at'))
+            history.append({'id': d.id, **data})
+        return jsonify({'success': True, 'history': history})
+    except Exception as e:
+        return jsonify({'success': True, 'history': []})
+
+
+@app.route('/api/v1/admin/deals/<deal_id>', methods=['PATCH', 'DELETE'])
+def admin_deal(deal_id):
+    """Admin: update or delete a deal."""
+    try:
+        if request.method == 'DELETE':
+            db.collection('deals').document(deal_id).delete()
+            return jsonify({'success': True})
+        data = request.get_json() or {}
+        db.collection('deals').document(deal_id).update(data)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/v1/admin/tiers')
 def admin_tiers():
     """Admin: list tier configurations from Firestore (or return defaults)."""
