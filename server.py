@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore, messaging, auth as fb_auth
@@ -1601,6 +1601,11 @@ def debug_noon():
         "scraperapi": _analyse(scraper_r),
     })
 
+
+@app.route('/admin')
+@app.route('/admin.html')
+def serve_admin():
+    return send_from_directory('.', 'admin.html')
 
 @app.errorhandler(404)
 def not_found(e): return jsonify({"success":False,"error":"Not found"}),404
