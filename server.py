@@ -1707,17 +1707,25 @@ def admin_offers():
     category    = request.args.get('category')
     limit       = min(int(request.args.get('limit', 50)), 500)
     try:
-        q = db.collection('deals').order_by('timestamp', direction=firestore.Query.DESCENDING)
-        if source:   q = q.where(source_type, '==', source)
-        if category: q = q.where('category', '==', category)
-        docs = list(q.limit(limit).stream())
+        # Fetch top deals ordered by timestamp, filter in Python to avoid
+        # Firestore composite index requirements (order_by + where per field)
+        fetch_limit = min(limit * 5, 500) if (source or category) else limit
+        docs = list(db.collection('deals')
+                    .order_by('timestamp', direction=firestore.Query.DESCENDING)
+                    .limit(fetch_limit).stream())
         deals = []
         for d in docs:
             data = d.to_dict() or {}
+            if source and data.get(source_type) != source:
+                continue
+            if category and data.get('category') != category:
+                continue
             ts = data.get('timestamp')
             if hasattr(ts, 'isoformat'):
                 data['timestamp'] = ts.isoformat()
             deals.append({'id': d.id, **data})
+            if len(deals) >= limit:
+                break
         return jsonify({'success': True, 'deals': deals, 'count': len(deals)})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1916,7 +1924,8 @@ def admin_db_proxy(collection, doc_id=None):
         elif request.method == 'PATCH':
             if not doc_id:
                 return jsonify({'success': False, 'error': 'doc_id required'}), 400
-            cref.document(doc_id).update(request.get_json() or {})
+            # set(merge=True) creates the doc if it doesn't exist; update() would fail
+            cref.document(doc_id).set(request.get_json() or {}, merge=True)
             return jsonify({'success': True})
         elif request.method == 'PUT':
             if not doc_id:
@@ -2150,18 +2159,22 @@ def admin_logs():
     category = request.args.get('category')  # scraper | auth | db | api | system
     limit    = min(int(request.args.get('limit', 100)), 500)
     try:
-        q = db.collection('admin_logs').order_by(
-            'timestamp', direction=firestore.Query.DESCENDING)
-        if level:
-            q = q.where('level', '==', level)
-        if category:
-            q = q.where('category', '==', category)
-        docs = list(q.limit(limit).stream())
+        # Fetch ordered by timestamp only — filtering in Python avoids requiring
+        # Firestore composite indexes (order_by + where needs index per field combo)
+        docs = list(db.collection('admin_logs')
+                    .order_by('timestamp', direction=firestore.Query.DESCENDING)
+                    .limit(500).stream())
         logs = []
         for d in docs:
             data = d.to_dict() or {}
+            if level and data.get('level') != level:
+                continue
+            if category and data.get('category') != category:
+                continue
             data['id'] = d.id
             logs.append(data)
+            if len(logs) >= limit:
+                break
         return jsonify({'success': True, 'logs': logs, 'count': len(logs)})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -2327,10 +2340,15 @@ def admin_revenue():
         except Exception:
             pass
 
-        # Upgrade vs downgrade counts
-        upgrades   = sum(1 for c in tier_changes if
-                         ['free','trial','premium','vip'].index(c['to_tier'] or 'free') >
-                         ['free','trial','premium','vip'].index(c['from_tier'] or 'free'))
+        # Upgrade vs downgrade counts — safe lookup avoids ValueError on unknown tier names
+        _TIER_ORDER = ['free', 'trial', 'premium', 'vip']
+        def _tier_rank(t):
+            try:
+                return _TIER_ORDER.index(t or 'free')
+            except ValueError:
+                return 0
+        upgrades   = sum(1 for c in tier_changes
+                         if _tier_rank(c['to_tier']) > _tier_rank(c['from_tier']))
         downgrades = len(tier_changes) - upgrades
 
         return jsonify({
