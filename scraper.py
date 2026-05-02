@@ -27,7 +27,12 @@ load_dotenv()
 
 MIN_DISCOUNT    = int(os.getenv("MIN_DISCOUNT", 40))
 INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 60))
-SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY", "")
+SCRAPER_API_KEY = (
+    os.getenv("SCRAPER_API_KEY") or
+    os.getenv("SCRAPERAPI_KEY") or
+    os.getenv("SCRAPER_KEY") or
+    ""
+)
 
 # ─── Price filter: skip products outside this EGP range ───────────────────────
 # Set MIN_PRICE and MAX_PRICE in your .env file or Render environment variables.
@@ -41,7 +46,11 @@ MAX_PRICE = float(os.getenv("MAX_PRICE", 9999999))
 # FIREBASE CONNECTION
 # ─────────────────────────────────────────────────────
 print("Connecting to Firebase...")
-firebase_key_json = os.getenv("FIREBASE_KEY_JSON")
+firebase_key_json = (
+    os.getenv("FIREBASE_KEY_JSON") or
+    os.getenv("FIREBASE_CREDENTIALS_JSON") or
+    os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+)
 
 if firebase_key_json:
     try:
@@ -272,6 +281,28 @@ def extract_next_data(html_text):
 
 _SCRAPERAPI_EXHAUSTED = False  # set True when monthly quota gone
 
+
+def is_blocked_response(resp, min_length=2000):
+    """Return True when the response looks like a CAPTCHA or bot-block page."""
+    if not resp or resp.status_code != 200:
+        return True
+    text_lower = (resp.text or "")[:4000].lower()
+    block_signals = [
+        "robot check", "captcha", "automated access", "unusual traffic",
+        "i'm not a robot", "access denied", "403 forbidden", "cloudflare",
+        "just a moment", "security check", "verify you are human",
+        "enable javascript", "please wait while we verify",
+        "suspicious activity", "bot protection",
+    ]
+    for signal in block_signals:
+        if signal in text_lower:
+            return True
+    # Very short response usually means redirect / empty block page
+    if len(resp.text) < min_length:
+        return True
+    return False
+
+
 def fetch_with_scraperapi(url, render_js=True, country="eg"):
     global _SCRAPERAPI_EXHAUSTED
     if not SCRAPER_API_KEY or _SCRAPERAPI_EXHAUSTED:
@@ -324,6 +355,26 @@ def fetch_noon_direct(url, country_code="eg"):
     except Exception as e:
         print(f"    Noon direct error: {e}")
         return None
+
+
+# ─────────────────────────────────────────────────────
+# SCRAPER ERROR LOGGING
+# ─────────────────────────────────────────────────────
+def _log_scraper_error(scraper: str, url: str, message: str) -> None:
+    """Persist a scraper error to Firestore admin_logs so it shows in the admin panel."""
+    if not db:
+        return
+    try:
+        db.collection("admin_logs").document().set({
+            "level":     "error",
+            "type":      "scraper_error",
+            "scraper":   scraper,
+            "url":       url[:500],
+            "message":   message[:1000],
+            "timestamp": now_iso(),
+        })
+    except Exception:
+        pass  # never crash scraper because of logging
 
 
 # ─────────────────────────────────────────────────────
@@ -544,8 +595,9 @@ def _scrape_amazon_deals_page(
         try:
             url = deals_url if page_num == 1 else f"{deals_url}&page={page_num}"
             resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
-            if not resp or resp.status_code != 200:
-                print(f"  Deals page {page_num}: HTTP {resp.status_code if resp else 'no response'}")
+            if is_blocked_response(resp, min_length=5000):
+                print(f"  Deals page {page_num}: blocked/empty (HTTP {resp.status_code if resp else 'no response'}) — skipping")
+                _log_scraper_error(f"amazon_{country_code}", url, "Blocked/CAPTCHA response on deals page")
                 break
 
             soup = BeautifulSoup(resp.content, "lxml")
@@ -554,7 +606,8 @@ def _scrape_amazon_deals_page(
                 if p.get("data-asin", "").strip()
             ]
             if not products:
-                print(f"  Deals page {page_num}: 0 products found, stopping")
+                print(f"  Deals page {page_num}: 0 products found — HTML structure may have changed")
+                _log_scraper_error(f"amazon_{country_code}", url, "0 products parsed — selector may be broken")
                 break
 
             print(f"  Deals page {page_num}: {len(products)} product divs")
@@ -679,8 +732,10 @@ def _scrape_amazon_region(
         try:
             url = f"https://www.{base_domain}/s?k={item['k'].replace(' ', '+')}&language=en_AE"
             resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
-            if not resp or resp.status_code != 200:
-                time.sleep(2)
+            if is_blocked_response(resp, min_length=5000):
+                print(f"  [{item['k']}]: blocked/empty response — skipping")
+                _log_scraper_error(f"amazon_{country_code}", url, f"Blocked response on keyword '{item['k']}'")
+                time.sleep(5)
                 continue
 
             soup = BeautifulSoup(resp.content, "lxml")
@@ -847,8 +902,10 @@ def scrape_jumia():
     for url, default_cat in pages:
         try:
             resp = fetch_with_scraperapi(url, render_js=False, country="eg")
-            if not resp or resp.status_code != 200:
-                time.sleep(2)
+            if is_blocked_response(resp, min_length=3000):
+                print(f"  [JUMIA] blocked/empty: {url[:55]}...")
+                _log_scraper_error("jumia_eg", url, "Blocked/empty response")
+                time.sleep(5)
                 continue
 
             soup = BeautifulSoup(resp.content, "lxml")
@@ -857,6 +914,10 @@ def scrape_jumia():
                 soup.find_all("article", attrs={"data-id": True}) or
                 soup.find_all("div", class_="prd")
             )
+            if not products:
+                print(f"  [JUMIA] 0 products at {url[:55]}... — selector may be broken")
+                _log_scraper_error("jumia_eg", url, "0 products — selector may be broken")
+                continue
             print(f"  [JUMIA] {len(products)} products: {url[:55]}...")
 
             for p in products:
@@ -1657,19 +1718,26 @@ def _scrape_noon_region(
     for dp_url in deals_pages:
         try:
             resp = _noon_fetch(dp_url)
+            if is_blocked_response(resp, min_length=3000):
+                print(f"  [NOON/{country_code.upper()}] Deals page blocked — trying JS render")
+                resp = fetch_with_scraperapi(dp_url, render_js=True, country=country_code)
             if resp and resp.status_code == 200:
                 n = _parse_noon_products(resp.text, "general", region_path, currency,
                                          marketplace_country, site_display, country_code)
                 if n == 0:
+                    # Last resort: JS render
                     resp2 = fetch_with_scraperapi(dp_url, render_js=True, country=country_code)
                     if resp2 and resp2.status_code == 200:
                         n = _parse_noon_products(resp2.text, "general", region_path, currency,
                                                  marketplace_country, site_display, country_code)
+                if n == 0:
+                    _log_scraper_error(marketplace_country, dp_url, "0 products on deals page — selector may be broken")
                 print(f"  [NOON/{country_code.upper()}] Deals page: {n} deals")
                 total += n
                 time.sleep(3)
         except Exception as e:
             print(f"  [NOON/{country_code.upper()}] Deals page error: {e}")
+            _log_scraper_error(marketplace_country, dp_url, str(e))
 
     # ── Phase 2: Category search terms ─────────────────────────────────────
     search_terms = [
@@ -2117,41 +2185,27 @@ def scrape_custom_sources():
 # ANALYTICS UPDATE
 # ─────────────────────────────────────────────────────
 def update_analytics():
+    """
+    Write lightweight analytics using the scraper_health cycle totals.
+    We deliberately avoid streaming the full deals/users collections here
+    to prevent thousands of Firestore reads every scrape cycle.
+    The admin dashboard stats endpoint (server.py) handles full stats with
+    its own 5-minute cache.
+    """
     try:
-        deals       = [d.to_dict() for d in db.collection("deals").get()]
-        users       = list(db.collection("users").get())
-        site_counts = {}
-        cat_counts  = {}
-        verdict_counts = {}
-        clicks      = 0
-        buys        = 0
-        fake_count  = 0
-
-        for d in deals:
-            s = d.get("site", "?")
-            c = d.get("category", "general")
-            v = d.get("fake_verdict", "UNVERIFIED")
-            site_counts[s]    = site_counts.get(s, 0) + 1
-            cat_counts[c]     = cat_counts.get(c, 0) + 1
-            verdict_counts[v] = verdict_counts.get(v, 0) + 1
-            clicks     += d.get("click_count", 0)
-            buys       += d.get("buy_click_count", 0)
-            if v == "FAKE":
-                fake_count += 1
+        health_doc = db.collection("scraper_health").document("latest").get()
+        cycle = {}
+        if health_doc.exists:
+            cycle = health_doc.to_dict().get("cycle", {})
+        cycle_total = sum(cycle.values())
 
         db.collection("analytics").document("summary").set({
-            "total_deals":    len(deals),
-            "total_users":    len(users),
-            "site_counts":    site_counts,
-            "category_counts": cat_counts,
-            "verdict_counts": verdict_counts,
-            "total_clicks":   clicks,
-            "total_buy_clicks": buys,
-            "fake_deals_count": fake_count,
-            "last_updated":   now_iso()
+            "last_scrape_cycle_deals": cycle_total,
+            "last_scrape_site_counts": cycle,
+            "last_updated": now_iso(),
         }, merge=True)
 
-        print(f"  Analytics: {len(deals)} deals | {fake_count} FAKE | {clicks} clicks")
+        print(f"  Analytics: cycle total {cycle_total} deals (lightweight write)")
     except Exception as e:
         print(f"  Analytics error: {e}")
 
