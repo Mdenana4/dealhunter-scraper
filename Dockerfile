@@ -6,7 +6,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     FLASK_APP=server.py \
-    FLASK_ENV=production
+    FLASK_ENV=production \
+    PORT=5000
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -34,16 +35,12 @@ RUN chmod +x start.sh
 COPY admin.html .
 COPY user-dashboard.html .
 
-# Create health check script
-RUN echo '#!/bin/bash\ncurl -f http://localhost:5000/health || exit 1' > /healthcheck.sh && \
-    chmod +x /healthcheck.sh
+# Health check uses $PORT (Railway overrides at runtime via env var)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:${PORT}/health || exit 1
 
-# Expose port
-EXPOSE 5000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD /healthcheck.sh
+# Expose default port (Railway overrides PORT env var at runtime)
+EXPOSE ${PORT}
 
 # Run server + scraper together
 CMD ["sh", "start.sh"]
