@@ -1623,6 +1623,121 @@ def scraper_log():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/debug/amazon-test')
+def debug_amazon_test():
+    """
+    Test the RapidAPI Amazon integration without running the full scraper.
+    Returns raw API response for one keyword search on Amazon Egypt.
+    Visit: /api/debug/amazon-test?country=EG&q=laptop
+    """
+    RAPIDAPI_KEY = (
+        os.getenv("RAPIDAPI_KEY") or
+        os.getenv("RAPID_API_KEY") or ""
+    )
+    country = request.args.get("country", "EG").upper()
+    query   = request.args.get("q", "laptop")
+
+    if not RAPIDAPI_KEY:
+        return jsonify({
+            "error": "RAPIDAPI_KEY not set in Railway Variables",
+            "fix":   "Go to Railway → your project → Variables → add RAPIDAPI_KEY"
+        }), 400
+
+    try:
+        resp = requests.get(
+            "https://real-time-amazon-data.p.rapidapi.com/search",
+            headers={
+                "x-rapidapi-host": "real-time-amazon-data.p.rapidapi.com",
+                "x-rapidapi-key":  RAPIDAPI_KEY,
+            },
+            params={
+                "query":         query,
+                "page":          "1",
+                "country":       country,
+                "discount_only": "true",
+                "sort_by":       "RELEVANCE",
+            },
+            timeout=20,
+        )
+        raw = resp.json()
+        products = (raw.get("data") or {}).get("products") or []
+        summary  = []
+        for p in products[:10]:
+            disc = p.get("discount_percent") or p.get("savings_percent") or "?"
+            summary.append({
+                "title":     (p.get("product_title") or "")[:60],
+                "price":     p.get("product_price"),
+                "original":  p.get("product_original_price"),
+                "discount":  disc,
+                "asin":      p.get("asin"),
+            })
+        return jsonify({
+            "api_status":       raw.get("status"),
+            "http_status":      resp.status_code,
+            "total_products":   (raw.get("data") or {}).get("total_products", 0),
+            "products_returned": len(products),
+            "sample_10":        summary,
+            "key_used":         RAPIDAPI_KEY[:8] + "...",
+        })
+    except Exception as e:
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+
+
+@app.route('/api/debug/scraper-status')
+def debug_scraper_status():
+    """
+    Show scraper health from last cycle + last 20 lines of scraper.log.
+    Visit: /api/debug/scraper-status
+    """
+    result = {"scraper_log_tail": None, "last_health": None}
+
+    # Read scraper log tail
+    try:
+        with open("/tmp/scraper.log", "r") as f:
+            lines = f.readlines()
+        result["scraper_log_tail"] = "".join(lines[-40:])
+        result["log_total_lines"]  = len(lines)
+    except FileNotFoundError:
+        result["scraper_log_tail"] = "FILE NOT FOUND — scraper process has not started"
+    except Exception as e:
+        result["scraper_log_tail"] = f"Error reading log: {e}"
+
+    # Read last health from Firestore
+    try:
+        doc = db.collection("scraper_health").document("latest").get()
+        if doc.exists:
+            d = doc.to_dict() or {}
+            # Convert Firestore timestamps to strings
+            ts = d.get("timestamp")
+            result["last_health"] = {
+                "timestamp": str(ts) if ts else None,
+                "cycle":     d.get("cycle", {}),
+                "has_alerts": d.get("has_alerts", False),
+                "broken":    d.get("broken_scrapers", []),
+            }
+        else:
+            result["last_health"] = "No scraper_health/latest document — scraper has never completed a cycle"
+    except Exception as e:
+        result["last_health"] = f"Firestore error: {e}"
+
+    # Read last deal timestamp
+    try:
+        docs = list(db.collection("deals").order_by(
+            "timestamp", direction=firestore.Query.DESCENDING
+        ).limit(1).stream())
+        if docs:
+            d = docs[0].to_dict() or {}
+            result["newest_deal_timestamp"] = d.get("timestamp")
+            result["newest_deal_site"]      = d.get("site")
+            result["newest_deal_title"]     = (d.get("title") or "")[:60]
+        else:
+            result["newest_deal_timestamp"] = "No deals in database"
+    except Exception as e:
+        result["newest_deal_timestamp"] = f"Error: {e}"
+
+    return jsonify(result)
+
+
 @app.route('/api/debug/noon')
 def debug_noon():
     """Diagnostic: fetch a Noon page via direct + ScraperAPI and compare."""
