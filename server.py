@@ -1705,6 +1705,89 @@ def debug_amazon_test():
     return jsonify({"key_used": KEY[:8] + "...", "results": results})
 
 
+@app.route('/api/debug/sites')
+def debug_sites():
+    """
+    Test B.Tech and Carrefour directly — shows HTTP status and what HTML/JSON they return.
+    Visit: /api/debug/sites
+    """
+    hdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    result = {}
+
+    # B.Tech
+    try:
+        r = requests.get("https://btech.com/en/sale.html?pageSize=24", headers=hdrs, timeout=15)
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(r.content, "lxml")
+        products = (
+            soup.find_all("li",  class_=lambda c: c and "product-item" in str(c)) or
+            soup.find_all("div", class_=lambda c: c and "product-item" in str(c)) or
+            soup.find_all("div", class_=lambda c: c and "product-card" in str(c))
+        )
+        sample_title = ""
+        if products:
+            el = (products[0].find("a", class_="product-item-link") or
+                  products[0].find("a") or products[0].find("h2") or products[0].find("h3"))
+            sample_title = el.get_text(strip=True)[:60] if el else "(found product but no title)"
+        result["btech"] = {
+            "http": r.status_code,
+            "body_len": len(r.text),
+            "products_found": len(products),
+            "sample_title": sample_title,
+            "body_snippet": r.text[:400],
+        }
+    except Exception as e:
+        result["btech"] = {"error": str(e)}
+
+    # Carrefour — try multiple API versions
+    carrefour_result = {}
+    api_versions = ["v9", "v8", "v7", "v6", "v5", "v4"]
+    for v in api_versions:
+        try:
+            url = f"https://www.carrefouregypt.com/api/{v}/page?url=/mafegy/en/c/electronics&page=0&pageSize=10&sortBy=discountPercentage&sortOrder=desc"
+            r = requests.get(url, headers={
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://www.carrefouregypt.com/",
+                "lang": "en", "country": "EG",
+            }, timeout=12)
+            body_str = r.text[:500]
+            try:
+                body = r.json()
+                has_products = bool(
+                    body.get("data", {}).get("products", {}).get("results") or
+                    body.get("products", {}).get("results") or
+                    body.get("results")
+                )
+                carrefour_result[v] = {"http": r.status_code, "has_products": has_products, "keys": list(body.keys())[:6]}
+            except Exception:
+                carrefour_result[v] = {"http": r.status_code, "raw": body_str}
+            if r.status_code == 200:
+                break
+        except Exception as e:
+            carrefour_result[v] = {"error": str(e)}
+    result["carrefour_api_versions"] = carrefour_result
+
+    # Carrefour HTML fallback test
+    try:
+        r = requests.get(
+            "https://www.carrefouregypt.com/mafegy/en/c/electronics?pageSize=10&sortBy=discountPercentage",
+            headers=hdrs, timeout=15)
+        result["carrefour_html"] = {
+            "http": r.status_code,
+            "body_len": len(r.text),
+            "has_next_data": "__NEXT_DATA__" in r.text,
+        }
+    except Exception as e:
+        result["carrefour_html"] = {"error": str(e)}
+
+    return jsonify(result)
+
+
 @app.route('/api/debug/scraper-status')
 def debug_scraper_status():
     """
