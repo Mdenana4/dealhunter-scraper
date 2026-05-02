@@ -1319,6 +1319,30 @@ function checkAuthentication() {
 async function fallbackAdminCheck(user, token) {
   const email = user.email || '';
   const uid = user.uid || '';
+
+  // Strategy 1: read admin_users directly from Firestore client SDK (no server needed)
+  for (const docId of [email, uid]) {
+    if (!docId) continue;
+    try {
+      const snap = await db.collection('admin_users').doc(docId).get();
+      if (snap.exists) {
+        const data = snap.data() || {};
+        if (data.role || data.is_admin) {
+          console.log('[AUTH] Firestore direct read succeeded for', docId);
+          return {
+            is_admin: true, uid, email,
+            role: data.role || 'admin',
+            permissions: data.permissions || [],
+            name: data.name || data.display_name || email
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('[AUTH] Firestore direct read failed for', docId, e.message);
+    }
+  }
+
+  // Strategy 2: server proxy (works when server has _uid_email_from_token)
   for (const docId of [email, uid]) {
     if (!docId) continue;
     try {
@@ -1331,9 +1355,7 @@ async function fallbackAdminCheck(user, token) {
         if (data.success && (data.role || data.is_admin)) {
           console.log('[AUTH] Proxy fallback succeeded for', docId);
           return {
-            is_admin: true,
-            uid,
-            email,
+            is_admin: true, uid, email,
             role: data.role || 'admin',
             permissions: data.permissions || [],
             name: data.name || email
@@ -1342,6 +1364,7 @@ async function fallbackAdminCheck(user, token) {
       }
     } catch (_) {}
   }
+
   return null;
 }
 
