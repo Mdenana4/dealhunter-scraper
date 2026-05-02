@@ -27,7 +27,17 @@ load_dotenv()
 
 MIN_DISCOUNT    = int(os.getenv("MIN_DISCOUNT", 40))
 INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 60))
-SCRAPER_API_KEY = os.getenv("SCRAPER_API_KEY", "")
+SCRAPER_API_KEY = (
+    os.getenv("SCRAPER_API_KEY") or
+    os.getenv("SCRAPERAPI_KEY") or
+    os.getenv("SCRAPER_KEY") or
+    ""
+)
+RAPIDAPI_KEY = (
+    os.getenv("RAPIDAPI_KEY") or
+    os.getenv("RAPID_API_KEY") or
+    ""
+)
 
 # ─── Price filter: skip products outside this EGP range ───────────────────────
 # Set MIN_PRICE and MAX_PRICE in your .env file or Render environment variables.
@@ -41,7 +51,11 @@ MAX_PRICE = float(os.getenv("MAX_PRICE", 9999999))
 # FIREBASE CONNECTION
 # ─────────────────────────────────────────────────────
 print("Connecting to Firebase...")
-firebase_key_json = os.getenv("FIREBASE_KEY_JSON")
+firebase_key_json = (
+    os.getenv("FIREBASE_KEY_JSON") or
+    os.getenv("FIREBASE_CREDENTIALS_JSON") or
+    os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+)
 
 if firebase_key_json:
     try:
@@ -272,6 +286,28 @@ def extract_next_data(html_text):
 
 _SCRAPERAPI_EXHAUSTED = False  # set True when monthly quota gone
 
+
+def is_blocked_response(resp, min_length=2000):
+    """Return True when the response looks like a CAPTCHA or bot-block page."""
+    if not resp or resp.status_code != 200:
+        return True
+    text_lower = (resp.text or "")[:4000].lower()
+    block_signals = [
+        "robot check", "captcha", "automated access", "unusual traffic",
+        "i'm not a robot", "access denied", "403 forbidden", "cloudflare",
+        "just a moment", "security check", "verify you are human",
+        "enable javascript", "please wait while we verify",
+        "suspicious activity", "bot protection",
+    ]
+    for signal in block_signals:
+        if signal in text_lower:
+            return True
+    # Very short response usually means redirect / empty block page
+    if len(resp.text) < min_length:
+        return True
+    return False
+
+
 def fetch_with_scraperapi(url, render_js=True, country="eg"):
     global _SCRAPERAPI_EXHAUSTED
     if not SCRAPER_API_KEY or _SCRAPERAPI_EXHAUSTED:
@@ -324,6 +360,26 @@ def fetch_noon_direct(url, country_code="eg"):
     except Exception as e:
         print(f"    Noon direct error: {e}")
         return None
+
+
+# ─────────────────────────────────────────────────────
+# SCRAPER ERROR LOGGING
+# ─────────────────────────────────────────────────────
+def _log_scraper_error(scraper: str, url: str, message: str) -> None:
+    """Persist a scraper error to Firestore admin_logs so it shows in the admin panel."""
+    if not db:
+        return
+    try:
+        db.collection("admin_logs").document().set({
+            "level":     "error",
+            "type":      "scraper_error",
+            "scraper":   scraper,
+            "url":       url[:500],
+            "message":   message[:1000],
+            "timestamp": now_iso(),
+        })
+    except Exception:
+        pass  # never crash scraper because of logging
 
 
 # ─────────────────────────────────────────────────────
@@ -462,8 +518,383 @@ def build_deal(title, site, site_display, category, current_price, original_pric
 
 
 # ─────────────────────────────────────────────────────
-# AMAZON EGYPT
+# AMAZON — RapidAPI (primary) + HTML scraper (fallback)
 # ─────────────────────────────────────────────────────
+
+_RAPIDAPI_AMAZON_HOST = "real-time-amazon-data.p.rapidapi.com"
+_RAPIDAPI_HEADERS = {
+    "x-rapidapi-host": _RAPIDAPI_AMAZON_HOST,
+    "x-rapidapi-key":  RAPIDAPI_KEY,
+    "Content-Type":    "application/json",
+}
+
+_AMAZON_SEARCH_TERMS = [
+    ("samsung galaxy",    "electronics"), ("iphone",          "electronics"),
+    ("xiaomi phone",      "electronics"), ("oppo phone",       "electronics"),
+    ("laptop lenovo",     "electronics"), ("laptop dell",      "electronics"),
+    ("laptop hp",         "electronics"), ("laptop asus",      "electronics"),
+    ("tablet android",    "electronics"), ("ipad",             "electronics"),
+    ("sony headphones",   "electronics"), ("jbl speaker",      "electronics"),
+    ("earbuds bluetooth", "electronics"), ("samsung watch",    "electronics"),
+    ("samsung tv",        "electronics"), ("lg tv",            "electronics"),
+    ("playstation",       "electronics"), ("power bank",       "electronics"),
+    ("router wifi",       "electronics"), ("gaming keyboard",  "electronics"),
+    ("digital camera",    "electronics"), ("ssd",              "electronics"),
+    ("nike shoes",        "fashion"),     ("adidas shoes",     "fashion"),
+    ("mens shirt",        "fashion"),     ("womens dress",     "fashion"),
+    ("handbag women",     "fashion"),     ("perfume men",      "fashion"),
+    ("air conditioner",   "home"),        ("refrigerator",     "home"),
+    ("washing machine",   "home"),        ("microwave oven",   "home"),
+    ("air fryer",         "home"),        ("blender",          "home"),
+    ("face cream",        "beauty"),      ("hair dryer",       "beauty"),
+    ("vitamin supplement","beauty"),      ("shampoo",          "beauty"),
+    ("protein powder",    "sports"),      ("yoga mat",         "sports"),
+    ("baby stroller",     "toys"),
+]
+
+
+def _rapidapi_amazon_search(query, country, default_cat,
+                             marketplace_country, site_display, currency,
+                             page=1):
+    """Fetch one search page via RapidAPI and save qualifying deals. Returns count."""
+    try:
+        resp = requests.get(
+            f"https://{_RAPIDAPI_AMAZON_HOST}/search",
+            headers=_RAPIDAPI_HEADERS,
+            params={
+                "query":        query,
+                "page":         page,
+                "country":      country,
+                "sort_by":           "RELEVANCE",
+                "discount_only":     "true",
+                "product_condition": "ALL",
+            },
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            print(f"    RapidAPI [{country}] '{query}': HTTP {resp.status_code}")
+            return 0
+
+        data = resp.json()
+        products = (data.get("data") or {}).get("products") or []
+        saved = 0
+
+        for p in products:
+            try:
+                title = (p.get("product_title") or "").strip()
+                if not title or len(title) < 5:
+                    continue
+
+                asin = p.get("asin", "")
+                product_url = p.get("product_url") or (
+                    f"https://www.amazon.{country.lower()}/dp/{asin}" if asin else ""
+                )
+                if not product_url:
+                    continue
+
+                # Price — API returns strings like "EGP 15,999" or "15,999.00"
+                current_price  = clean_price(str(p.get("product_price") or 0))
+                original_price = clean_price(str(p.get("product_original_price") or 0))
+                if current_price < 1:
+                    continue
+                if original_price < current_price:
+                    original_price = current_price
+
+                # Discount — API returns "-43%" / "43%" / "43" / integer
+                disc_raw = (
+                    p.get("discount_percent") or
+                    p.get("product_discount") or
+                    p.get("savings_percent") or
+                    ""
+                )
+                if disc_raw:
+                    try:
+                        discount = int(re.sub(r"[^\d]", "", str(disc_raw)))
+                    except Exception:
+                        discount = calculate_discount(original_price, current_price)
+                else:
+                    discount = calculate_discount(original_price, current_price)
+
+                # Back-calculate original price from badge discount if missing
+                if discount >= MIN_DISCOUNT and original_price <= current_price:
+                    original_price = round(current_price / (1 - discount / 100))
+                # If still no discount signal, skip (discount_only=true should prevent this)
+                if discount < MIN_DISCOUNT:
+                    continue
+
+                if currency == "EGP" and not price_in_range(current_price):
+                    continue
+
+                image_url = (
+                    p.get("product_photo") or
+                    p.get("thumbnail") or
+                    p.get("product_image") or ""
+                )
+                try:
+                    rating = float(p.get("product_star_rating") or 0)
+                except Exception:
+                    rating = 0.0
+                rc_raw = p.get("product_num_ratings") or p.get("product_num_offers")
+                try:
+                    review_count = int(str(rc_raw).replace(",", "")) if rc_raw else None
+                except Exception:
+                    review_count = None
+
+                cat = detect_category(title) or default_cat
+
+                print(f"    [API/{country}] [{discount}%] {title[:40]}...")
+                kb = check_price_history(
+                    asin=asin,
+                    product_url=product_url,
+                    current_price=current_price,
+                    original_price=original_price,
+                    title=title,
+                    site=marketplace_country,
+                )
+                time.sleep(0.3)
+
+                deal = build_deal(
+                    title=title,
+                    site=marketplace_country,
+                    site_display=site_display,
+                    category=cat,
+                    current_price=current_price,
+                    original_price=original_price,
+                    discount=discount,
+                    image_url=image_url,
+                    product_url=product_url,
+                    rating=rating,
+                    review_count=review_count,
+                    asin=asin,
+                    kanbkam_result=kb,
+                    currency=currency,
+                )
+                save_deal(deal)
+                saved += 1
+            except Exception:
+                continue
+
+        return saved
+
+    except Exception as e:
+        print(f"    RapidAPI [{country}] '{query}' error: {e}")
+        return 0
+
+
+def _rapidapi_amazon_deals(country, marketplace_country, site_display, currency):
+    """Fetch the Amazon Deals page via RapidAPI. Returns count."""
+    total = 0
+    try:
+        for offset in (0, 50):
+            resp = requests.get(
+                f"https://{_RAPIDAPI_AMAZON_HOST}/deals-and-offers",
+                headers=_RAPIDAPI_HEADERS,
+                params={"country": country, "offset": offset, "limit": 50},
+                timeout=30,
+            )
+            if resp.status_code != 200:
+                break
+            data  = resp.json()
+            deals = (
+                (data.get("data") or {}).get("deals") or
+                (data.get("data") or {}).get("products") or
+                data.get("deals") or []
+            )
+            if not deals:
+                break
+
+        for p in deals:
+            try:
+                title = (
+                    p.get("deal_title") or p.get("product_title") or
+                    p.get("title") or ""
+                ).strip()
+                if not title or len(title) < 5:
+                    continue
+
+                current_price  = clean_price(str(p.get("deal_price") or p.get("product_price") or 0))
+                original_price = clean_price(str(p.get("original_price") or p.get("list_price") or 0))
+                if current_price < 1:
+                    continue
+                if original_price < current_price:
+                    original_price = current_price
+
+                discount = calculate_discount(original_price, current_price)
+                disc_raw = p.get("discount_percent") or p.get("savings_percent") or ""
+                if disc_raw:
+                    try:
+                        discount = int(re.sub(r"[^\d]", "", str(disc_raw)))
+                    except Exception:
+                        pass
+                if discount < MIN_DISCOUNT:
+                    continue
+
+                if currency == "EGP" and not price_in_range(current_price):
+                    continue
+
+                asin        = p.get("asin", "")
+                product_url = p.get("product_url") or p.get("deal_url") or (
+                    f"https://www.amazon.{country.lower()}/dp/{asin}" if asin else ""
+                )
+                image_url   = p.get("product_photo") or p.get("deal_image") or ""
+                cat         = detect_category(title)
+
+                print(f"    [DEALS/{country}] [{discount}%] {title[:40]}...")
+                kb = check_price_history(
+                    asin=asin, product_url=product_url,
+                    current_price=current_price, original_price=original_price,
+                    title=title, site=marketplace_country,
+                )
+                deal = build_deal(
+                    title=title, site=marketplace_country, site_display=site_display,
+                    category=cat, current_price=current_price, original_price=original_price,
+                    discount=discount, image_url=image_url, product_url=product_url,
+                    asin=asin, kanbkam_result=kb, currency=currency,
+                )
+                save_deal(deal)
+                total += 1
+                time.sleep(0.3)
+            except Exception:
+                continue
+
+    except Exception as e:
+        print(f"    RapidAPI deals [{country}] error: {e}")
+    return total
+
+
+def _rapidapi_amazon_category(country, category_id, default_cat,
+                               marketplace_country, site_display, currency):
+    """Fetch best-sellers/sale for a category, filter for MIN_DISCOUNT. Returns count."""
+    total = 0
+    for page in (1, 2):
+        try:
+            resp = requests.get(
+                f"https://{_RAPIDAPI_AMAZON_HOST}/search",
+                headers=_RAPIDAPI_HEADERS,
+                params={
+                    "query":         f"discount sale {default_cat}",
+                    "page":          page,
+                    "country":       country,
+                    "category_id":   category_id,
+                    "sort_by":       "RELEVANCE",
+                    "discount_only": "true",
+                },
+                timeout=30,
+            )
+            if resp.status_code != 200:
+                break
+            products = (resp.json().get("data") or {}).get("products") or []
+            for p in products:
+                try:
+                    title = (p.get("product_title") or "").strip()
+                    if not title or len(title) < 5:
+                        continue
+                    asin        = p.get("asin", "")
+                    product_url = p.get("product_url") or (
+                        f"https://www.amazon.{country.lower()}/dp/{asin}" if asin else "")
+                    if not product_url:
+                        continue
+                    cp = clean_price(str(p.get("product_price") or 0))
+                    op = clean_price(str(p.get("product_original_price") or 0))
+                    if cp < 1:
+                        continue
+                    if op < cp:
+                        op = cp
+                    disc_raw = (p.get("discount_percent") or p.get("savings_percent") or "")
+                    try:
+                        disc = int(re.sub(r"[^\d]", "", str(disc_raw))) if disc_raw else 0
+                    except Exception:
+                        disc = 0
+                    if disc == 0:
+                        disc = calculate_discount(op, cp)
+                    if disc >= MIN_DISCOUNT and op <= cp:
+                        op = round(cp / (1 - disc / 100))
+                    if disc < MIN_DISCOUNT:
+                        continue
+                    if currency == "EGP" and not price_in_range(cp):
+                        continue
+                    cat = detect_category(title) or default_cat
+                    image_url = p.get("product_photo") or p.get("thumbnail") or ""
+                    try:
+                        rating = float(p.get("product_star_rating") or 0)
+                    except Exception:
+                        rating = 0.0
+                    print(f"    [CAT/{country}/{category_id}] [{disc}%] {title[:38]}...")
+                    kb = check_price_history(
+                        asin=asin, product_url=product_url,
+                        current_price=cp, original_price=op,
+                        title=title, site=marketplace_country,
+                    )
+                    time.sleep(0.3)
+                    deal = build_deal(
+                        title=title, site=marketplace_country, site_display=site_display,
+                        category=cat, current_price=cp, original_price=op,
+                        discount=disc, image_url=image_url, product_url=product_url,
+                        rating=rating, asin=asin, kanbkam_result=kb, currency=currency,
+                    )
+                    save_deal(deal)
+                    total += 1
+                except Exception:
+                    continue
+            time.sleep(2)
+        except Exception as e:
+            print(f"    [CAT/{country}] {category_id} page {page} error: {e}")
+    return total
+
+
+# Amazon category IDs for broad category searches
+_AMAZON_CATEGORIES = [
+    ("electronics",         "electronics"),
+    ("computers",           "electronics"),
+    ("fashion",             "fashion"),
+    ("home-garden",         "home"),
+    ("beauty",              "beauty"),
+    ("sporting-goods",      "sports"),
+    ("toys-and-games",      "toys"),
+    ("grocery",             "grocery"),
+]
+
+
+def _scrape_amazon_via_api(
+    country="EG",
+    marketplace_country="amazon_eg",
+    site_display="Amazon Egypt",
+    currency="EGP",
+):
+    """Scrape Amazon using RapidAPI — no proxy needed, no CAPTCHA."""
+    print(f"\n[AMAZON/{country}] RapidAPI mode — {site_display}...")
+    total = 0
+
+    # Phase 1: dedicated deals/offers endpoint
+    n = _rapidapi_amazon_deals(country, marketplace_country, site_display, currency)
+    print(f"  Deals endpoint: {n} deals")
+    total += n
+    time.sleep(3)
+
+    # Phase 2: keyword search (discount_only=true, 2 pages each)
+    for term, default_cat in _AMAZON_SEARCH_TERMS:
+        for page in (1, 2):
+            n = _rapidapi_amazon_search(
+                term, country, default_cat,
+                marketplace_country, site_display, currency, page=page,
+            )
+            total += n
+            time.sleep(2)
+
+    # Phase 3: broad category search with discount filter
+    for cat_id, default_cat in _AMAZON_CATEGORIES:
+        n = _rapidapi_amazon_category(
+            country, cat_id, default_cat,
+            marketplace_country, site_display, currency,
+        )
+        total += n
+        time.sleep(3)
+
+    print(f"[AMAZON/{country}] RapidAPI done. {total} deals.")
+    return total
+
+
+# ── HTML-scraper fallback (used when RAPIDAPI_KEY is not set) ────────────────
 AMAZON_KEYWORDS = [
     {"k": "samsung galaxy",   "cat": "electronics"},
     {"k": "iphone",           "cat": "electronics"},
@@ -544,8 +975,9 @@ def _scrape_amazon_deals_page(
         try:
             url = deals_url if page_num == 1 else f"{deals_url}&page={page_num}"
             resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
-            if not resp or resp.status_code != 200:
-                print(f"  Deals page {page_num}: HTTP {resp.status_code if resp else 'no response'}")
+            if is_blocked_response(resp, min_length=5000):
+                print(f"  Deals page {page_num}: blocked/empty (HTTP {resp.status_code if resp else 'no response'}) — skipping")
+                _log_scraper_error(f"amazon_{country_code}", url, "Blocked/CAPTCHA response on deals page")
                 break
 
             soup = BeautifulSoup(resp.content, "lxml")
@@ -554,7 +986,8 @@ def _scrape_amazon_deals_page(
                 if p.get("data-asin", "").strip()
             ]
             if not products:
-                print(f"  Deals page {page_num}: 0 products found, stopping")
+                print(f"  Deals page {page_num}: 0 products found — HTML structure may have changed")
+                _log_scraper_error(f"amazon_{country_code}", url, "0 products parsed — selector may be broken")
                 break
 
             print(f"  Deals page {page_num}: {len(products)} product divs")
@@ -679,8 +1112,10 @@ def _scrape_amazon_region(
         try:
             url = f"https://www.{base_domain}/s?k={item['k'].replace(' ', '+')}&language=en_AE"
             resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
-            if not resp or resp.status_code != 200:
-                time.sleep(2)
+            if is_blocked_response(resp, min_length=5000):
+                print(f"  [{item['k']}]: blocked/empty response — skipping")
+                _log_scraper_error(f"amazon_{country_code}", url, f"Blocked response on keyword '{item['k']}'")
+                time.sleep(5)
                 continue
 
             soup = BeautifulSoup(resp.content, "lxml")
@@ -809,19 +1244,28 @@ def _scrape_amazon_region(
 
 
 def scrape_amazon():
-    """Amazon Egypt (EGP) — deals page first, then keyword search."""
+    """Amazon Egypt — RapidAPI primary, HTML fallback."""
+    if RAPIDAPI_KEY:
+        return _scrape_amazon_via_api("EG", "amazon_eg", "Amazon Egypt", "EGP")
+    print("\n[AMAZON/EG] No RAPIDAPI_KEY — falling back to HTML scraper (may be blocked)")
     total = _scrape_amazon_deals_page()
     total += _scrape_amazon_region()
     return total
 
 def scrape_amazon_ae():
-    """Amazon UAE (AED) — deals page first, then keyword search."""
+    """Amazon UAE — RapidAPI primary, HTML fallback."""
+    if RAPIDAPI_KEY:
+        return _scrape_amazon_via_api("AE", "amazon_ae", "Amazon UAE", "AED")
+    print("\n[AMAZON/AE] No RAPIDAPI_KEY — falling back to HTML scraper (may be blocked)")
     total = _scrape_amazon_deals_page("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
     total += _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
     return total
 
 def scrape_amazon_sa():
-    """Amazon Saudi Arabia (SAR) — deals page first, then keyword search."""
+    """Amazon Saudi Arabia — RapidAPI primary, HTML fallback."""
+    if RAPIDAPI_KEY:
+        return _scrape_amazon_via_api("SA", "amazon_sa", "Amazon Saudi Arabia", "SAR")
+    print("\n[AMAZON/SA] No RAPIDAPI_KEY — falling back to HTML scraper (may be blocked)")
     total = _scrape_amazon_deals_page("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
     total += _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
     return total
@@ -847,8 +1291,10 @@ def scrape_jumia():
     for url, default_cat in pages:
         try:
             resp = fetch_with_scraperapi(url, render_js=False, country="eg")
-            if not resp or resp.status_code != 200:
-                time.sleep(2)
+            if is_blocked_response(resp, min_length=3000):
+                print(f"  [JUMIA] blocked/empty: {url[:55]}...")
+                _log_scraper_error("jumia_eg", url, "Blocked/empty response")
+                time.sleep(5)
                 continue
 
             soup = BeautifulSoup(resp.content, "lxml")
@@ -857,6 +1303,10 @@ def scrape_jumia():
                 soup.find_all("article", attrs={"data-id": True}) or
                 soup.find_all("div", class_="prd")
             )
+            if not products:
+                print(f"  [JUMIA] 0 products at {url[:55]}... — selector may be broken")
+                _log_scraper_error("jumia_eg", url, "0 products — selector may be broken")
+                continue
             print(f"  [JUMIA] {len(products)} products: {url[:55]}...")
 
             for p in products:
@@ -1657,19 +2107,26 @@ def _scrape_noon_region(
     for dp_url in deals_pages:
         try:
             resp = _noon_fetch(dp_url)
+            if is_blocked_response(resp, min_length=3000):
+                print(f"  [NOON/{country_code.upper()}] Deals page blocked — trying JS render")
+                resp = fetch_with_scraperapi(dp_url, render_js=True, country=country_code)
             if resp and resp.status_code == 200:
                 n = _parse_noon_products(resp.text, "general", region_path, currency,
                                          marketplace_country, site_display, country_code)
                 if n == 0:
+                    # Last resort: JS render
                     resp2 = fetch_with_scraperapi(dp_url, render_js=True, country=country_code)
                     if resp2 and resp2.status_code == 200:
                         n = _parse_noon_products(resp2.text, "general", region_path, currency,
                                                  marketplace_country, site_display, country_code)
+                if n == 0:
+                    _log_scraper_error(marketplace_country, dp_url, "0 products on deals page — selector may be broken")
                 print(f"  [NOON/{country_code.upper()}] Deals page: {n} deals")
                 total += n
                 time.sleep(3)
         except Exception as e:
             print(f"  [NOON/{country_code.upper()}] Deals page error: {e}")
+            _log_scraper_error(marketplace_country, dp_url, str(e))
 
     # ── Phase 2: Category search terms ─────────────────────────────────────
     search_terms = [
@@ -2117,41 +2574,27 @@ def scrape_custom_sources():
 # ANALYTICS UPDATE
 # ─────────────────────────────────────────────────────
 def update_analytics():
+    """
+    Write lightweight analytics using the scraper_health cycle totals.
+    We deliberately avoid streaming the full deals/users collections here
+    to prevent thousands of Firestore reads every scrape cycle.
+    The admin dashboard stats endpoint (server.py) handles full stats with
+    its own 5-minute cache.
+    """
     try:
-        deals       = [d.to_dict() for d in db.collection("deals").get()]
-        users       = list(db.collection("users").get())
-        site_counts = {}
-        cat_counts  = {}
-        verdict_counts = {}
-        clicks      = 0
-        buys        = 0
-        fake_count  = 0
-
-        for d in deals:
-            s = d.get("site", "?")
-            c = d.get("category", "general")
-            v = d.get("fake_verdict", "UNVERIFIED")
-            site_counts[s]    = site_counts.get(s, 0) + 1
-            cat_counts[c]     = cat_counts.get(c, 0) + 1
-            verdict_counts[v] = verdict_counts.get(v, 0) + 1
-            clicks     += d.get("click_count", 0)
-            buys       += d.get("buy_click_count", 0)
-            if v == "FAKE":
-                fake_count += 1
+        health_doc = db.collection("scraper_health").document("latest").get()
+        cycle = {}
+        if health_doc.exists:
+            cycle = health_doc.to_dict().get("cycle", {})
+        cycle_total = sum(cycle.values())
 
         db.collection("analytics").document("summary").set({
-            "total_deals":    len(deals),
-            "total_users":    len(users),
-            "site_counts":    site_counts,
-            "category_counts": cat_counts,
-            "verdict_counts": verdict_counts,
-            "total_clicks":   clicks,
-            "total_buy_clicks": buys,
-            "fake_deals_count": fake_count,
-            "last_updated":   now_iso()
+            "last_scrape_cycle_deals": cycle_total,
+            "last_scrape_site_counts": cycle,
+            "last_updated": now_iso(),
         }, merge=True)
 
-        print(f"  Analytics: {len(deals)} deals | {fake_count} FAKE | {clicks} clicks")
+        print(f"  Analytics: cycle total {cycle_total} deals (lightweight write)")
     except Exception as e:
         print(f"  Analytics error: {e}")
 
@@ -2165,10 +2608,14 @@ def run_scraper():
 
     print(f"\n{'=' * 62}")
     print(f"  SCRAPE CYCLE: {now_str()}")
+    if RAPIDAPI_KEY:
+        print(f"  RapidAPI Amazon: ACTIVE (zero-block API mode for EG/AE/SA)")
+    else:
+        print(f"  RapidAPI Amazon: NOT SET — add RAPIDAPI_KEY in Railway Variables")
     if SCRAPER_API_KEY:
         print(f"  ScraperAPI: ACTIVE (JS rendering for Noon/HyperOne/Sahla)")
     else:
-        print(f"  ScraperAPI: NOT SET — get free key at scraperapi.com")
+        print(f"  ScraperAPI: NOT SET — Noon may return 0 deals")
     if MIN_PRICE > 0 or MAX_PRICE < 9999999:
         print(f"  Price filter: EGP {MIN_PRICE:,.0f} – EGP {MAX_PRICE:,.0f}")
     print(f"{'=' * 62}")
