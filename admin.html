@@ -923,6 +923,7 @@ tr:hover td{background:#fafafa;}
   </div>
 
   <!-- By Membership / Subscription -->
+
   <div class="card">
     <div class="ch">
       <div class="ct">🎫 Membership Overrides / تعديلات الاشتراكات</div>
@@ -984,6 +985,12 @@ tr:hover td{background:#fafafa;}
 <!-- PAGE: REVENUE & FINANCIAL DASHBOARD -->
 <!-- ═══════════════════════════════════════════════════ -->
 <div class="page" id="page-revenue">
+  <!-- Export buttons -->
+  <div style="display:flex;gap:8px;margin-bottom:12px;">
+    <button class="btn btn-p btn-sm" onclick="loadRevenue()">🔄 Refresh</button>
+    <button class="btn btn-sm" onclick="exportRevenueExcel()">📥 Export Excel</button>
+    <button class="btn btn-sm" onclick="exportUsersExcel()">📥 Export Users Excel</button>
+  </div>
   <!-- MRR Summary cards -->
   <div class="sg sg-auto" id="rev-cards" style="margin-bottom:14px;">
     <div class="sc"><div class="sl">Total MRR (est.)</div><div class="sv" id="rev-mrr">—</div><div class="ss">USD/month</div></div>
@@ -1010,7 +1017,7 @@ tr:hover td{background:#fafafa;}
     <div class="cb" style="padding:0;">
       <table id="country-pricing-table">
         <thead><tr><th>Country</th><th>Currency</th><th>Free</th><th>Trial</th><th>Premium</th><th>VIP</th><th>Actions</th></tr></thead>
-        <tbody id="country-pricing-tb"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody>
+        <tbody id="rev-country-pricing-tb"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -1462,10 +1469,8 @@ function showDashboard() {
     document.getElementById('admin-name').textContent = admin.name || admin.email;
     document.getElementById('admin-role').textContent = admin.role.toUpperCase();
 
-    // Show "Add Team Member" button only for owners
-    if (admin.role === 'owner') {
-      document.getElementById('add-team-btn').style.display = 'block';
-    }
+    // Show "Add Team Member" button for all admins
+    document.getElementById('add-team-btn').style.display = 'block';
   }
 
   document.getElementById('page-monitor').classList.add('active');
@@ -1596,7 +1601,7 @@ let editingTeamEmail = null;
 // Open team member modal
 function openTeamModal() {
   const admin = getCurrentAdmin();
-  if (admin.role !== 'owner') {
+  if (admin.role !== 'owner' && admin.role !== 'admin') {
     showToast('Only owners can manage team members');
     return;
   }
@@ -1619,7 +1624,7 @@ function closeTeamModal() {
 // Save team member
 async function saveTeamMember() {
   const admin = getCurrentAdmin();
-  if (admin.role !== 'owner') {
+  if (admin.role !== 'owner' && admin.role !== 'admin') {
     showToast('Only owners can manage team members');
     return;
   }
@@ -1657,7 +1662,7 @@ async function saveTeamMember() {
 // Open permission modal
 function openPermissionModal(email, name) {
   const admin = getCurrentAdmin();
-  if (admin.role !== 'owner') {
+  if (admin.role !== 'owner' && admin.role !== 'admin') {
     showToast('Only owners can manage permissions');
     return;
   }
@@ -1686,7 +1691,7 @@ function closePermissionModal() {
 // Save permissions
 async function savePermissions() {
   const admin = getCurrentAdmin();
-  if (admin.role !== 'owner') {
+  if (admin.role !== 'owner' && admin.role !== 'admin') {
     showToast('Only owners can manage permissions');
     return;
   }
@@ -1742,7 +1747,7 @@ async function loadTeam() {
         <td><span class="badge ${status==='active'?'bg':'bgr'}">${status}</span></td>
         <td style="font-size:10px;color:#999;">${m.last_login ? new Date(m.last_login).toLocaleDateString() : '—'}</td>
         <td>
-          ${admin.role === 'owner' ? `
+          ${admin.role ? `
             <button class="btn btn-sm" onclick="openPermissionModal('${m.email||m.id}', '${name}')">Permissions</button>
             ${role !== 'owner' && (m.email||m.id) !== admin.email ? `<button class="btn btn-sm btn-d" onclick="removeTeamMember('${m.email||m.id}')">Remove</button>` : ''}
           ` : '—'}
@@ -1758,7 +1763,7 @@ async function loadTeam() {
 // Remove team member
 async function removeTeamMember(email) {
   const admin = getCurrentAdmin();
-  if (admin.role !== 'owner') {
+  if (admin.role !== 'owner' && admin.role !== 'admin') {
     showToast('Only owners can remove team members');
     return;
   }
@@ -1835,8 +1840,8 @@ function canAccessPage(pageName) {
 
   const requiredPerm = PAGE_PERMISSIONS[pageName];
 
-  // Owners can access everything
-  if (admin.role === 'owner') return true;
+  // Owners and admins can access everything
+  if (admin.role === 'owner' || admin.role === 'admin') return true;
 
   // No permission required
   if (!requiredPerm) return true;
@@ -2087,6 +2092,7 @@ function renderDeals(deals){
       <td>
         <div style="display:flex;gap:3px;flex-wrap:wrap;">
           <button class="btn btn-sm" onclick="window.open('${d.product_url}','_blank')">View</button>
+          <button class="btn btn-sm" onclick="launchCheckerForDeal(${JSON.stringify(d).replace(/"/g,'&quot;')})">🔍 Check</button>
           <button class="btn btn-sm ${d.featured?'btn-p':''}" onclick="toggleFeat('${d.id}',${!!d.featured})">${d.featured?'Unpin':'Pin'}</button>
           <button class="btn btn-sm btn-d" onclick="toggleHide('${d.id}',${!!d.hidden})">${d.hidden?'Show':'Hide'}</button>
           <button class="btn btn-sm btn-d" onclick="delDeal('${d.id}')">Del</button>
@@ -2745,6 +2751,20 @@ function renderCheckerResult(res,title,price,orig,platform,kanbkamData){
   document.getElementById('checker-result').style.display='block';
   document.getElementById('checker-result').scrollIntoView({behavior:'smooth'});
 }
+function launchCheckerForDeal(d) {
+  // Pre-fill the fake checker with deal data and switch to checker page
+  showPage('checker', document.querySelector('[onclick*="checker"]'));
+  setTimeout(() => {
+    if (d.product_url) document.getElementById('c-url').value = d.product_url;
+    if (d.title)       document.getElementById('c-title').value = d.title;
+    if (d.price)       document.getElementById('c-price').value = d.price;
+    if (d.original_price || d.price) document.getElementById('c-orig').value = d.original_price || '';
+    if (d.category)    document.getElementById('c-cat').value = d.category;
+    if (d.site)        document.getElementById('c-platform').value = d.site;
+    toast('Deal loaded in checker — review and click Analyze');
+  }, 200);
+}
+
 async function analyzeFromUrl(){
   const url=document.getElementById('c-url').value.trim();
   if(!url){toast('Paste a product URL first');return;}
@@ -3068,9 +3088,15 @@ async function saveTier(){
   }
 }
 
-function deleteTier(tier){
-  if(!confirm('Delete ' + tier + ' tier?')) return;
-  toast('Tier deletion coming soon (needs confirmation)');
+async function deleteTier(tier) {
+  if (!confirm('Delete tier "' + tier + '"? This cannot be undone.')) return;
+  try {
+    await dbp('tier_config', tier, 'DELETE');
+    toast('✓ Tier deleted');
+    loadTierPricing();
+  } catch(e) {
+    toast('Error deleting tier: ' + e.message);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3347,6 +3373,72 @@ async function deleteOffer(id){
   const r=await dbp('special_offers',id,'DELETE');
   if(r.ok){toast('Offer deleted');loadOffers();}
   else toast('Error deleting offer');
+}
+
+// ── EXCEL EXPORT ───────────────────────────────
+function _csvRow(cells) {
+  return cells.map(c => '"' + String(c ?? '').replace(/"/g,'""') + '"').join(',');
+}
+function _downloadCsv(filename, rows) {
+  const blob = new Blob([rows.join('\r\n')], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+}
+
+async function exportRevenueExcel() {
+  try {
+    const r = await fetch('/api/v1/admin/revenue', apiHdr());
+    const d = await r.json();
+    if (!d.success) { toast('Revenue data not available'); return; }
+    const rows = [
+      _csvRow(['Report','DealHunter Revenue Export', new Date().toISOString()]),
+      [],
+      _csvRow(['TIER BREAKDOWN']),
+      _csvRow(['Tier','Users','Price USD/mo','Est. MRR USD']),
+      ...Object.entries(d.mrr_by_tier || {}).map(([t,v]) =>
+        _csvRow([t, v.count, v.price_usd, v.mrr_usd])),
+      [],
+      _csvRow(['TOTAL MRR (USD)', d.total_mrr_usd]),
+      _csvRow(['Total Users', d.total_users]),
+      _csvRow(['Upgrades (last 20)', d.upgrades]),
+      _csvRow(['Downgrades (last 20)', d.downgrades]),
+      [],
+      _csvRow(['COUNTRY BREAKDOWN']),
+      _csvRow(['Country','Users']),
+      ...Object.entries(d.country_counts || {}).map(([c,n]) => _csvRow([c, n])),
+      [],
+      _csvRow(['RECENT TIER CHANGES']),
+      _csvRow(['User ID','From','To','Date','Method']),
+      ...(d.tier_changes || []).map(c =>
+        _csvRow([c.user_id, c.from_tier, c.to_tier, c.changed_at, c.method])),
+    ];
+    _downloadCsv('dealhunter_revenue_' + new Date().toISOString().slice(0,10) + '.csv', rows);
+    toast('✓ Revenue CSV downloaded');
+  } catch(e) { toast('Export error: ' + e.message); }
+}
+
+async function exportUsersExcel() {
+  try {
+    const r = await fetch('/api/v1/admin/users', apiHdr());
+    const d = await r.json();
+    if (!d.success) { toast('User data not available'); return; }
+    const rows = [
+      _csvRow(['Report','DealHunter Users Export', new Date().toISOString()]),
+      _csvRow(['Total Users', d.count]),
+      [],
+      _csvRow(['ID','Email','Name','Tier','Country','Daily Limit','Created','Last Login','Active Now']),
+      ...d.users.map(u => _csvRow([
+        u.id, u.email||'', u.name||'', u.tier||'free',
+        u.country||'', u.daily_deal_limit||'',
+        u.created_at||'', u.last_login||'',
+        u.last_login && (Date.now()-new Date(u.last_login).getTime() < 300000) ? 'Yes' : ''
+      ]))
+    ];
+    _downloadCsv('dealhunter_users_' + new Date().toISOString().slice(0,10) + '.csv', rows);
+    toast('✓ Users CSV downloaded (' + d.count + ' users)');
+  } catch(e) { toast('Export error: ' + e.message); }
 }
 
 // ── AUTO REFRESH ───────────────────────────────

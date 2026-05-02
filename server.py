@@ -2090,8 +2090,11 @@ def send_notification():
         if target in topic_map:
             msg = messaging.Message(notification=notif_obj, data=extra,
                                     topic=topic_map[target])
-            messaging.send(msg)
-            recipients = -1   # topic — unknown count
+            try:
+                messaging.send(msg)
+                recipients = -1   # topic — unknown count
+            except Exception as e:
+                fcm_error = str(e)
         elif target == 'group' and group_id:
             gdoc = db.collection('user_groups').document(group_id).get()
             members = (gdoc.to_dict() or {}).get('members', []) if gdoc.exists else []
@@ -2115,9 +2118,12 @@ def send_notification():
                 for u in db.collection('users').where(field, '==', specific_user).limit(1).stream():
                     tok = (u.to_dict() or {}).get('fcm_token')
                     if tok:
-                        messaging.send(messaging.Message(
-                            notification=notif_obj, data=extra, token=tok))
-                        recipients += 1
+                        try:
+                            messaging.send(messaging.Message(
+                                notification=notif_obj, data=extra, token=tok))
+                            recipients += 1
+                        except Exception as ue:
+                            fcm_error = str(ue)
     except Exception as e:
         fcm_error = str(e)
 
