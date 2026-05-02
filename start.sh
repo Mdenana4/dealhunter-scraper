@@ -1,13 +1,16 @@
 #!/bin/sh
-# Start scraper in background logging to file, server in foreground.
+# Start scraper in background, server in foreground.
+# PORT env var is set by Railway/Render; defaults to 5000 locally.
+PORT=${PORT:-5000}
 SCRAPER_LOG=/tmp/scraper.log
+
 echo "Starting scraper (log -> $SCRAPER_LOG)..."
 PYTHONUNBUFFERED=1 python -u scraper.py > "$SCRAPER_LOG" 2>&1 &
 SCRAPER_PID=$!
 echo "Scraper PID: $SCRAPER_PID"
 
-echo "Starting server..."
-python server.py
+echo "Starting server on port $PORT..."
+PORT=$PORT python server.py
 SERVER_EXIT=$?
 
 kill "$SCRAPER_PID" 2>/dev/null
