@@ -1695,8 +1695,11 @@ def admin_stats():
     """Monitor stats: deals, users, per-source breakdown, latest deals."""
     try:
         deal_docs = list(db.collection('deals').stream())
-        deals = [d.to_dict() for d in deal_docs]
-        deal_ids = [d.id for d in deal_docs]
+        deals = []
+        for d in deal_docs:
+            row = d.to_dict() or {}
+            row['_doc_id'] = d.id
+            deals.append(row)
 
         clicks = sum(int(d.get('click_count') or 0) for d in deals)
         buys   = sum(int(d.get('buy_click_count') or 0) for d in deals)
@@ -1717,10 +1720,13 @@ def admin_stats():
         custom_docs = list(db.collection('admin').stream())
         custom_sources = [{'id': d.id, **d.to_dict()} for d in custom_docs]
 
-        latest = sorted(deals, key=lambda x: str(x.get('timestamp') or ''), reverse=True)[:10]
-        for i, d in enumerate(latest):
-            latest[i] = {**d, 'id': deal_ids[deals.index(d)],
-                         'timestamp': _ts(d.get('timestamp'))}
+        raw_latest = sorted(deals, key=lambda x: str(x.get('timestamp') or ''), reverse=True)[:10]
+        latest = []
+        for d in raw_latest:
+            clean = {k: _ts(v) if hasattr(v, 'isoformat') else v
+                     for k, v in d.items() if k != '_doc_id'}
+            clean['id'] = d['_doc_id']
+            latest.append(clean)
 
         return jsonify({
             'success': True,
@@ -1814,6 +1820,14 @@ _PROXY_COLLECTIONS = {
 @app.route('/api/v1/admin/db/<collection>/<doc_id>', methods=['GET', 'PATCH', 'PUT', 'DELETE'])
 def admin_db_proxy(collection, doc_id=None):
     """Generic Firestore CRUD proxy for the admin panel."""
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    try:
+        _uid_email_from_token(auth_header[7:])
+    except Exception as e:
+        return jsonify({'success': False, 'error': 'Invalid token: ' + str(e)}), 401
+
     if collection not in _PROXY_COLLECTIONS:
         return jsonify({'success': False, 'error': 'Collection not allowed'}), 403
     try:
@@ -1959,7 +1973,10 @@ def admin_tiers():
         {'name': 'vip',     'daily_limit': 99999, 'price': 10, 'features': ['All Premium Features', 'Priority Support']},
     ]
     try:
-        docs = list(db.collection('tiers').stream())
+        # tier_config is written by the admin panel; fall back to tiers, then defaults
+        docs = list(db.collection('tier_config').stream())
+        if not docs:
+            docs = list(db.collection('tiers').stream())
         if docs:
             tiers = [{'name': d.id, **d.to_dict()} for d in docs]
         else:
@@ -1967,6 +1984,100 @@ def admin_tiers():
         return jsonify({'success': True, 'tiers': tiers})
     except Exception as e:
         return jsonify({'success': True, 'tiers': defaults})
+
+
+@app.route('/api/v1/notifications/send', methods=['POST'])
+def send_notification():
+    """Send push notification via Firebase Cloud Messaging."""
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    try:
+        uid, email = _uid_email_from_token(auth_header[7:])
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 401
+
+    data    = request.get_json() or {}
+    title   = data.get('title', '')
+    title_ar = data.get('title_ar', '')
+    message  = data.get('message', '')
+    message_ar = data.get('message_ar', '')
+    target   = data.get('target', 'tier:all')
+    channel  = data.get('channel', 'in_app')
+    group_id = data.get('group_id', '')
+    specific_user = data.get('specific_user', '')
+
+    if not (title or title_ar):
+        return jsonify({'success': False, 'error': 'Title required'}), 400
+    if not (message or message_ar):
+        return jsonify({'success': False, 'error': 'Message required'}), 400
+
+    recipients = 0
+    fcm_error  = None
+
+    try:
+        topic_map = {
+            'tier:all': 'all_users', 'tier:vip': 'tier_vip',
+            'tier:premium': 'tier_premium', 'tier:free': 'tier_free',
+        }
+        notif_obj = messaging.Notification(
+            title=title or title_ar, body=message or message_ar)
+        extra = {'title_ar': title_ar, 'message_ar': message_ar, 'channel': channel}
+
+        if target in topic_map:
+            msg = messaging.Message(notification=notif_obj, data=extra,
+                                    topic=topic_map[target])
+            messaging.send(msg)
+            recipients = -1   # topic — unknown count
+        elif target == 'group' and group_id:
+            gdoc = db.collection('user_groups').document(group_id).get()
+            members = (gdoc.to_dict() or {}).get('members', []) if gdoc.exists else []
+            for m in members:
+                user_docs = list(db.collection('users')
+                                 .where('email', '==', m.get('email', ''))
+                                 .limit(1).stream())
+                for u in user_docs:
+                    tok = (u.to_dict() or {}).get('fcm_token')
+                    if tok:
+                        try:
+                            messaging.send(messaging.Message(
+                                notification=notif_obj, data=extra, token=tok))
+                            recipients += 1
+                        except Exception:
+                            pass
+        elif target == 'user' and specific_user:
+            for field in ('email', 'phone'):
+                if recipients:
+                    break
+                for u in db.collection('users').where(field, '==', specific_user).limit(1).stream():
+                    tok = (u.to_dict() or {}).get('fcm_token')
+                    if tok:
+                        messaging.send(messaging.Message(
+                            notification=notif_obj, data=extra, token=tok))
+                        recipients += 1
+    except Exception as e:
+        fcm_error = str(e)
+
+    # Save to Firestore regardless of FCM outcome
+    db.collection('notifications').add({
+        'title': title, 'title_ar': title_ar,
+        'message': message, 'message_ar': message_ar,
+        'target': target, 'channel': channel,
+        'type': 'manual_push',
+        'sent_at': datetime.now(timezone.utc).isoformat(),
+        'sent_by': email,
+        'recipients': recipients,
+        'fcm_error': fcm_error,
+    })
+
+    if fcm_error:
+        return jsonify({'success': True,
+                        'message': 'Saved to Firestore (FCM error: ' + fcm_error + ')',
+                        'recipients': recipients})
+    cnt = 'all subscribers' if recipients == -1 else str(recipients)
+    return jsonify({'success': True,
+                    'message': f'Notification sent to {cnt}',
+                    'recipients': recipients})
 
 
 @app.route('/admin')

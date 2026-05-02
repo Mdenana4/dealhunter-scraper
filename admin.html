@@ -306,7 +306,7 @@ tr:hover td{background:#fafafa;}
     <div class="fg"><label>Full Name</label><input type="text" id="nu-name" placeholder="Full name..."/></div>
     <div class="fg-row">
       <div class="fg"><label>User Tier</label>
-        <select id="nu-tier" onchange="updateDailyLimit()">
+        <select id="nu-tier" onchange="syncAddUserLimit()">
           <option value="free">Free / مجاني</option>
           <option value="premium">Premium / مميز</option>
           <option value="vip">VIP</option>
@@ -417,14 +417,27 @@ tr:hover td{background:#fafafa;}
     <input type="text" id="ds" placeholder="Search / بحث..." oninput="filterDeals()"/>
     <select id="df-site" onchange="filterDeals()">
       <option value="all">All Sites / كل المواقع</option>
-      <option value="amazon_eg">Amazon Egypt</option>
-      <option value="noon_eg">Noon Egypt</option>
-      <option value="jumia_eg">Jumia Egypt</option>
-      <option value="btech_eg">B.Tech Egypt</option>
-      <option value="carrefour_eg">Carrefour Egypt</option>
-      <option value="sharaf_dg_eg">Sharaf DG Egypt</option>
-      <option value="hyperone_eg">HyperOne Egypt</option>
-      <option value="sahla_eg">Sahla Egypt</option>
+      <optgroup label="🇪🇬 Egypt / مصر">
+        <option value="amazon_eg">Amazon Egypt</option>
+        <option value="noon_eg">Noon Egypt</option>
+        <option value="jumia_eg">Jumia Egypt</option>
+        <option value="btech_eg">B.Tech Egypt</option>
+        <option value="carrefour_eg">Carrefour Egypt</option>
+        <option value="sharaf_dg_eg">Sharaf DG Egypt</option>
+        <option value="hyperone_eg">HyperOne Egypt</option>
+        <option value="sahla_eg">Sahla Egypt</option>
+      </optgroup>
+      <optgroup label="🇦🇪 UAE / الإمارات">
+        <option value="amazon_ae">Amazon UAE</option>
+        <option value="noon_ae">Noon UAE</option>
+        <option value="sharaf_dg_ae">Sharaf DG UAE</option>
+      </optgroup>
+      <optgroup label="🇸🇦 Saudi Arabia / السعودية">
+        <option value="amazon_sa">Amazon Saudi</option>
+        <option value="noon_sa">Noon Saudi</option>
+        <option value="jarir">Jarir</option>
+        <option value="extra_sa">Extra Saudi</option>
+      </optgroup>
     </select>
     <select id="df-disc" onchange="filterDeals()">
       <option value="0">All Discounts</option>
@@ -1618,15 +1631,25 @@ async function loadMonitor(){
     const siteFakeCount=st.site_fake||{};
 
     const allSrcs=[
-      {id:'amazon_eg',    site_name:'Amazon Egypt',   site_name_ar:'أمازون مصر', site_url:'https://www.amazon.eg',                    status:'active',frequency_minutes:3},
-      {id:'noon_eg',      site_name:'Noon Egypt',     site_name_ar:'نون مصر',    site_url:'https://www.noon.com/egypt-en',             status:'active',frequency_minutes:3},
-      {id:'jumia_eg',     site_name:'Jumia Egypt',    site_name_ar:'جوميا مصر',  site_url:'https://www.jumia.com.eg/',                 status:'active',frequency_minutes:3},
-      {id:'btech_eg',     site_name:'B.Tech Egypt',   site_name_ar:'بي تك',      site_url:'https://btech.com/',                       status:'active',frequency_minutes:3},
-      {id:'carrefour_eg', site_name:'Carrefour Egypt',site_name_ar:'كارفور',     site_url:'https://www.carrefouregypt.com/',           status:'active',frequency_minutes:3},
-      {id:'sharaf_dg_eg', site_name:'Sharaf DG Egypt',site_name_ar:'شرف دي جي', site_url:'https://www.sharafdg.com/en/eg/deals',      status:'active',frequency_minutes:3},
-      {id:'hyperone_eg',  site_name:'HyperOne Egypt', site_name_ar:'هايبر ون',   site_url:'https://www.hyperone.com.eg/offers/',      status:'active',frequency_minutes:3},
-      {id:'sahla_eg',     site_name:'Sahla Egypt',    site_name_ar:'سهلة',       site_url:'https://sahlaapp.com/',                    status:'active',frequency_minutes:3},
-      ...customSrcs.map(s=>({...s,id:s.id||s.docId}))
+      // 🇪🇬 Egypt
+      {id:'amazon_eg',    country:'🇪🇬', site_name:'Amazon Egypt',    site_name_ar:'أمازون مصر',   site_url:'https://www.amazon.eg',                    status:'active',frequency_minutes:3},
+      {id:'noon_eg',      country:'🇪🇬', site_name:'Noon Egypt',      site_name_ar:'نون مصر',      site_url:'https://www.noon.com/egypt-en',             status:'active',frequency_minutes:3},
+      {id:'jumia_eg',     country:'🇪🇬', site_name:'Jumia Egypt',     site_name_ar:'جوميا مصر',   site_url:'https://www.jumia.com.eg/',                 status:'active',frequency_minutes:3},
+      {id:'btech_eg',     country:'🇪🇬', site_name:'B.Tech Egypt',    site_name_ar:'بي تك',        site_url:'https://btech.com/',                       status:'active',frequency_minutes:3},
+      {id:'carrefour_eg', country:'🇪🇬', site_name:'Carrefour Egypt', site_name_ar:'كارفور',       site_url:'https://www.carrefouregypt.com/',           status:'active',frequency_minutes:3},
+      {id:'sharaf_dg_eg', country:'🇪🇬', site_name:'Sharaf DG Egypt', site_name_ar:'شرف دي جي',   site_url:'https://www.sharafdg.com/en/eg/deals',      status:'active',frequency_minutes:3},
+      {id:'hyperone_eg',  country:'🇪🇬', site_name:'HyperOne Egypt',  site_name_ar:'هايبر ون',    site_url:'https://www.hyperone.com.eg/offers/',      status:'active',frequency_minutes:3},
+      {id:'sahla_eg',     country:'🇪🇬', site_name:'Sahla Egypt',     site_name_ar:'سهلة',         site_url:'https://sahlaapp.com/',                    status:'active',frequency_minutes:3},
+      // 🇦🇪 UAE
+      {id:'amazon_ae',    country:'🇦🇪', site_name:'Amazon UAE',      site_name_ar:'أمازون الإمارات', site_url:'https://www.amazon.ae',                  status:'active',frequency_minutes:5},
+      {id:'noon_ae',      country:'🇦🇪', site_name:'Noon UAE',        site_name_ar:'نون الإمارات', site_url:'https://www.noon.com/uae-en',               status:'active',frequency_minutes:5},
+      {id:'sharaf_dg_ae', country:'🇦🇪', site_name:'Sharaf DG UAE',   site_name_ar:'شرف دي جي',   site_url:'https://www.sharafdg.com/en/ae',            status:'active',frequency_minutes:5},
+      // 🇸🇦 Saudi Arabia
+      {id:'amazon_sa',    country:'🇸🇦', site_name:'Amazon Saudi',    site_name_ar:'أمازون السعودية', site_url:'https://www.amazon.sa',                  status:'active',frequency_minutes:5},
+      {id:'noon_sa',      country:'🇸🇦', site_name:'Noon Saudi',      site_name_ar:'نون السعودية', site_url:'https://www.noon.com/saudi-en',             status:'active',frequency_minutes:5},
+      {id:'jarir',        country:'🇸🇦', site_name:'Jarir',           site_name_ar:'جرير',         site_url:'https://www.jarir.com/sa-en',               status:'active',frequency_minutes:5},
+      {id:'extra_sa',     country:'🇸🇦', site_name:'Extra Saudi',     site_name_ar:'اكسترا',       site_url:'https://www.extra.com/en-sa/',              status:'active',frequency_minutes:5},
+      ...customSrcs.map(s=>({...s,id:s.id||s.docId,country:''}))
     ];
 
     // Dynamic source stat cards
@@ -1647,7 +1670,7 @@ async function loadMonitor(){
       const dotCls=cnt>0?'dg':(s.status==='active'?'dy':'dr');
       const badgeCls=cnt>0?'bg':(s.status==='active'?'bo':'br');
       return`<tr>
-        <td><span class="dot ${dotCls}"></span><strong>${s.site_name}</strong><br><span style="font-size:9px;color:#aaa;">${s.site_name_ar||''}</span></td>
+        <td><span class="dot ${dotCls}"></span><strong>${s.country||''} ${s.site_name}</strong><br><span style="font-size:9px;color:#aaa;">${s.site_name_ar||''}</span></td>
         <td><a href="${s.site_url}" target="_blank" style="color:#185FA5;font-size:10px;">${s.site_url}</a></td>
         <td><span class="badge ${badgeCls}">${s.status||'active'}</span>${cnt===0&&s.status==='active'?'<br><span style="font-size:9px;color:#EF9F27;">No deals scraped yet</span>':''}</td>
         <td>${cnt} <span style="font-size:9px;color:#aaa;">deals</span></td>
@@ -1711,8 +1734,14 @@ async function loadDeals(){
       const sd=await srcR.json();
       const custom=(sd.sources||[]).filter(s=>s.site_name);
       const sel=document.getElementById('df-site');
-      while(sel.options.length>3)sel.remove(3);
-      custom.forEach(s=>{const o=document.createElement('option');o.value=s.id||s.docId;o.textContent=s.site_name;sel.appendChild(o);});
+      // Remove only previously appended custom options (they have data-custom attr)
+      Array.from(sel.options).filter(o=>o.dataset.custom).forEach(o=>o.remove());
+      custom.forEach(s=>{
+        const o=document.createElement('option');
+        o.value=s.id||s.docId;o.textContent=s.site_name;
+        o.dataset.custom='1';
+        sel.appendChild(o);
+      });
     }
     if(!dealR.ok) throw new Error('HTTP '+dealR.status);
     const dd=await dealR.json();
@@ -1761,46 +1790,43 @@ function renderDeals(deals){
     </tr>`).join('');
 }
 function filterDeals(){
-  const s=document.getElementById('ds').value.toLowerCase();
+  const s=(document.getElementById('ds').value||'').toLowerCase();
   const site=document.getElementById('df-site').value;
-  const minD=parseInt(document.getElementById('df-disc').value);
+  const minD=parseInt(document.getElementById('df-disc').value)||0;
   const verdict=document.getElementById('df-verdict').value;
   const filtered=allDeals.filter(d=>{
     if(activeCat!=='all'&&d.category!==activeCat)return false;
-    if(s&&!d.title.toLowerCase().includes(s))return false;
+    if(s&&!((d.title||'').toLowerCase().includes(s)||(d.title_ar||'').toLowerCase().includes(s)))return false;
     if(site!=='all'&&d.site!==site)return false;
-    if(d.discount_percent<minD)return false;
+    if((d.discount_percent||0)<minD)return false;
     if(verdict!=='all'&&d.fake_verdict!==verdict)return false;
     return true;
   });
   document.getElementById('dc').textContent=filtered.length+' deals';
-  if(!filtered.length){document.getElementById('deals-tb').innerHTML='<tr><td colspan="13"><div class="empty"><div class="ei">📦</div><div class="et">No deals match filters</div></div></td></tr>';return;}
-  renderDeals(allDeals);
-  // Re-apply filter without recursion
-  const full=allDeals.filter(d=>{
-    if(activeCat!=='all'&&d.category!==activeCat)return false;
-    if(s&&!d.title.toLowerCase().includes(s))return false;
-    if(site!=='all'&&d.site!==site)return false;
-    if(d.discount_percent<minD)return false;
-    if(verdict!=='all'&&d.fake_verdict!==verdict)return false;
-    return true;
-  });
-  document.getElementById('dc').textContent=full.length+' deals';
-  document.getElementById('deals-tb').innerHTML=full.map(d=>`
+  if(!filtered.length){
+    document.getElementById('deals-tb').innerHTML='<tr><td colspan="13"><div class="empty"><div class="ei">📦</div><div class="et">No deals match filters</div></div></td></tr>';
+    return;
+  }
+  document.getElementById('deals-tb').innerHTML=filtered.map(d=>`
     <tr>
       <td>${d.image_url?`<img src="${d.image_url}" class="dimg" onerror="this.style.display='none'"/>`:'<div class="dimp">🛍️</div>'}</td>
-      <td style="max-width:180px;"><div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;">${d.title}</div><div style="font-size:9px;color:#aaa;">${ft(d.timestamp)}</div></td>
+      <td style="max-width:180px;">
+        <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;" title="${d.title}">${d.title||'—'}</div>
+        ${d.title_ar?`<div style="font-size:9px;color:#888;direction:rtl;">${d.title_ar}</div>`:''}
+        <div style="font-size:9px;color:#aaa;">${ft(d.timestamp)}</div>
+        ${d.coupon_code?`<span style="font-size:9px;background:#EAF3DE;color:#3B6D11;padding:1px 5px;border-radius:4px;">🏷 ${d.coupon_code}</span>`:''}
+      </td>
       <td>${sb(d.site,d.site_display)}</td>
       <td style="text-transform:capitalize;font-size:10px;">${d.category||'—'}</td>
       <td><span class="disc">${d.discount_percent}% OFF</span></td>
       <td style="font-weight:600;color:#E24B4A;font-size:11px;">${fp(d.current_price)}</td>
       <td style="color:#aaa;text-decoration:line-through;font-size:10px;">${fp(d.original_price)}</td>
-      <td><div class="stars">${stars(d.rating)}</div></td>
+      <td><div class="stars">${stars(d.rating)}</div><div style="font-size:9px;color:#aaa;">${(d.review_count||0).toLocaleString()} reviews</div></td>
       <td>${vb(d.fake_verdict)}${d.kanbkam&&d.kanbkam.lowest_price?`<div style="font-size:9px;color:#888;">Low: ${fp(d.kanbkam.lowest_price)}</div>`:''}</td>
       <td style="font-size:10px;color:#888;">${d.lowest_price_ever?fp(d.lowest_price_ever):'—'}</td>
       <td>${d.hidden?'<span class="badge br">Hidden</span>':'<span class="badge bg">Live</span>'}</td>
       <td style="font-size:10px;color:#888;">${(d.click_count||0)} / ${(d.buy_click_count||0)}</td>
-      <td><div style="display:flex;gap:3px;">
+      <td><div style="display:flex;gap:3px;flex-wrap:wrap;">
         <button class="btn btn-sm" onclick="window.open('${d.product_url}','_blank')">View</button>
         <button class="btn btn-sm ${d.featured?'btn-p':''}" onclick="toggleFeat('${d.id}',${!!d.featured})">${d.featured?'Unpin':'Pin'}</button>
         <button class="btn btn-sm btn-d" onclick="toggleHide('${d.id}',${!!d.hidden})">${d.hidden?'Show':'Hide'}</button>
@@ -1837,14 +1863,24 @@ async function loadSources(){
     const custom=(srcData.sources||[]).filter(s=>s.site_name&&s.site_url).map(s=>({docId:s.id,...s}));
 
     const defaults=[
-      {docId:'__amz',    id:'amazon_eg',    site_name:'Amazon Egypt',   site_name_ar:'أمازون مصر', site_url:'https://www.amazon.eg',               status:'active',frequency_minutes:3,isDefault:true},
-      {docId:'__noon',   id:'noon_eg',      site_name:'Noon Egypt',     site_name_ar:'نون مصر',    site_url:'https://www.noon.com/egypt-en',        status:'active',frequency_minutes:3,isDefault:true},
-      {docId:'__jumia',  id:'jumia_eg',     site_name:'Jumia Egypt',    site_name_ar:'جوميا مصر',  site_url:'https://www.jumia.com.eg/',            status:'active',frequency_minutes:3,isDefault:true},
-      {docId:'__btech',  id:'btech_eg',     site_name:'B.Tech Egypt',   site_name_ar:'بي تك',      site_url:'https://btech.com/',                  status:'active',frequency_minutes:3,isDefault:true},
-      {docId:'__crf',    id:'carrefour_eg', site_name:'Carrefour Egypt',site_name_ar:'كارفور',     site_url:'https://www.carrefouregypt.com/',      status:'active',frequency_minutes:3,isDefault:true},
-      {docId:'__shrf',   id:'sharaf_dg_eg', site_name:'Sharaf DG Egypt',site_name_ar:'شرف دي جي', site_url:'https://www.sharafdg.com/en/eg/deals', status:'active',frequency_minutes:3,isDefault:true},
-      {docId:'__hyp',    id:'hyperone_eg',  site_name:'HyperOne Egypt', site_name_ar:'هايبر ون',   site_url:'https://www.hyperone.com.eg/offers/', status:'active',frequency_minutes:3,isDefault:true},
-      {docId:'__sahla',  id:'sahla_eg',     site_name:'Sahla Egypt',    site_name_ar:'سهلة',       site_url:'https://sahlaapp.com/',               status:'active',frequency_minutes:3,isDefault:true},
+      // Egypt
+      {docId:'__amz',    id:'amazon_eg',    site_name:'🇪🇬 Amazon Egypt',    site_name_ar:'أمازون مصر',      site_url:'https://www.amazon.eg',               status:'active',frequency_minutes:3,isDefault:true},
+      {docId:'__noon',   id:'noon_eg',      site_name:'🇪🇬 Noon Egypt',      site_name_ar:'نون مصر',          site_url:'https://www.noon.com/egypt-en',        status:'active',frequency_minutes:3,isDefault:true},
+      {docId:'__jumia',  id:'jumia_eg',     site_name:'🇪🇬 Jumia Egypt',     site_name_ar:'جوميا مصر',       site_url:'https://www.jumia.com.eg/',            status:'active',frequency_minutes:3,isDefault:true},
+      {docId:'__btech',  id:'btech_eg',     site_name:'🇪🇬 B.Tech Egypt',    site_name_ar:'بي تك',            site_url:'https://btech.com/',                  status:'active',frequency_minutes:3,isDefault:true},
+      {docId:'__crf',    id:'carrefour_eg', site_name:'🇪🇬 Carrefour Egypt', site_name_ar:'كارفور',           site_url:'https://www.carrefouregypt.com/',      status:'active',frequency_minutes:3,isDefault:true},
+      {docId:'__shrf',   id:'sharaf_dg_eg', site_name:'🇪🇬 Sharaf DG Egypt', site_name_ar:'شرف دي جي',       site_url:'https://www.sharafdg.com/en/eg/deals', status:'active',frequency_minutes:3,isDefault:true},
+      {docId:'__hyp',    id:'hyperone_eg',  site_name:'🇪🇬 HyperOne Egypt',  site_name_ar:'هايبر ون',         site_url:'https://www.hyperone.com.eg/offers/', status:'active',frequency_minutes:3,isDefault:true},
+      {docId:'__sahla',  id:'sahla_eg',     site_name:'🇪🇬 Sahla Egypt',     site_name_ar:'سهلة',             site_url:'https://sahlaapp.com/',               status:'active',frequency_minutes:3,isDefault:true},
+      // UAE
+      {docId:'__amz_ae', id:'amazon_ae',    site_name:'🇦🇪 Amazon UAE',      site_name_ar:'أمازون الإمارات',  site_url:'https://www.amazon.ae',               status:'active',frequency_minutes:5,isDefault:true},
+      {docId:'__noon_ae',id:'noon_ae',      site_name:'🇦🇪 Noon UAE',        site_name_ar:'نون الإمارات',     site_url:'https://www.noon.com/uae-en',          status:'active',frequency_minutes:5,isDefault:true},
+      {docId:'__shrf_ae',id:'sharaf_dg_ae', site_name:'🇦🇪 Sharaf DG UAE',   site_name_ar:'شرف دي جي',       site_url:'https://www.sharafdg.com/en/ae',       status:'active',frequency_minutes:5,isDefault:true},
+      // Saudi Arabia
+      {docId:'__amz_sa', id:'amazon_sa',    site_name:'🇸🇦 Amazon Saudi',    site_name_ar:'أمازون السعودية',  site_url:'https://www.amazon.sa',               status:'active',frequency_minutes:5,isDefault:true},
+      {docId:'__noon_sa',id:'noon_sa',      site_name:'🇸🇦 Noon Saudi',      site_name_ar:'نون السعودية',     site_url:'https://www.noon.com/saudi-en',        status:'active',frequency_minutes:5,isDefault:true},
+      {docId:'__jarir',  id:'jarir',        site_name:'🇸🇦 Jarir',           site_name_ar:'جرير',             site_url:'https://www.jarir.com/sa-en',          status:'active',frequency_minutes:5,isDefault:true},
+      {docId:'__extra',  id:'extra_sa',     site_name:'🇸🇦 Extra Saudi',     site_name_ar:'اكسترا',           site_url:'https://www.extra.com/en-sa/',         status:'active',frequency_minutes:5,isDefault:true},
     ];
     const all=[...defaults,...custom.map(s=>({...s,id:s.id||s.docId,isDefault:false}))];
 
@@ -2089,9 +2125,9 @@ async function changeUserTier(userId,newTier,oldTier){
     loadUsers();
   }catch(e){toast('❌ Error: '+e.message);}
 }
-function updateDailyLimit() {
+function syncAddUserLimit() {
   const tier = document.getElementById('nu-tier').value;
-  const limits = { free: 50, premium: 500, vip: 99999 };
+  const limits = { free: 50, trial: 100, premium: 500, vip: 99999 };
   document.getElementById('nu-limit').value = limits[tier] || 50;
 }
 
@@ -2202,66 +2238,36 @@ async function saveNotif(){
   if(!msg&&!msgAr){toast('Please enter a message');return;}
 
   try {
-    // Save notification record to Firestore
-    const notifData = {
+    const idToken = auth.currentUser
+      ? await auth.currentUser.getIdToken()
+      : localStorage.getItem('adminToken');
+
+    const payload = {
       title, title_ar: titleAr, message: msg, message_ar: msgAr,
-      target, channel, type: 'manual_push', sent_at: new Date().toISOString(),
-      sent_by: currentAdmin?.email || 'admin'
+      target, group_id: groupId, specific_user: user, channel
     };
 
-    if (target === 'user') {
-      notifData.specific_user = user;
-    } else if (target === 'group') {
-      notifData.group_id = groupId;
-    }
+    const response = await fetch('/api/v1/notifications/send', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + idToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
 
-    await dbp('notifications', null, 'POST', notifData);
+    const responseData = await response.json();
 
-    // Send notification via API
-    if (auth.currentUser) {
-      try {
-        const idToken = await auth.currentUser.getIdToken();
-        const apiUrl = '/api/v1/notifications/send'; // Use relative URL
-
-        const payload = {
-          title, title_ar: titleAr, message: msg, message_ar: msgAr,
-          target, group_id: groupId, specific_user: user, channel
-        };
-        console.log('📤 Sending notification payload:', payload);  // DEBUG
-
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${idToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(payload)
-        });
-
-        const responseData = await response.json();
-        console.log('📥 API Response:', response.status, responseData);  // DEBUG
-
-        if (response.ok) {
-          document.getElementById('notif-modal').classList.remove('show');
-          ['nt-title','nt-title-ar','nt-msg','nt-msg-ar','nt-user','nt-target','nt-group-id'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.value = '';
-          });
-          toast(`✓ ${responseData.message || 'Notification sent to ' + (responseData.recipients || '?') + ' users'}`);
-          loadNotifs();
-        } else {
-          console.error('❌ API Error:', response.status, responseData);  // DEBUG
-          toast(`❌ Error (${response.status}): ${responseData.error || 'Failed to send notification'}`);
-        }
-      } catch(apiError) {
-        console.error('❌ API call error:', apiError);
-        toast(`❌ Connection error: ${apiError.message}`);
-      }
+    if (response.ok) {
+      document.getElementById('notif-modal').classList.remove('show');
+      ['nt-title','nt-title-ar','nt-msg','nt-msg-ar','nt-user'].forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.value = '';
+      });
+      document.getElementById('nt-target').value = '';
+      toast('✓ ' + (responseData.message || 'Notification sent'));
+      loadNotifs();
     } else {
-      toast('Error: Not authenticated');
+      toast('❌ Error: ' + (responseData.error || 'Failed to send'));
     }
   } catch(e) {
-    console.error('Notification error:', e);
     toast('Error: ' + e.message);
   }
 }
@@ -2566,8 +2572,7 @@ async function loadTierPricing(){
       vip: { daily_limit: 99999, price: 10, features: ['All Premium Features', 'Priority Support'] }
     };
 
-    // Load tier data from API instead of Firestore
-    const token = await getCurrentAdmin()?.getToken?.() || localStorage.getItem('adminToken');
+    const token = localStorage.getItem('adminToken') || '';
     const response = await fetch('/api/v1/admin/tiers', {
       headers: { 'Authorization': 'Bearer ' + token }
     });
