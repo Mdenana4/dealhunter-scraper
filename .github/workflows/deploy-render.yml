@@ -2,12 +2,14 @@ name: Deploy to Render
 
 on:
   push:
-    branches: [main]
+    branches: [main, claude/review-app-deployment-o70ke]
     paths:
       - 'server.py'
       - 'scraper.py'
+      - 'admin.html'
       - 'requirements.txt'
       - 'Dockerfile'
+      - 'start.sh'
       - '.github/workflows/deploy-render.yml'
   workflow_dispatch:
 
@@ -22,30 +24,26 @@ jobs:
       - name: Deploy to Render
         run: |
           if [ -z "${{ secrets.RENDER_DEPLOY_HOOK }}" ]; then
-            echo "Warning: RENDER_DEPLOY_HOOK secret not configured"
-            echo "To enable auto-deployment:"
-            echo "1. Go to https://dashboard.render.com/"
-            echo "2. Select your service"
-            echo "3. Go to Settings > Deploy Hook"
-            echo "4. Copy the URL and add it as RENDER_DEPLOY_HOOK secret in GitHub"
+            echo "::warning::RENDER_DEPLOY_HOOK secret not set — skipping auto-deploy"
+            echo ""
+            echo "To fix this once:"
+            echo "  1. https://dashboard.render.com/web/srv-d7cnfijeo5us73fekul0"
+            echo "  2. Settings → Deploy Hook → copy URL"
+            echo "  3. GitHub repo → Settings → Secrets → Actions → New secret"
+            echo "     Name: RENDER_DEPLOY_HOOK   Value: <the URL>"
+            exit 0
+          fi
+          echo "Triggering Render deploy for ${{ github.ref }} @ ${{ github.sha }}"
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" --request POST \
+            --url "${{ secrets.RENDER_DEPLOY_HOOK }}" \
+            --header 'content-type: application/json')
+          if [ "$HTTP" -ge 200 ] && [ "$HTTP" -lt 300 ]; then
+            echo "✓ Deploy triggered (HTTP $HTTP)"
           else
-            curl --request POST \
-              --url "${{ secrets.RENDER_DEPLOY_HOOK }}" \
-              --header 'content-type: application/json' \
-              -d '{"ref": "'"${{ github.ref }}"'", "commit": "'"${{ github.sha }}"'"}'
-            echo "✓ Deployment triggered on Render"
+            echo "✗ Deploy hook returned HTTP $HTTP"
+            exit 1
           fi
 
-  notify:
-    runs-on: ubuntu-latest
-    needs: deploy
-    if: always()
-    steps:
-      - name: Deployment Status
+      - name: Done
         run: |
-          if [ "${{ job.status }}" == "success" ]; then
-            echo "✓ Deployment workflow completed"
-            echo "Check Render dashboard: https://dashboard.render.com/web/srv-d7cnfijeo5us73fekul0"
-          else
-            echo "✗ Deployment workflow failed"
-          fi
+          echo "Dashboard: https://dashboard.render.com/web/srv-d7cnfijeo5us73fekul0"
