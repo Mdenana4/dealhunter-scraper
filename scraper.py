@@ -2006,13 +2006,13 @@ def _scrape_noon_region(
             resp = _noon_fetch(dp_url)
             if is_blocked_response(resp, min_length=3000):
                 print(f"  [NOON/{country_code.upper()}] Deals page blocked — trying JS render")
-                resp = fetch_with_scraperapi(dp_url, render_js=True, country=country_code)
+                resp = fetch_with_scraperapi(dp_url, render_js=False, country=country_code)
             if resp and resp.status_code == 200:
                 n = _parse_noon_products(resp.text, "general", region_path, currency,
                                          marketplace_country, site_display, country_code)
                 if n == 0:
                     # Last resort: JS render
-                    resp2 = fetch_with_scraperapi(dp_url, render_js=True, country=country_code)
+                    resp2 = fetch_with_scraperapi(dp_url, render_js=False, country=country_code)
                     if resp2 and resp2.status_code == 200:
                         n = _parse_noon_products(resp2.text, "general", region_path, currency,
                                                  marketplace_country, site_display, country_code)
@@ -2051,7 +2051,7 @@ def _scrape_noon_region(
             n = _parse_noon_products(resp.text, default_cat, region_path, currency,
                                      marketplace_country, site_display, country_code)
             if n == 0:
-                resp2 = fetch_with_scraperapi(url, render_js=True, country=country_code)
+                resp2 = fetch_with_scraperapi(url, render_js=False, country=country_code)
                 if resp2 and resp2.status_code == 200:
                     n = _parse_noon_products(resp2.text, default_cat, region_path, currency,
                                              marketplace_country, site_display, country_code)
@@ -2112,7 +2112,7 @@ def scrape_hyperone():
                 pass
 
             if not resp or resp.status_code != 200:
-                resp = fetch_with_scraperapi(url, render_js=True, country="eg")
+                resp = fetch_with_scraperapi(url, render_js=False, country="eg")
             if not resp or resp.status_code != 200:
                 time.sleep(2)
                 continue
@@ -2286,7 +2286,7 @@ def scrape_sahla():
         ]
         for url in sahla_pages:
             try:
-                resp = fetch_with_scraperapi(url, render_js=True, country="eg")
+                resp = fetch_with_scraperapi(url, render_js=False, country="eg")
                 if not resp or resp.status_code != 200:
                     resp = fetch_direct(url)
                 if not resp or resp.status_code != 200:
@@ -2389,7 +2389,7 @@ def scrape_custom_sources():
 
                 if not products:
                     print(f"    No products in direct fetch — trying ScraperAPI...")
-                    resp = fetch_with_scraperapi(site_url, render_js=True, country="eg")
+                    resp = fetch_with_scraperapi(site_url, render_js=False, country="eg")
                     if resp and resp.status_code == 200:
                         soup     = BeautifulSoup(resp.content, "lxml")
                         products = (
