@@ -204,6 +204,8 @@ tr:hover td{background:#fafafa;}
     <button class="nb" onclick="showPage('pricing',this)">💰 Pricing</button>
     <button class="nb" onclick="showPage('groups',this)">👨‍👩‍👧‍👦 Groups</button>
     <button class="nb" onclick="showPage('offers',this)">🎁 Offers</button>
+    <button class="nb" onclick="showPage('revenue',this)">📊 Revenue</button>
+    <button class="nb" id="logs-btn" onclick="showPage('logs',this)" style="position:relative;">🚨 Logs<span id="alarm-badge" style="display:none;position:absolute;top:2px;right:2px;background:#E24B4A;color:#fff;border-radius:50%;width:14px;height:14px;font-size:8px;display:flex;align-items:center;justify-content:center;"></span></button>
   </div>
   <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
     <a href="https://dealhunter-scraper.onrender.com/" target="_blank"
@@ -355,6 +357,9 @@ tr:hover td{background:#fafafa;}
       <tbody id="scraper-tb"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody></table>
     </div>
   </div>
+
+  <!-- Alarms Banner -->
+  <div id="monitor-alarms" style="margin-bottom:14px;"></div>
 
   <!-- Quick Links -->
   <div class="card" style="margin-bottom:14px;">
@@ -515,24 +520,46 @@ tr:hover td{background:#fafafa;}
   </div>
 
   <div class="ch" style="background:transparent;border:none;padding:0 0 10px;">
-    <div style="font-size:11px;color:#888;"></div>
-    <div style="display:flex;gap:7px;">
-      <button class="btn btn-p" onclick="document.getElementById('user-modal').classList.add('show')">+ Add User Manually</button>
+    <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center;">
+      <input type="text" id="user-search" placeholder="Search name / email..." oninput="filterUsers()" style="padding:6px 10px;border:0.5px solid #ddd;border-radius:6px;font-size:11px;width:200px;"/>
+      <select id="user-tier-filter" onchange="filterUsers()" style="padding:6px 8px;border:0.5px solid #ddd;border-radius:6px;font-size:11px;">
+        <option value="">All Tiers</option>
+        <option value="free">Free</option>
+        <option value="trial">Trial</option>
+        <option value="premium">Premium</option>
+        <option value="vip">VIP</option>
+      </select>
+    </div>
+    <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;">
+      <!-- Bulk actions -->
+      <div id="bulk-actions" style="display:none;background:#E6F1FB;padding:5px 10px;border-radius:7px;display:flex;gap:6px;align-items:center;">
+        <span id="bulk-count" style="font-size:10px;color:#185FA5;font-weight:600;"></span>
+        <select id="bulk-tier" style="padding:4px 6px;font-size:10px;border:0.5px solid #b5d4f4;border-radius:5px;">
+          <option value="">Change tier to...</option>
+          <option value="free">→ Free</option>
+          <option value="trial">→ Trial</option>
+          <option value="premium">→ Premium</option>
+          <option value="vip">→ VIP</option>
+        </select>
+        <button class="btn btn-sm btn-p" onclick="applyBulkTier()">Apply</button>
+        <button class="btn btn-sm" onclick="clearBulkSelection()">Clear</button>
+      </div>
+      <button class="btn btn-p" onclick="document.getElementById('user-modal').classList.add('show')">+ Add User</button>
       <button class="btn" onclick="loadUsers()">Refresh</button>
     </div>
   </div>
 
   <div class="card"><div class="cb" style="padding:0;">
     <table><thead><tr>
-      <th>User ID / المستخدم</th>
+      <th style="width:24px;"><input type="checkbox" id="select-all-users" onchange="toggleSelectAllUsers(this)" title="Select all"/></th>
+      <th>User ID</th>
       <th>Name</th>
       <th>Email / Phone</th>
-      <th>Current Tier / المستوى</th>
-      <th>Previous Tier</th>
+      <th>Tier</th>
+      <th>Prev Tier</th>
       <th>Daily Limit</th>
-      <th>Registered / تسجيل</th>
+      <th>Registered</th>
       <th>Last Login</th>
-      <th>Upgraded</th>
       <th>Actions</th>
     </tr></thead>
     <tbody id="users-tb"><tr><td colspan="10" class="loading">Loading...</td></tr></tbody></table>
@@ -905,6 +932,124 @@ tr:hover td{background:#fafafa;}
   </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- PAGE: REVENUE & FINANCIAL DASHBOARD -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="page" id="page-revenue">
+  <!-- MRR Summary cards -->
+  <div class="sg sg-auto" id="rev-cards" style="margin-bottom:14px;">
+    <div class="sc"><div class="sl">Total MRR (est.)</div><div class="sv" id="rev-mrr">—</div><div class="ss">USD/month</div></div>
+    <div class="sc"><div class="sl">Paying Users</div><div class="sv" id="rev-paying">—</div><div class="ss">premium + vip</div></div>
+    <div class="sc"><div class="sl">Upgrades</div><div class="sv sup" id="rev-up">—</div><div class="ss">tier increases</div></div>
+    <div class="sc"><div class="sl">Downgrades</div><div class="sv sred" id="rev-down">—</div><div class="ss">tier decreases</div></div>
+  </div>
+
+  <!-- Tier breakdown -->
+  <div class="card">
+    <div class="ch"><div class="ct">Tier Breakdown / توزيع المستويات</div><button class="btn btn-sm" onclick="loadRevenue()">Refresh</button></div>
+    <div class="cb" style="padding:0;">
+      <table><thead><tr><th>Tier</th><th>Users</th><th>Price/mo (USD)</th><th>Est. MRR</th><th>% of Total</th></tr></thead>
+      <tbody id="rev-tier-tb"><tr><td colspan="5" class="loading">Loading...</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <!-- Country pricing config -->
+  <div class="card">
+    <div class="ch">
+      <div class="ct">Country Pricing / أسعار حسب الدولة</div>
+      <div style="font-size:10px;color:#888;">Click any price to edit it inline</div>
+    </div>
+    <div class="cb" style="padding:0;">
+      <table id="country-pricing-table">
+        <thead><tr><th>Country</th><th>Currency</th><th>Free</th><th>Trial</th><th>Premium</th><th>VIP</th><th>Actions</th></tr></thead>
+        <tbody id="country-pricing-tb"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Recent tier changes -->
+  <div class="card">
+    <div class="ch"><div class="ct">Recent Tier Changes / آخر تغييرات المستوى</div></div>
+    <div class="cb" style="padding:0;">
+      <table><thead><tr><th>User ID</th><th>From</th><th>To</th><th>Date</th><th>Method</th></tr></thead>
+      <tbody id="rev-changes-tb"><tr><td colspan="5" class="loading">Loading...</td></tr></tbody></table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ -->
+<!-- PAGE: LOGS & ALARMS -->
+<!-- ═══════════════════════════════════════════════════ -->
+<div class="page" id="page-logs">
+
+  <!-- Alarm summary -->
+  <div id="alarm-summary" style="margin-bottom:14px;"></div>
+
+  <div class="card">
+    <div class="ch">
+      <div class="ct">🚨 Active Alarms / التنبيهات النشطة</div>
+      <button class="btn btn-sm btn-p" onclick="loadAlarms()">Refresh / تحديث</button>
+    </div>
+    <div class="cb" style="padding:0;">
+      <table><thead><tr><th>Level</th><th>Category</th><th>Message</th><th>Source</th><th>Last Deal / Time</th></tr></thead>
+      <tbody id="alarms-tb"><tr><td colspan="5" class="loading">Loading...</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="ch">
+      <div class="ct">📋 Server Error Log / سجل أخطاء الخادم</div>
+      <div style="display:flex;gap:7px;align-items:center;">
+        <select id="log-level-filter" onchange="loadLogs()" style="padding:5px 8px;border:0.5px solid #ddd;border-radius:6px;font-size:11px;">
+          <option value="">All Levels</option>
+          <option value="error">Errors Only</option>
+          <option value="warn">Warnings Only</option>
+          <option value="info">Info Only</option>
+        </select>
+        <select id="log-cat-filter" onchange="loadLogs()" style="padding:5px 8px;border:0.5px solid #ddd;border-radius:6px;font-size:11px;">
+          <option value="">All Categories</option>
+          <option value="server">Server</option>
+          <option value="scraper">Scraper</option>
+          <option value="auth">Auth</option>
+          <option value="api">API</option>
+          <option value="database">Database</option>
+        </select>
+        <button class="btn btn-sm" onclick="loadLogs()">Refresh</button>
+        <button class="btn btn-sm btn-d" onclick="clearLogs()" title="Delete all logs">Clear All</button>
+      </div>
+    </div>
+    <div class="cb" style="padding:0;">
+      <table><thead><tr><th>Time</th><th>Level</th><th>Category</th><th>Message</th><th>Path</th><th>Details</th></tr></thead>
+      <tbody id="logs-tb"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody></table>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════ -->
+<!-- COUNTRY PRICING MODAL -->
+<!-- ══════════════════════════════════════════════════ -->
+<div class="mo" id="country-modal">
+  <div class="md">
+    <h3 id="country-modal-title">Edit Country Pricing</h3>
+    <div class="fg"><label>Country Code</label><input type="text" id="cp-code" disabled style="opacity:0.5;"/></div>
+    <div class="fg"><label>Currency Code</label><input type="text" id="cp-currency" placeholder="EGP"/></div>
+    <div class="fg"><label>Currency Symbol</label><input type="text" id="cp-symbol" placeholder="ج.م"/></div>
+    <div class="fg-row">
+      <div class="fg"><label>Free Price</label><input type="number" id="cp-free" value="0" min="0"/></div>
+      <div class="fg"><label>Trial Price</label><input type="number" id="cp-trial" value="0" min="0"/></div>
+    </div>
+    <div class="fg-row">
+      <div class="fg"><label>Premium Price</label><input type="number" id="cp-premium" min="0"/></div>
+      <div class="fg"><label>VIP Price</label><input type="number" id="cp-vip" min="0"/></div>
+    </div>
+    <div class="ma">
+      <button class="btn" onclick="closeCountryModal()">Cancel</button>
+      <button class="btn btn-p" onclick="saveCountryPricing()">Save Pricing</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════════════════════════════════════════════ -->
 <!-- TEAM MEMBER MODAL -->
 <!-- ══════════════════════════════════════════════════ -->
@@ -1186,6 +1331,8 @@ function showDashboard() {
   loadTierPricing();
   loadGroups();
   loadOffers();
+  // Load alarms in background — populates badge + monitor banner
+  refreshAlarmBadge().then(()=>loadAlarms());
 }
 
 // Toggle between login and signup
@@ -1570,7 +1717,14 @@ function showPage(name,btn){
   }
 
   // Call the appropriate load function
-  const L={monitor:loadMonitor,deals:loadDeals,sources:loadSources,users:loadUsers,notifications:loadNotifs,'add-deal':loadManualDeals,checker:()=>{},competitors:()=>{},team:loadTeam};
+  const L={
+    monitor:loadMonitor, deals:loadDeals, sources:loadSources,
+    users:loadUsers, notifications:loadNotifs,
+    'add-deal':loadManualDeals, checker:()=>{}, competitors:()=>{},
+    team:loadTeam, pricing:loadTierPricing,
+    groups:loadGroups, offers:loadOffers,
+    revenue:loadRevenue, logs:()=>{loadAlarms();loadLogs();}
+  };
   if(L[name]) L[name]();
 
   console.log('Switched to page:', name);
@@ -1959,8 +2113,9 @@ async function loadUsers(){
     const r=await fetch('/api/v1/admin/users',apiHdr());
     if(!r.ok) throw new Error('HTTP '+r.status);
     const d=await r.json();
-    const users=d.users||[];
-    console.log('📊 Loaded users:', users.length, users);  // DEBUG
+    allUsersData=d.users||[];
+    filteredUsersData=[...allUsersData];
+    const users=allUsersData;
     const free=users.filter(u=>u.tier==='free'||u.tier==='registered_free').length;
     const trial=users.filter(u=>u.tier==='trial').length;
     const prem=users.filter(u=>u.tier==='premium').length;
@@ -1990,31 +2145,7 @@ async function loadUsers(){
           </div>`).join('')}
       </div>`;
 
-    document.getElementById('users-tb').innerHTML=users.length?users.map(u=>`
-      <tr>
-        <td style="font-family:monospace;font-size:9px;color:#888;">${u.id.substring(0,14)}...</td>
-        <td style="font-size:11px;">${u.name||u.display_name||'—'}</td>
-        <td style="font-size:10px;">${u.email||u.phone||'—'}</td>
-        <td>${tb(u.tier)}</td>
-        <td>${u.previous_tier?tb(u.previous_tier):'—'}</td>
-        <td>
-          <input type="number" id="limit-${u.id}" value="${u.daily_deal_limit||50}" style="width:60px;padding:3px;font-size:10px;" min="1" max="99999"/>
-          <button class="btn btn-sm" onclick="updateDailyLimit('${u.id}',document.getElementById('limit-${u.id}').value)" style="margin-left:3px;">Set</button>
-        </td>
-        <td style="font-size:10px;">${ft(u.created_at)}</td>
-        <td style="font-size:10px;">${ft(u.last_login)}</td>
-        <td style="font-size:10px;">${ft(u.tier_upgraded_at)}</td>
-        <td>
-          <select onchange="changeUserTier('${u.id}',this.value,'${u.tier}')" style="padding:3px;font-size:10px;border:0.5px solid #ddd;border-radius:5px;margin-right:3px;">
-            <option value="">Change tier...</option>
-            <option value="free">Free (50 deals/day)</option>
-            <option value="premium">Premium ($5/mo, 500 deals/day)</option>
-            <option value="vip">VIP ($10/mo, Unlimited)</option>
-          </select>
-          <button class="btn btn-sm btn-d" onclick="deleteUser('${u.id}','${u.name||u.email}')" title="Delete user">🗑️</button>
-        </td>
-      </tr>`).join(''):
-      '<tr><td colspan="10"><div class="empty"><div class="ei">👤</div><div class="et">No registered users yet — they appear here when people sign up in the app</div></div></td></tr>';
+    renderUsersTable(filteredUsersData);
 
     // Tier change history
     try{
@@ -2990,7 +3121,381 @@ async function deleteOffer(id){
 }
 
 // ── AUTO REFRESH ───────────────────────────────
-setInterval(()=>{if(document.getElementById('page-monitor').classList.contains('active'))loadMonitor();},60000);
+setInterval(()=>{
+  if(document.getElementById('page-monitor').classList.contains('active'))loadMonitor();
+  // Refresh alarms badge every 2 minutes regardless of active page
+}, 60000);
+setInterval(()=>{ if(currentAdmin) refreshAlarmBadge(); }, 120000);
+
+// ════════════════════════════════════════════════════════════
+// ALARM SYSTEM
+// ════════════════════════════════════════════════════════════
+
+async function loadAlarms(){
+  document.getElementById('alarms-tb').innerHTML='<tr><td colspan="5" class="loading">Checking...</td></tr>';
+  try{
+    const r=await fetch('/api/v1/admin/alarms',apiHdr());
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    const alarms=d.alarms||[];
+    renderAlarms(alarms, 'alarms-tb', 5);
+    renderAlarmBanner(d.summary||{}, 'monitor-alarms');
+    updateAlarmBadge(d.summary||{});
+  }catch(e){
+    document.getElementById('alarms-tb').innerHTML='<tr><td colspan="5" class="loading">Error: '+e.message+'</td></tr>';
+  }
+}
+
+function renderAlarms(alarms, tbId, cols){
+  const tb=document.getElementById(tbId);
+  if(!tb) return;
+  const errors=alarms.filter(a=>a.level==='error');
+  const warns=alarms.filter(a=>a.level==='warn');
+  const infos=alarms.filter(a=>a.level==='info');
+  const sorted=[...errors,...warns,...infos];
+  if(!sorted.length){
+    tb.innerHTML=`<tr><td colspan="${cols}" style="text-align:center;padding:20px;color:#3B6D11;">✅ All systems operational — No active alarms</td></tr>`;
+    return;
+  }
+  tb.innerHTML=sorted.map(a=>{
+    const bg=a.level==='error'?'#FCEBEB':a.level==='warn'?'#FAEEDA':'#EAF3DE';
+    const col=a.level==='error'?'#A32D2D':a.level==='warn'?'#854F0B':'#3B6D11';
+    const icon=a.level==='error'?'🔴':a.level==='warn'?'⚠️':'✅';
+    return`<tr style="background:${bg};">
+      <td><span style="font-size:11px;font-weight:600;color:${col};">${icon} ${a.level.toUpperCase()}</span></td>
+      <td><span class="badge ${a.level==='error'?'br':a.level==='warn'?'bo':'bg'}">${a.category}</span></td>
+      <td style="font-size:11px;color:${col};">${a.message}</td>
+      <td style="font-size:10px;color:#888;">${a.source||'—'}</td>
+      <td style="font-size:10px;color:#aaa;">${a.last_deal?ft(a.last_deal):(a.checked_at?ft(a.checked_at):'—')}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderAlarmBanner(summary, containerId){
+  const el=document.getElementById(containerId);
+  if(!el) return;
+  if(!summary.errors&&!summary.warnings){
+    el.innerHTML='<div style="background:#EAF3DE;border-radius:8px;padding:10px 14px;font-size:11px;color:#3B6D11;">✅ All systems operational</div>';
+    return;
+  }
+  const parts=[];
+  if(summary.errors)parts.push(`<strong>${summary.errors} error${summary.errors>1?'s':''}</strong>`);
+  if(summary.warnings)parts.push(`${summary.warnings} warning${summary.warnings>1?'s':''}`);
+  el.innerHTML=`<div style="background:${summary.errors?'#FCEBEB':'#FAEEDA'};border-radius:8px;padding:10px 14px;font-size:11px;color:${summary.errors?'#A32D2D':'#854F0B'};display:flex;justify-content:space-between;align-items:center;">
+    <span>${summary.errors?'🔴':'⚠️'} ${parts.join(' · ')} detected — <a href="#" onclick="showPage('logs',document.querySelectorAll('.nb')[document.querySelectorAll('.nb').length-1])" style="color:inherit;font-weight:600;text-decoration:underline;">View Logs ↗</a></span>
+    <button onclick="loadAlarms();loadMonitor();" class="btn btn-sm" style="font-size:10px;">Refresh</button>
+  </div>`;
+}
+
+function updateAlarmBadge(summary){
+  const badge=document.getElementById('alarm-badge');
+  if(!badge) return;
+  const count=(summary.errors||0)+(summary.warnings||0);
+  if(count>0){badge.style.display='flex';badge.textContent=count>9?'9+':count;}
+  else{badge.style.display='none';}
+}
+
+async function refreshAlarmBadge(){
+  try{
+    const r=await fetch('/api/v1/admin/alarms',apiHdr());
+    if(r.ok){const d=await r.json();updateAlarmBadge(d.summary||{});}
+  }catch(e){}
+}
+
+// ════════════════════════════════════════════════════════════
+// ERROR LOGS
+// ════════════════════════════════════════════════════════════
+
+async function loadLogs(){
+  document.getElementById('logs-tb').innerHTML='<tr><td colspan="6" class="loading">Loading...</td></tr>';
+  const level=document.getElementById('log-level-filter').value;
+  const cat=document.getElementById('log-cat-filter').value;
+  const params=new URLSearchParams({limit:200});
+  if(level)params.set('level',level);
+  if(cat)params.set('category',cat);
+  try{
+    const r=await fetch('/api/v1/admin/logs?'+params,apiHdr());
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    const logs=d.logs||[];
+    if(!logs.length){
+      document.getElementById('logs-tb').innerHTML='<tr><td colspan="6"><div class="empty"><div class="et">No log entries yet — errors will appear here automatically</div></div></td></tr>';
+      return;
+    }
+    document.getElementById('logs-tb').innerHTML=logs.map(l=>{
+      const bg=l.level==='error'?'#fff8f8':l.level==='warn'?'#fffbf0':'#fff';
+      const col=l.level==='error'?'#A32D2D':l.level==='warn'?'#854F0B':'#3B6D11';
+      const icon=l.level==='error'?'🔴':l.level==='warn'?'⚠️':'ℹ️';
+      const det=l.details?JSON.stringify(l.details):'';
+      const shortDet=det.length>80?det.substring(0,80)+'…':det;
+      const traceback=(l.details&&l.details.traceback)||'';
+      return`<tr style="background:${bg};">
+        <td style="font-size:9px;color:#aaa;white-space:nowrap;">${ft(l.timestamp)}</td>
+        <td><span style="font-size:10px;font-weight:600;color:${col};">${icon} ${(l.level||'').toUpperCase()}</span></td>
+        <td><span class="badge ${l.level==='error'?'br':l.level==='warn'?'bo':'bg'}">${l.category||'—'}</span></td>
+        <td style="font-size:11px;max-width:300px;">${l.message||'—'}</td>
+        <td style="font-size:10px;color:#888;">${l.path||'—'} ${l.method?'['+l.method+']':''}</td>
+        <td style="font-size:9px;color:#999;max-width:200px;overflow:hidden;text-overflow:ellipsis;">
+          ${traceback?`<button class="btn btn-sm" onclick="showTraceback(this,'${encodeURIComponent(traceback)}')" style="font-size:9px;padding:1px 5px;">Stack trace</button>`:shortDet}
+        </td>
+      </tr>`;
+    }).join('');
+  }catch(e){
+    document.getElementById('logs-tb').innerHTML='<tr><td colspan="6" class="loading">Error loading logs: '+e.message+'</td></tr>';
+  }
+}
+
+function showTraceback(btn, encoded){
+  const tb=decodeURIComponent(encoded);
+  const pre=document.createElement('pre');
+  pre.style.cssText='font-size:10px;background:#0f1117;color:#7ec8a4;padding:12px;border-radius:8px;max-height:300px;overflow-y:auto;white-space:pre-wrap;';
+  pre.textContent=tb;
+  btn.replaceWith(pre);
+}
+
+async function clearLogs(){
+  if(!confirm('Delete all log entries? This cannot be undone.')) return;
+  try{
+    // Batch delete via proxy - get all IDs first
+    const r=await dbp('admin_logs',null,'GET',null,'limit=500');
+    const d=await r.json();
+    const items=d.items||[];
+    await Promise.all(items.map(i=>dbp('admin_logs',i.id,'DELETE')));
+    toast('Logs cleared ('+items.length+' entries)');
+    loadLogs();
+  }catch(e){toast('Error clearing logs: '+e.message);}
+}
+
+// ════════════════════════════════════════════════════════════
+// REVENUE & FINANCIAL DASHBOARD
+// ════════════════════════════════════════════════════════════
+
+async function loadRevenue(){
+  document.getElementById('rev-tier-tb').innerHTML='<tr><td colspan="5" class="loading">Loading...</td></tr>';
+  try{
+    const [revR, cpR] = await Promise.all([
+      fetch('/api/v1/admin/revenue', apiHdr()),
+      fetch('/api/v1/admin/country-pricing', apiHdr())
+    ]);
+    if(!revR.ok) throw new Error('HTTP '+revR.status);
+    const rv=await revR.json();
+
+    // Summary cards
+    const paying=(rv.tier_counts?.premium||0)+(rv.tier_counts?.vip||0);
+    document.getElementById('rev-mrr').textContent='$'+(rv.total_mrr_usd||0).toFixed(2);
+    document.getElementById('rev-paying').textContent=paying;
+    document.getElementById('rev-up').textContent=rv.upgrades||0;
+    document.getElementById('rev-down').textContent=rv.downgrades||0;
+
+    // Tier table
+    const tierOrder=['free','trial','premium','vip'];
+    const total=rv.total_users||1;
+    document.getElementById('rev-tier-tb').innerHTML=tierOrder.map(t=>{
+      const info=rv.mrr_by_tier?.[t]||{count:0,price_usd:0,mrr_usd:0};
+      const pct=Math.round(info.count/total*100);
+      return`<tr>
+        <td>${tb(t)}</td>
+        <td><strong>${info.count}</strong> <span style="font-size:9px;color:#aaa;">(${pct}%)</span>
+          <div class="pt" style="margin-top:3px;"><div class="pf" style="width:${pct}%;background:#E24B4A;"></div></div>
+        </td>
+        <td>$${info.price_usd||0}</td>
+        <td style="font-weight:600;color:#3B6D11;">$${(info.mrr_usd||0).toFixed(2)}</td>
+        <td style="color:#aaa;">${total>0?Math.round(info.mrr_usd/((rv.total_mrr_usd||1)||1)*100):0}%</td>
+      </tr>`;
+    }).join('');
+
+    // Country pricing
+    if(cpR.ok){
+      const cp=await cpR.json();
+      renderCountryPricing(cp.pricing||{});
+    }
+
+    // Tier changes
+    const changes=rv.tier_changes||[];
+    document.getElementById('rev-changes-tb').innerHTML=changes.length?changes.map(c=>`
+      <tr>
+        <td style="font-family:monospace;font-size:9px;color:#888;">${c.user_id}...</td>
+        <td>${tb(c.from_tier)}</td>
+        <td>${tb(c.to_tier)}</td>
+        <td style="font-size:10px;">${ft(c.changed_at)}</td>
+        <td style="font-size:10px;color:#888;">${c.method||'—'}</td>
+      </tr>`).join(''):
+      '<tr><td colspan="5"><div class="empty"><div class="et">No tier changes yet</div></div></td></tr>';
+
+  }catch(e){
+    document.getElementById('rev-tier-tb').innerHTML='<tr><td colspan="5" class="loading">Error: '+e.message+'</td></tr>';
+    toast('Revenue error: '+e.message);
+  }
+}
+
+const COUNTRY_NAMES={eg:'🇪🇬 Egypt',sa:'🇸🇦 Saudi Arabia',ae:'🇦🇪 UAE',kw:'🇰🇼 Kuwait',qa:'🇶🇦 Qatar'};
+
+function renderCountryPricing(pricing){
+  const countries=['eg','sa','ae','kw','qa'];
+  document.getElementById('country-pricing-tb').innerHTML=countries.map(cc=>{
+    const p=pricing[cc]||{};
+    const name=COUNTRY_NAMES[cc]||cc.toUpperCase();
+    return`<tr>
+      <td style="font-weight:500;">${name}</td>
+      <td><span class="badge bb">${p.currency||cc.toUpperCase()}</span></td>
+      <td style="font-size:11px;">${p.free??0} ${p.symbol||''}</td>
+      <td style="font-size:11px;">${p.trial??0} ${p.symbol||''}</td>
+      <td style="font-size:11px;font-weight:500;color:#7F77DD;">${p.premium??'—'} ${p.symbol||''}</td>
+      <td style="font-size:11px;font-weight:500;color:#E24B4A;">${p.vip??'—'} ${p.symbol||''}</td>
+      <td><button class="btn btn-sm" onclick="openCountryModal('${cc}',${JSON.stringify(p).replace(/'/g,"\\'")})">Edit</button></td>
+    </tr>`;
+  }).join('');
+}
+
+let editingCountryCode=null;
+
+function openCountryModal(code, pricing){
+  editingCountryCode=code;
+  document.getElementById('country-modal-title').textContent='Edit Pricing — '+COUNTRY_NAMES[code];
+  document.getElementById('cp-code').value=code;
+  document.getElementById('cp-currency').value=pricing.currency||'';
+  document.getElementById('cp-symbol').value=pricing.symbol||'';
+  document.getElementById('cp-free').value=pricing.free??0;
+  document.getElementById('cp-trial').value=pricing.trial??0;
+  document.getElementById('cp-premium').value=pricing.premium??'';
+  document.getElementById('cp-vip').value=pricing.vip??'';
+  document.getElementById('country-modal').classList.add('show');
+}
+
+function closeCountryModal(){
+  document.getElementById('country-modal').classList.remove('show');
+}
+
+async function saveCountryPricing(){
+  const code=editingCountryCode;
+  if(!code) return;
+  const data={
+    currency: document.getElementById('cp-currency').value.trim(),
+    symbol:   document.getElementById('cp-symbol').value.trim(),
+    free:     parseFloat(document.getElementById('cp-free').value)||0,
+    trial:    parseFloat(document.getElementById('cp-trial').value)||0,
+    premium:  parseFloat(document.getElementById('cp-premium').value)||0,
+    vip:      parseFloat(document.getElementById('cp-vip').value)||0,
+    updated_at: new Date().toISOString(),
+  };
+  try{
+    const r=await fetch('/api/v1/admin/country-pricing/'+code,{
+      method:'PUT',
+      headers:{...apiHdr().headers,'Content-Type':'application/json'},
+      body:JSON.stringify(data)
+    });
+    if(r.ok){toast('✓ Pricing saved for '+COUNTRY_NAMES[code]);closeCountryModal();loadRevenue();}
+    else toast('Error saving pricing');
+  }catch(e){toast('Error: '+e.message);}
+}
+
+// ════════════════════════════════════════════════════════════
+// BULK USER ACTIONS
+// ════════════════════════════════════════════════════════════
+
+let allUsersData=[];
+let filteredUsersData=[];
+
+function filterUsers(){
+  const q=(document.getElementById('user-search').value||'').toLowerCase();
+  const tier=document.getElementById('user-tier-filter').value;
+  filteredUsersData=allUsersData.filter(u=>{
+    if(tier&&u.tier!==tier)return false;
+    if(q){
+      const name=(u.name||u.display_name||'').toLowerCase();
+      const email=(u.email||u.phone||'').toLowerCase();
+      const id=(u.id||'').toLowerCase();
+      if(!name.includes(q)&&!email.includes(q)&&!id.includes(q))return false;
+    }
+    return true;
+  });
+  renderUsersTable(filteredUsersData);
+}
+
+function renderUsersTable(users){
+  const admin=getCurrentAdmin();
+  document.getElementById('users-tb').innerHTML=users.length?users.map(u=>`
+    <tr>
+      <td><input type="checkbox" class="user-cb" value="${u.id}" onchange="onUserCheckboxChange()"/></td>
+      <td style="font-family:monospace;font-size:9px;color:#888;">${u.id.substring(0,14)}…</td>
+      <td style="font-size:11px;">${u.name||u.display_name||'—'}</td>
+      <td style="font-size:10px;">${u.email||u.phone||'—'}</td>
+      <td>${tb(u.tier)}</td>
+      <td>${u.previous_tier?tb(u.previous_tier):'—'}</td>
+      <td>
+        <input type="number" id="limit-${u.id}" value="${u.daily_deal_limit||50}" style="width:55px;padding:3px;font-size:10px;" min="1" max="99999"/>
+        <button class="btn btn-sm" onclick="updateDailyLimit('${u.id}',document.getElementById('limit-${u.id}').value)" style="margin-left:2px;">Set</button>
+      </td>
+      <td style="font-size:10px;">${ft(u.created_at)}</td>
+      <td style="font-size:10px;">${ft(u.last_login)}</td>
+      <td>
+        <select onchange="changeUserTier('${u.id}',this.value,'${u.tier}')" style="padding:3px;font-size:10px;border:0.5px solid #ddd;border-radius:5px;margin-right:3px;">
+          <option value="">Change tier…</option>
+          <option value="free">Free</option>
+          <option value="trial">Trial</option>
+          <option value="premium">Premium</option>
+          <option value="vip">VIP</option>
+        </select>
+        <button class="btn btn-sm btn-d" onclick="deleteUser('${u.id}','${u.name||u.email}')">🗑️</button>
+      </td>
+    </tr>`).join(''):
+    '<tr><td colspan="10"><div class="empty"><div class="ei">👤</div><div class="et">No users match</div></div></td></tr>';
+}
+
+function onUserCheckboxChange(){
+  const checked=document.querySelectorAll('.user-cb:checked');
+  const bulkDiv=document.getElementById('bulk-actions');
+  const countEl=document.getElementById('bulk-count');
+  if(checked.length>0){
+    bulkDiv.style.display='flex';
+    countEl.textContent=checked.length+' selected';
+  } else {
+    bulkDiv.style.display='none';
+  }
+}
+
+function toggleSelectAllUsers(cb){
+  document.querySelectorAll('.user-cb').forEach(c=>{c.checked=cb.checked;});
+  onUserCheckboxChange();
+}
+
+function clearBulkSelection(){
+  document.querySelectorAll('.user-cb').forEach(c=>c.checked=false);
+  document.getElementById('select-all-users').checked=false;
+  document.getElementById('bulk-actions').style.display='none';
+}
+
+async function applyBulkTier(){
+  const newTier=document.getElementById('bulk-tier').value;
+  if(!newTier){toast('Select a tier first');return;}
+  const checked=[...document.querySelectorAll('.user-cb:checked')].map(c=>c.value);
+  if(!checked.length){toast('No users selected');return;}
+  if(!confirm(`Change ${checked.length} users to ${newTier}?`))return;
+
+  const limits={free:50,trial:100,premium:500,vip:99999};
+  let done=0, failed=0;
+  for(const userId of checked){
+    try{
+      const user=allUsersData.find(u=>u.id===userId);
+      const oldTier=user?.tier||'free';
+      await dbp('users',userId,'PATCH',{
+        tier:newTier, previous_tier:oldTier,
+        daily_deal_limit:limits[newTier]||50,
+        tier_upgraded_at:new Date().toISOString(),
+        updated_at:new Date().toISOString()
+      });
+      await dbp('tier_history',null,'POST',{
+        user_id:userId,from_tier:oldTier,to_tier:newTier,
+        changed_at:new Date().toISOString(),method:'bulk_admin',
+        changed_by:currentAdmin?.email||'admin'
+      });
+      done++;
+    }catch(e){failed++;}
+  }
+  toast(`✓ ${done} users updated to ${newTier}${failed?', '+failed+' failed':''}`);
+  clearBulkSelection();
+  loadUsers();
+}
 </script>
 </body>
 </html>

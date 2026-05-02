@@ -2,7 +2,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore, messaging, auth as fb_auth
-import json, os, re, requests, hashlib, hmac, base64, time
+import json, os, re, requests, hashlib, hmac, base64, time, traceback
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -54,6 +54,30 @@ _shop_cache = {}
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+# ── Structured event logger ─────────────────────────────────────────────────
+_logging_in_progress = False  # guard against recursive log calls
+
+def _log_event(level, category, message, details=None):
+    """Write a structured log entry to admin_logs collection (never crashes the app)."""
+    global _logging_in_progress
+    if _logging_in_progress:
+        return
+    _logging_in_progress = True
+    try:
+        db.collection('admin_logs').add({
+            'level':     level,       # error | warn | info
+            'category':  category,    # scraper | auth | db | api | system
+            'message':   message,
+            'details':   details or {},
+            'path':      request.path if request else '',
+            'method':    request.method if request else '',
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception:
+        pass
+    finally:
+        _logging_in_progress = False
 
 # ── AES ────────────────────────────────────────────────────
 def _evp_bytes_to_key(password: bytes, salt: bytes):
@@ -1812,7 +1836,8 @@ def admin_notifications():
 _PROXY_COLLECTIONS = {
     'deals', 'users', 'admin', 'admin_users', 'notifications',
     'user_groups', 'special_offers', 'tier_config', 'tier_history',
-    'fake_checks', 'scraper_health',
+    'fake_checks', 'scraper_health', 'admin_logs', 'country_pricing',
+    'ab_tests', 'fraud_flags',
 }
 
 
@@ -2080,6 +2105,270 @@ def send_notification():
                     'recipients': recipients})
 
 
+# ── Admin Logs ──────────────────────────────────────────────────────────────
+@app.route('/api/v1/admin/logs')
+def admin_logs():
+    """Return recent structured log entries with optional level filter."""
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    try:
+        _uid_email_from_token(auth_header[7:])
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 401
+
+    level    = request.args.get('level')      # error | warn | info
+    category = request.args.get('category')  # scraper | auth | db | api | system
+    limit    = min(int(request.args.get('limit', 100)), 500)
+    try:
+        q = db.collection('admin_logs').order_by(
+            'timestamp', direction=firestore.Query.DESCENDING)
+        if level:
+            q = q.where('level', '==', level)
+        if category:
+            q = q.where('category', '==', category)
+        docs = list(q.limit(limit).stream())
+        logs = []
+        for d in docs:
+            data = d.to_dict() or {}
+            data['id'] = d.id
+            logs.append(data)
+        return jsonify({'success': True, 'logs': logs, 'count': len(logs)})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ── Alarms ──────────────────────────────────────────────────────────────────
+@app.route('/api/v1/admin/alarms')
+def admin_alarms():
+    """Compute real-time alarms: scraper health, error rate, database health."""
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    try:
+        _uid_email_from_token(auth_header[7:])
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 401
+
+    alarms = []
+    now    = datetime.now(timezone.utc)
+
+    # ── Scraper health: last deal per source ──────────────────────────
+    _EXPECTED_SOURCES = [
+        'amazon_eg', 'noon_eg', 'jumia_eg', 'btech_eg',
+        'carrefour_eg', 'sharaf_dg_eg', 'hyperone_eg', 'sahla_eg',
+    ]
+    try:
+        deal_docs = list(db.collection('deals')
+                         .order_by('timestamp', direction=firestore.Query.DESCENDING)
+                         .limit(500).stream())
+        site_last = {}
+        for d in deal_docs:
+            row = d.to_dict() or {}
+            s   = row.get('site')
+            ts  = row.get('timestamp')
+            if s and ts and s not in site_last:
+                site_last[s] = ts
+
+        for src in _EXPECTED_SOURCES:
+            last = site_last.get(src)
+            if last is None:
+                alarms.append({'level': 'warn', 'category': 'scraper',
+                                'source': src,
+                                'message': f'No deals ever collected from {src}',
+                                'last_deal': None})
+            else:
+                try:
+                    last_dt = last if hasattr(last, 'tzinfo') else None
+                    if last_dt:
+                        if last_dt.tzinfo is None:
+                            last_dt = last_dt.replace(tzinfo=timezone.utc)
+                        age_min = (now - last_dt).total_seconds() / 60
+                        if age_min > 120:
+                            alarms.append({'level': 'error', 'category': 'scraper',
+                                           'source': src,
+                                           'message': f'{src} — no new deals for {int(age_min)} minutes',
+                                           'last_deal': _ts(last)})
+                        elif age_min > 30:
+                            alarms.append({'level': 'warn', 'category': 'scraper',
+                                           'source': src,
+                                           'message': f'{src} — no new deals for {int(age_min)} minutes',
+                                           'last_deal': _ts(last)})
+                except Exception:
+                    pass
+    except Exception as e:
+        alarms.append({'level': 'error', 'category': 'database',
+                       'message': f'Cannot read deals collection: {str(e)}'})
+
+    # ── Recent error count ────────────────────────────────────────────
+    try:
+        recent_errors = list(db.collection('admin_logs')
+                             .where('level', '==', 'error')
+                             .order_by('timestamp', direction=firestore.Query.DESCENDING)
+                             .limit(20).stream())
+        err_count = len(recent_errors)
+        if err_count >= 10:
+            alarms.append({'level': 'error', 'category': 'system',
+                           'message': f'{err_count} recent server errors — investigate logs immediately'})
+        elif err_count >= 3:
+            alarms.append({'level': 'warn', 'category': 'system',
+                           'message': f'{err_count} recent server errors detected'})
+    except Exception:
+        pass  # logs collection might not exist yet
+
+    # ── Database connectivity (already got here = ok) ─────────────────
+    alarms.append({'level': 'info', 'category': 'database',
+                   'message': 'Firestore connection: OK',
+                   'checked_at': now.isoformat()})
+
+    error_count = sum(1 for a in alarms if a['level'] == 'error')
+    warn_count  = sum(1 for a in alarms if a['level'] == 'warn')
+
+    return jsonify({
+        'success': True,
+        'alarms': alarms,
+        'summary': {'errors': error_count, 'warnings': warn_count},
+        'checked_at': now.isoformat(),
+    })
+
+
+# ── Revenue / Financial ──────────────────────────────────────────────────────
+@app.route('/api/v1/admin/revenue')
+def admin_revenue():
+    """Financial dashboard: MRR estimate, tier breakdown, recent tier changes."""
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    try:
+        _uid_email_from_token(auth_header[7:])
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 401
+
+    try:
+        users = [d.to_dict() or {} for d in db.collection('users').stream()]
+
+        # Tier pricing (USD default)
+        tier_prices_usd = {'free': 0, 'trial': 0, 'premium': 5, 'vip': 10}
+        try:
+            for d in db.collection('tier_config').stream():
+                data = d.to_dict() or {}
+                tier_prices_usd[d.id] = float(data.get('price', 0))
+        except Exception:
+            pass
+
+        # Country pricing
+        country_prices = {}
+        try:
+            for d in db.collection('country_pricing').stream():
+                country_prices[d.id] = d.to_dict() or {}
+        except Exception:
+            pass
+
+        # Compute tier counts and MRR
+        tier_counts = {}
+        country_counts = {}
+        for u in users:
+            tier = u.get('tier', 'free')
+            tier_counts[tier] = tier_counts.get(tier, 0) + 1
+            country = u.get('country', 'eg')
+            country_counts[country] = country_counts.get(country, 0) + 1
+
+        mrr_by_tier = {}
+        total_mrr   = 0.0
+        for tier, count in tier_counts.items():
+            price = tier_prices_usd.get(tier, 0)
+            mrr   = round(count * price, 2)
+            mrr_by_tier[tier] = {'count': count, 'price_usd': price, 'mrr_usd': mrr}
+            total_mrr += mrr
+
+        # Recent tier changes
+        tier_changes = []
+        try:
+            for d in (db.collection('tier_history')
+                      .order_by('changed_at', direction=firestore.Query.DESCENDING)
+                      .limit(20).stream()):
+                row = d.to_dict() or {}
+                tier_changes.append({
+                    'user_id':    (row.get('user_id') or '')[:14],
+                    'from_tier':  row.get('from_tier', ''),
+                    'to_tier':    row.get('to_tier', ''),
+                    'changed_at': _ts(row.get('changed_at')),
+                    'method':     row.get('method', ''),
+                })
+        except Exception:
+            pass
+
+        # Upgrade vs downgrade counts
+        upgrades   = sum(1 for c in tier_changes if
+                         ['free','trial','premium','vip'].index(c['to_tier'] or 'free') >
+                         ['free','trial','premium','vip'].index(c['from_tier'] or 'free'))
+        downgrades = len(tier_changes) - upgrades
+
+        return jsonify({
+            'success':       True,
+            'total_users':   len(users),
+            'tier_counts':   tier_counts,
+            'mrr_by_tier':   mrr_by_tier,
+            'total_mrr_usd': round(total_mrr, 2),
+            'country_counts': country_counts,
+            'country_prices': country_prices,
+            'tier_changes':  tier_changes,
+            'upgrades':      upgrades,
+            'downgrades':    downgrades,
+        })
+    except Exception as e:
+        _log_event('error', 'api', f'Revenue endpoint error: {str(e)}',
+                   {'traceback': traceback.format_exc()[:1000]})
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ── Country pricing CRUD ─────────────────────────────────────────────────────
+@app.route('/api/v1/admin/country-pricing', methods=['GET'])
+def get_country_pricing():
+    """List per-country tier prices."""
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    try:
+        _uid_email_from_token(auth_header[7:])
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 401
+
+    defaults = {
+        'eg': {'currency': 'EGP', 'symbol': 'ج.م', 'free': 0, 'trial': 0, 'premium': 99,  'vip': 199},
+        'sa': {'currency': 'SAR', 'symbol': 'ر.س', 'free': 0, 'trial': 0, 'premium': 39,  'vip': 79},
+        'ae': {'currency': 'AED', 'symbol': 'د.إ', 'free': 0, 'trial': 0, 'premium': 39,  'vip': 79},
+        'kw': {'currency': 'KWD', 'symbol': 'د.ك', 'free': 0, 'trial': 0, 'premium': 2.9, 'vip': 5.9},
+        'qa': {'currency': 'QAR', 'symbol': 'ر.ق', 'free': 0, 'trial': 0, 'premium': 39,  'vip': 79},
+    }
+    try:
+        docs = list(db.collection('country_pricing').stream())
+        pricing = {d.id: d.to_dict() for d in docs}
+        # fill missing countries with defaults
+        for cc, vals in defaults.items():
+            if cc not in pricing:
+                pricing[cc] = vals
+        return jsonify({'success': True, 'pricing': pricing})
+    except Exception as e:
+        return jsonify({'success': True, 'pricing': defaults})
+
+
+@app.route('/api/v1/admin/country-pricing/<country_code>', methods=['PUT'])
+def set_country_pricing(country_code):
+    """Set per-country tier prices."""
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    try:
+        _uid_email_from_token(auth_header[7:])
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 401
+
+    data = request.get_json() or {}
+    db.collection('country_pricing').document(country_code).set(data, merge=True)
+    return jsonify({'success': True})
+
+
 @app.route('/admin')
 @app.route('/admin.html')
 def serve_admin():
@@ -2088,9 +2377,25 @@ def serve_admin():
     return resp
 
 @app.errorhandler(404)
-def not_found(e): return jsonify({"success":False,"error":"Not found"}),404
-@app.errorhandler(500)
-def server_error(e): return jsonify({"success":False,"error":"Server error"}),500
+def not_found(e):
+    return jsonify({"success": False, "error": "Not found"}), 404
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    tb = traceback.format_exc()
+    _log_event('error', 'server', str(e), {
+        'traceback': tb[:2000],
+        'path': request.path,
+        'method': request.method,
+    })
+    return jsonify({"success": False, "error": "Server error: " + str(e)}), 500
+
+@app.after_request
+def log_slow_requests(response):
+    # Log any 5xx from route handlers that returned error JSON
+    if response.status_code >= 500:
+        _log_event('error', 'api', f'HTTP {response.status_code} on {request.method} {request.path}')
+    return response
 
 print("Starting...")
 _load_shops()
