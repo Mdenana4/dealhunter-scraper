@@ -1249,11 +1249,36 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 // Check if user is authenticated
+function _saveAdminSession(uid, adminObj) {
+  try {
+    localStorage.setItem('adminSession', JSON.stringify({ ...adminObj, uid, at: Date.now() }));
+  } catch (_) {}
+}
+
+function _loadAdminSession(uid) {
+  try {
+    const s = JSON.parse(localStorage.getItem('adminSession') || 'null');
+    if (s && s.uid === uid && (Date.now() - s.at) < 4 * 3600 * 1000) return s;
+  } catch (_) {}
+  return null;
+}
+
 function checkAuthentication() {
   auth.onAuthStateChanged(async (user) => {
     console.log('[AUTH] onAuthStateChanged fired. user=', user ? user.email : 'null');
     if (user) {
-      // User is logged in — check if they're an admin via API
+      // Check cached admin session first (avoids server call when Firestore quota exceeded)
+      const cached = _loadAdminSession(user.uid);
+      if (cached && cached.is_admin) {
+        console.log('[AUTH] Using cached admin session for', user.email);
+        currentAdmin = cached;
+        localStorage.setItem('currentAdmin', JSON.stringify(currentAdmin));
+        localStorage.setItem('adminToken', await user.getIdToken());
+        showDashboard();
+        updateLastLogin(user.email);
+        return;
+      }
+
       try {
         console.log('[AUTH] Getting ID token for', user.email);
         const token = await user.getIdToken();
@@ -1269,6 +1294,7 @@ function checkAuthentication() {
           if (data.is_admin) {
             currentAdmin = { uid: user.uid, email: user.email, ...data };
             localStorage.setItem('currentAdmin', JSON.stringify(currentAdmin));
+            _saveAdminSession(user.uid, currentAdmin);
             localStorage.setItem('adminToken', token);
             showDashboard();
             updateLastLogin(user.email);
@@ -1289,6 +1315,7 @@ function checkAuthentication() {
               if (adminData) {
                 currentAdmin = { uid: user.uid, email: user.email, ...adminData };
                 localStorage.setItem('currentAdmin', JSON.stringify(currentAdmin));
+                _saveAdminSession(user.uid, currentAdmin);
                 localStorage.setItem('adminToken', token);
                 showDashboard();
                 updateLastLogin(user.email);
@@ -1479,6 +1506,8 @@ function logout() {
   auth.signOut().then(() => {
     currentAdmin = null;
     localStorage.removeItem('currentAdmin');
+    localStorage.removeItem('adminSession');
+    localStorage.removeItem('adminToken');
     showLoginPage();
   });
 }
@@ -3192,8 +3221,7 @@ async function deleteOffer(id){
 // ── AUTO REFRESH ───────────────────────────────
 setInterval(()=>{
   if(document.getElementById('page-monitor').classList.contains('active'))loadMonitor();
-  // Refresh alarms badge every 2 minutes regardless of active page
-}, 60000);
+}, 300000); // 5-minute interval — server caches stats for 5 min, no need to poll faster
 setInterval(()=>{ if(currentAdmin) refreshAlarmBadge(); }, 120000);
 
 // ════════════════════════════════════════════════════════════
