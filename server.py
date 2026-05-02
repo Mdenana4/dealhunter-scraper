@@ -1626,61 +1626,83 @@ def scraper_log():
 @app.route('/api/debug/amazon-test')
 def debug_amazon_test():
     """
-    Test the RapidAPI Amazon integration without running the full scraper.
-    Returns raw API response for one keyword search on Amazon Egypt.
-    Visit: /api/debug/amazon-test?country=EG&q=laptop
+    Test ALL 5 RapidAPI Amazon integrations with one request.
+    Visit: /api/debug/amazon-test
     """
-    RAPIDAPI_KEY = (
-        os.getenv("RAPIDAPI_KEY") or
-        os.getenv("RAPID_API_KEY") or ""
-    )
-    country = request.args.get("country", "EG").upper()
-    query   = request.args.get("q", "laptop")
+    KEY = (os.getenv("RAPIDAPI_KEY") or os.getenv("RAPID_API_KEY") or "")
+    if not KEY:
+        return jsonify({"error": "RAPIDAPI_KEY not set in Railway Variables"}), 400
 
-    if not RAPIDAPI_KEY:
-        return jsonify({
-            "error": "RAPIDAPI_KEY not set in Railway Variables",
-            "fix":   "Go to Railway → your project → Variables → add RAPIDAPI_KEY"
-        }), 400
+    hdrs = lambda host: {"x-rapidapi-host": host, "x-rapidapi-key": KEY}
+    results = {}
 
+    # 1 — real-time-amazon-data: search EG
     try:
-        resp = requests.get(
-            "https://real-time-amazon-data.p.rapidapi.com/search",
-            headers={
-                "x-rapidapi-host": "real-time-amazon-data.p.rapidapi.com",
-                "x-rapidapi-key":  RAPIDAPI_KEY,
-            },
-            params={
-                "query":         query,
-                "page":          "1",
-                "country":       country,
-                "discount_only": "true",
-                "sort_by":       "RELEVANCE",
-            },
-            timeout=20,
-        )
-        raw = resp.json()
-        products = (raw.get("data") or {}).get("products") or []
-        summary  = []
-        for p in products[:10]:
-            disc = p.get("discount_percent") or p.get("savings_percent") or "?"
-            summary.append({
-                "title":     (p.get("product_title") or "")[:60],
-                "price":     p.get("product_price"),
-                "original":  p.get("product_original_price"),
-                "discount":  disc,
-                "asin":      p.get("asin"),
-            })
-        return jsonify({
-            "api_status":       raw.get("status"),
-            "http_status":      resp.status_code,
-            "total_products":   (raw.get("data") or {}).get("total_products", 0),
-            "products_returned": len(products),
-            "sample_10":        summary,
-            "key_used":         RAPIDAPI_KEY[:8] + "...",
-        })
+        r = requests.get("https://real-time-amazon-data.p.rapidapi.com/search",
+            headers=hdrs("real-time-amazon-data.p.rapidapi.com"),
+            params={"query": "laptop", "page": "1", "country": "EG"}, timeout=15)
+        prods = (r.json().get("data") or {}).get("products") or []
+        results["1_real_time_search_EG"] = {
+            "http": r.status_code, "products": len(prods),
+            "sample": (prods[0].get("product_title","")[:50] if prods else None)}
     except Exception as e:
-        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+        results["1_real_time_search_EG"] = {"error": str(e)}
+
+    # 2 — real-time-amazon-data: search US (free tier baseline)
+    try:
+        r = requests.get("https://real-time-amazon-data.p.rapidapi.com/search",
+            headers=hdrs("real-time-amazon-data.p.rapidapi.com"),
+            params={"query": "laptop", "page": "1", "country": "US"}, timeout=15)
+        prods = (r.json().get("data") or {}).get("products") or []
+        results["2_real_time_search_US"] = {
+            "http": r.status_code, "products": len(prods),
+            "sample": (prods[0].get("product_title","")[:50] if prods else None)}
+    except Exception as e:
+        results["2_real_time_search_US"] = {"error": str(e)}
+
+    # 3 — amazon-product-info2: search via direct Amazon.eg URL
+    try:
+        r = requests.get("https://amazon-product-info2.p.rapidapi.com/Amazon/details",
+            headers=hdrs("amazon-product-info2.p.rapidapi.com"),
+            params={"url": "https://www.amazon.eg/s?k=laptop"}, timeout=15)
+        body = r.json()
+        prods = body.get("products") or body.get("data") or body.get("results") or []
+        if isinstance(prods, dict):
+            prods = list(prods.values())[:5]
+        results["3_product_info2_EG_URL"] = {
+            "http": r.status_code, "top_keys": list(body.keys())[:8],
+            "items": len(prods) if isinstance(prods, list) else "not a list",
+            "raw_snippet": str(body)[:300]}
+    except Exception as e:
+        results["3_product_info2_EG_URL"] = {"error": str(e)}
+
+    # 4 — amazon-pricing-and-product-info: domain=eg with known ASIN
+    try:
+        r = requests.get("https://amazon-pricing-and-product-info.p.rapidapi.com/",
+            headers=hdrs("amazon-pricing-and-product-info.p.rapidapi.com"),
+            params={"asin": "B07GR5MSKD", "domain": "eg"}, timeout=15)
+        body = r.json()
+        results["4_pricing_domain_eg"] = {
+            "http": r.status_code, "top_keys": list(body.keys())[:8],
+            "raw_snippet": str(body)[:300]}
+    except Exception as e:
+        results["4_pricing_domain_eg"] = {"error": str(e)}
+
+    # 5 — realtime-amazon-data: best-sellers
+    try:
+        r = requests.get("https://realtime-amazon-data.p.rapidapi.com/best-sellers",
+            headers=hdrs("realtime-amazon-data.p.rapidapi.com"),
+            params={"category": "electronics", "country": "us", "page": "1"}, timeout=15)
+        body = r.json()
+        prods = body.get("best_sellers") or body.get("products") or body.get("data") or []
+        results["5_realtime_bestsellers"] = {
+            "http": r.status_code, "top_keys": list(body.keys())[:8],
+            "items": len(prods) if isinstance(prods, list) else "not a list",
+            "sample": (prods[0].get("product_title","")[:50] if isinstance(prods,list) and prods else None)}
+    except Exception as e:
+        results["5_realtime_bestsellers"] = {"error": str(e)}
+
+    return jsonify({"key_used": KEY[:8] + "...", "results": results})
 
 
 @app.route('/api/debug/scraper-status')
