@@ -23,8 +23,37 @@ else:
 
 db = firestore.client()
 
+# ── In-memory admin cache (loaded once at startup, refreshed hourly) ────────
+# Eliminates Firestore reads on every login — critical to stay under quota.
+_admin_cache: dict = {}
+_admin_cache_ts: float = 0.0
+
+def _reload_admin_cache(force: bool = False) -> None:
+    global _admin_cache, _admin_cache_ts
+    now = time.time()
+    if not force and now - _admin_cache_ts < 3600:
+        return
+    try:
+        docs = list(db.collection('admin_users').stream())
+        _admin_cache = {d.id: (d.to_dict() or {}) for d in docs}
+        _admin_cache_ts = now
+        print(f'[admin-cache] loaded {len(_admin_cache)} admins')
+    except Exception as exc:
+        print(f'[admin-cache] load failed: {exc}')
+
+def _get_admin_data(uid: str, email: str) -> dict | None:
+    _reload_admin_cache()
+    return _admin_cache.get(uid) or _admin_cache.get(email) or None
+
+# Load at startup (best-effort; quota errors are caught above)
+_reload_admin_cache(force=True)
+
+# ── Stats result cache (5-minute TTL) ───────────────────────────────────────
+_stats_cache: dict = {'data': None, 'at': 0.0}
+_STATS_TTL = 300  # seconds
+
 # ── Firebase token: local JWT decode (no API call, no quota) ───────────────
-# Security gate is the Firestore admin_users lookup below — UID must exist there.
+# Security gate is the in-memory admin cache above — UID/email must be present.
 def _uid_email_from_token(token):
     """Decode Firebase ID token locally. Checks format and expiry; no network call."""
     parts = token.split('.')
@@ -1653,16 +1682,9 @@ def admin_check_auth():
     token = auth_header[7:]
     try:
         uid, email = _uid_email_from_token(token)
-
-        # Check by UID first, then by email (support both doc ID conventions)
-        doc = db.collection('admin_users').document(uid).get()
-        if not doc.exists and email:
-            doc = db.collection('admin_users').document(email).get()
-
-        if not doc.exists:
-            return jsonify({'is_admin': False})
-
-        data = doc.to_dict() or {}
+        data = _get_admin_data(uid, email)
+        if not data:
+            return jsonify({'is_admin': False, 'error': 'Not an admin'}), 401
         return jsonify({
             'is_admin':    True,
             'uid':         uid,
@@ -1717,6 +1739,9 @@ def _ts(val):
 @app.route('/api/v1/admin/stats')
 def admin_stats():
     """Monitor stats: deals, users, per-source breakdown, latest deals."""
+    now = time.time()
+    if _stats_cache['data'] and now - _stats_cache['at'] < _STATS_TTL:
+        return jsonify(_stats_cache['data'])
     try:
         deal_docs = list(db.collection('deals').stream())
         deals = []
@@ -1752,7 +1777,7 @@ def admin_stats():
             clean['id'] = d['_doc_id']
             latest.append(clean)
 
-        return jsonify({
+        result = {
             'success': True,
             'total_deals': len(deals),
             'total_users': len(user_docs),
@@ -1763,7 +1788,9 @@ def admin_stats():
             'cat_counts': cat_counts,
             'custom_sources': custom_sources,
             'latest_deals': latest,
-        })
+        }
+        _stats_cache.update({'data': result, 'at': time.time()})
+        return jsonify(result)
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
