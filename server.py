@@ -13,13 +13,15 @@ app = Flask(__name__)
 _cors_origins = os.getenv('CORS_ORIGINS', 'https://dealhunter-scraper.onrender.com')
 CORS(app, origins=_cors_origins.split(','))
 
-firebase_key_json = os.getenv("FIREBASE_KEY_JSON")
+firebase_key_json = (os.getenv("FIREBASE_KEY_JSON") or
+                     os.getenv("FIREBASE_CREDENTIALS_JSON") or
+                     os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON"))
 if firebase_key_json:
     cred = credentials.Certificate(json.loads(firebase_key_json))
     firebase_admin.initialize_app(cred)
     print("✅ Firebase initialized")
 else:
-    raise RuntimeError("FIREBASE_KEY_JSON not set!")
+    raise RuntimeError("Firebase credentials not found — set FIREBASE_KEY_JSON env var")
 
 db = firestore.client()
 
