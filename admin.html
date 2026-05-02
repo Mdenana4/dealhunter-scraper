@@ -1281,6 +1281,23 @@ function checkAuthentication() {
         } else {
           const errText = await response.text();
           console.error('[AUTH] check-auth non-ok:', response.status, errText);
+          // Firebase API quota exceeded — fall back to reading admin_users via proxy
+          if (response.status === 401 && (errText.includes('429') || errText.includes('Quota') || errText.includes('quota'))) {
+            console.warn('[AUTH] Firebase quota exceeded — trying proxy fallback');
+            try {
+              const adminData = await fallbackAdminCheck(user, token);
+              if (adminData) {
+                currentAdmin = { uid: user.uid, email: user.email, ...adminData };
+                localStorage.setItem('currentAdmin', JSON.stringify(currentAdmin));
+                localStorage.setItem('adminToken', token);
+                showDashboard();
+                updateLastLogin(user.email);
+                return;
+              }
+            } catch (fbErr) {
+              console.error('[AUTH] Proxy fallback also failed:', fbErr);
+            }
+          }
           showError('Error checking admin status. (HTTP ' + response.status + ')');
           logout();
         }
@@ -1297,6 +1314,35 @@ function checkAuthentication() {
       showLoginPage();
     }
   });
+}
+
+async function fallbackAdminCheck(user, token) {
+  const email = user.email || '';
+  const uid = user.uid || '';
+  for (const docId of [email, uid]) {
+    if (!docId) continue;
+    try {
+      const r = await fetch(
+        '/api/v1/admin/db/admin_users/' + encodeURIComponent(docId),
+        { headers: { 'Authorization': 'Bearer ' + token } }
+      );
+      if (r.ok) {
+        const data = await r.json();
+        if (data.success && (data.role || data.is_admin)) {
+          console.log('[AUTH] Proxy fallback succeeded for', docId);
+          return {
+            is_admin: true,
+            uid,
+            email,
+            role: data.role || 'admin',
+            permissions: data.permissions || [],
+            name: data.name || email
+          };
+        }
+      }
+    } catch (_) {}
+  }
+  return null;
 }
 
 // Show login page
