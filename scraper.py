@@ -565,7 +565,8 @@ def _rapidapi_amazon_search(query, country, default_cat,
                 "query":        query,
                 "page":         page,
                 "country":      country,
-                "sort_by":      "RELEVANCE",
+                "sort_by":           "RELEVANCE",
+                "discount_only":     "true",
                 "product_condition": "ALL",
             },
             timeout=30,
@@ -591,7 +592,7 @@ def _rapidapi_amazon_search(query, country, default_cat,
                 if not product_url:
                     continue
 
-                # Price — RapidAPI returns strings like "EGP 15,999" or "15999.00"
+                # Price — API returns strings like "EGP 15,999" or "15,999.00"
                 current_price  = clean_price(str(p.get("product_price") or 0))
                 original_price = clean_price(str(p.get("product_original_price") or 0))
                 if current_price < 1:
@@ -599,8 +600,13 @@ def _rapidapi_amazon_search(query, country, default_cat,
                 if original_price < current_price:
                     original_price = current_price
 
-                # Discount — API may return "30%" or integer
-                disc_raw = p.get("discount_percent") or p.get("product_discount") or ""
+                # Discount — API returns "-43%" / "43%" / "43" / integer
+                disc_raw = (
+                    p.get("discount_percent") or
+                    p.get("product_discount") or
+                    p.get("savings_percent") or
+                    ""
+                )
                 if disc_raw:
                     try:
                         discount = int(re.sub(r"[^\d]", "", str(disc_raw)))
@@ -610,18 +616,25 @@ def _rapidapi_amazon_search(query, country, default_cat,
                     discount = calculate_discount(original_price, current_price)
 
                 # Back-calculate original price from badge discount if missing
-                if discount >= MIN_DISCOUNT and original_price == current_price:
+                if discount >= MIN_DISCOUNT and original_price <= current_price:
                     original_price = round(current_price / (1 - discount / 100))
-
+                # If still no discount signal, skip (discount_only=true should prevent this)
                 if discount < MIN_DISCOUNT:
                     continue
 
                 if currency == "EGP" and not price_in_range(current_price):
                     continue
 
-                image_url = p.get("product_photo") or p.get("thumbnail") or ""
-                rating    = float(p.get("product_star_rating") or 0)
-                rc_raw    = p.get("product_num_ratings") or p.get("product_num_offers")
+                image_url = (
+                    p.get("product_photo") or
+                    p.get("thumbnail") or
+                    p.get("product_image") or ""
+                )
+                try:
+                    rating = float(p.get("product_star_rating") or 0)
+                except Exception:
+                    rating = 0.0
+                rc_raw = p.get("product_num_ratings") or p.get("product_num_offers")
                 try:
                     review_count = int(str(rc_raw).replace(",", "")) if rc_raw else None
                 except Exception:
@@ -672,22 +685,30 @@ def _rapidapi_amazon_deals(country, marketplace_country, site_display, currency)
     """Fetch the Amazon Deals page via RapidAPI. Returns count."""
     total = 0
     try:
-        resp = requests.get(
-            f"https://{_RAPIDAPI_AMAZON_HOST}/deals-and-offers",
-            headers=_RAPIDAPI_HEADERS,
-            params={"country": country, "limit": 50},
-            timeout=30,
-        )
-        if resp.status_code != 200:
-            # deals endpoint might not exist for all regions — fall back silently
-            return 0
-
-        data  = resp.json()
-        deals = (data.get("data") or {}).get("deals") or []
+        for offset in (0, 50):
+            resp = requests.get(
+                f"https://{_RAPIDAPI_AMAZON_HOST}/deals-and-offers",
+                headers=_RAPIDAPI_HEADERS,
+                params={"country": country, "offset": offset, "limit": 50},
+                timeout=30,
+            )
+            if resp.status_code != 200:
+                break
+            data  = resp.json()
+            deals = (
+                (data.get("data") or {}).get("deals") or
+                (data.get("data") or {}).get("products") or
+                data.get("deals") or []
+            )
+            if not deals:
+                break
 
         for p in deals:
             try:
-                title = (p.get("deal_title") or p.get("product_title") or "").strip()
+                title = (
+                    p.get("deal_title") or p.get("product_title") or
+                    p.get("title") or ""
+                ).strip()
                 if not title or len(title) < 5:
                     continue
 
@@ -741,6 +762,99 @@ def _rapidapi_amazon_deals(country, marketplace_country, site_display, currency)
     return total
 
 
+def _rapidapi_amazon_category(country, category_id, default_cat,
+                               marketplace_country, site_display, currency):
+    """Fetch best-sellers/sale for a category, filter for MIN_DISCOUNT. Returns count."""
+    total = 0
+    for page in (1, 2):
+        try:
+            resp = requests.get(
+                f"https://{_RAPIDAPI_AMAZON_HOST}/search",
+                headers=_RAPIDAPI_HEADERS,
+                params={
+                    "query":         f"discount sale {default_cat}",
+                    "page":          page,
+                    "country":       country,
+                    "category_id":   category_id,
+                    "sort_by":       "RELEVANCE",
+                    "discount_only": "true",
+                },
+                timeout=30,
+            )
+            if resp.status_code != 200:
+                break
+            products = (resp.json().get("data") or {}).get("products") or []
+            for p in products:
+                try:
+                    title = (p.get("product_title") or "").strip()
+                    if not title or len(title) < 5:
+                        continue
+                    asin        = p.get("asin", "")
+                    product_url = p.get("product_url") or (
+                        f"https://www.amazon.{country.lower()}/dp/{asin}" if asin else "")
+                    if not product_url:
+                        continue
+                    cp = clean_price(str(p.get("product_price") or 0))
+                    op = clean_price(str(p.get("product_original_price") or 0))
+                    if cp < 1:
+                        continue
+                    if op < cp:
+                        op = cp
+                    disc_raw = (p.get("discount_percent") or p.get("savings_percent") or "")
+                    try:
+                        disc = int(re.sub(r"[^\d]", "", str(disc_raw))) if disc_raw else 0
+                    except Exception:
+                        disc = 0
+                    if disc == 0:
+                        disc = calculate_discount(op, cp)
+                    if disc >= MIN_DISCOUNT and op <= cp:
+                        op = round(cp / (1 - disc / 100))
+                    if disc < MIN_DISCOUNT:
+                        continue
+                    if currency == "EGP" and not price_in_range(cp):
+                        continue
+                    cat = detect_category(title) or default_cat
+                    image_url = p.get("product_photo") or p.get("thumbnail") or ""
+                    try:
+                        rating = float(p.get("product_star_rating") or 0)
+                    except Exception:
+                        rating = 0.0
+                    print(f"    [CAT/{country}/{category_id}] [{disc}%] {title[:38]}...")
+                    kb = check_price_history(
+                        asin=asin, product_url=product_url,
+                        current_price=cp, original_price=op,
+                        title=title, site=marketplace_country,
+                    )
+                    time.sleep(0.3)
+                    deal = build_deal(
+                        title=title, site=marketplace_country, site_display=site_display,
+                        category=cat, current_price=cp, original_price=op,
+                        discount=disc, image_url=image_url, product_url=product_url,
+                        rating=rating, asin=asin, kanbkam_result=kb, currency=currency,
+                    )
+                    save_deal(deal)
+                    total += 1
+                except Exception:
+                    continue
+            time.sleep(2)
+        except Exception as e:
+            print(f"    [CAT/{country}] {category_id} page {page} error: {e}")
+    return total
+
+
+# Amazon category IDs for broad category searches
+_AMAZON_CATEGORIES = [
+    ("electronics",         "electronics"),
+    ("computers",           "electronics"),
+    ("fashion",             "fashion"),
+    ("home-garden",         "home"),
+    ("beauty",              "beauty"),
+    ("sporting-goods",      "sports"),
+    ("toys-and-games",      "toys"),
+    ("grocery",             "grocery"),
+]
+
+
 def _scrape_amazon_via_api(
     country="EG",
     marketplace_country="amazon_eg",
@@ -751,13 +865,13 @@ def _scrape_amazon_via_api(
     print(f"\n[AMAZON/{country}] RapidAPI mode — {site_display}...")
     total = 0
 
-    # Phase 1: deals page
+    # Phase 1: dedicated deals/offers endpoint
     n = _rapidapi_amazon_deals(country, marketplace_country, site_display, currency)
     print(f"  Deals endpoint: {n} deals")
     total += n
-    time.sleep(2)
+    time.sleep(3)
 
-    # Phase 2: keyword search (2 pages per term for high-discount items)
+    # Phase 2: keyword search (discount_only=true, 2 pages each)
     for term, default_cat in _AMAZON_SEARCH_TERMS:
         for page in (1, 2):
             n = _rapidapi_amazon_search(
@@ -766,8 +880,15 @@ def _scrape_amazon_via_api(
             )
             total += n
             time.sleep(2)
-        if total > 0 and total % 50 == 0:
-            time.sleep(5)  # brief pause every 50 deals to respect rate limits
+
+    # Phase 3: broad category search with discount filter
+    for cat_id, default_cat in _AMAZON_CATEGORIES:
+        n = _rapidapi_amazon_category(
+            country, cat_id, default_cat,
+            marketplace_country, site_display, currency,
+        )
+        total += n
+        time.sleep(3)
 
     print(f"[AMAZON/{country}] RapidAPI done. {total} deals.")
     return total
