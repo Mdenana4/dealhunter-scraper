@@ -885,17 +885,65 @@ tr:hover td{background:#fafafa;}
 <!-- PAGE: PRICING & TIERS -->
 <!-- ═══════════════════════════════════════════════════ -->
 <div class="page" id="page-pricing">
+
+  <!-- Tier Cards -->
   <div class="card">
-    <div class="ch"><div class="ct">💰 Tier Pricing & Features / أسعار المستويات والميزات</div></div>
+    <div class="ch">
+      <div class="ct">💰 Tier Pricing & Features / أسعار المستويات والميزات</div>
+      <button class="btn btn-p btn-sm" onclick="openTierModal()">+ Add Tier</button>
+    </div>
     <div class="cb">
       <div class="sg sg-auto" id="tier-cards" style="margin-bottom:20px;"></div>
-      <button class="btn btn-p" onclick="openTierModal()">+ Add Custom Tier</button>
     </div>
   </div>
+
+  <!-- Feature Permissions Table -->
   <div class="card">
-    <div class="ch"><div class="ct">Feature Permissions by Tier</div></div>
+    <div class="ch"><div class="ct">📋 Feature Permissions by Tier / الصلاحيات حسب المستوى</div></div>
     <div class="cb" style="padding:0;">
-      <table id="tier-features-table"><thead><tr><th>Tier</th><th>Daily Limit</th><th>Groups</th><th>Gifts</th><th>Price/Month</th><th>Actions</th></tr></thead><tbody id="tier-tb"></tbody></table>
+      <table id="tier-features-table">
+        <thead><tr><th>Tier</th><th>Daily Limit</th><th>Groups</th><th>Gifts</th><th>Price/Month (USD)</th><th>Actions</th></tr></thead>
+        <tbody id="tier-tb"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Country Pricing -->
+  <div class="card">
+    <div class="ch">
+      <div class="ct">🌍 Country Pricing / الأسعار حسب الدولة</div>
+      <button class="btn btn-p btn-sm" onclick="openCountryModal()">+ Add Country</button>
+    </div>
+    <div class="cb" style="padding:0;">
+      <table>
+        <thead><tr><th>Country</th><th>Currency</th><th>Free</th><th>Premium /mo</th><th>VIP /mo</th><th>Min Discount %</th><th>Actions</th></tr></thead>
+        <tbody id="country-pricing-tb"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- By Membership / Subscription -->
+  <div class="card">
+    <div class="ch">
+      <div class="ct">🎫 Membership Overrides / تعديلات الاشتراكات</div>
+      <button class="btn btn-p btn-sm" onclick="openMembershipModal()">+ Add Override</button>
+    </div>
+    <div class="cb" style="padding:0;">
+      <table>
+        <thead><tr><th>Email / User</th><th>Tier Override</th><th>Daily Limit</th><th>Expires</th><th>Note</th><th>Actions</th></tr></thead>
+        <tbody id="membership-tb"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- By Group -->
+  <div class="card">
+    <div class="ch">
+      <div class="ct">👥 Group Pricing / أسعار المجموعات</div>
+      <button class="btn btn-p btn-sm" onclick="showPage('groups',document.querySelector('[onclick*=groups]'))">Manage Groups →</button>
+    </div>
+    <div class="cb">
+      <p style="color:#666;font-size:13px;">Group pricing is managed in the <strong>User Groups</strong> tab. Each group can have a shared tier, custom daily limit, and shared deals quota.</p>
     </div>
   </div>
 </div>
@@ -1680,22 +1728,27 @@ async function loadTeam() {
       return;
     }
 
-    document.getElementById('team-tb').innerHTML = members.map(m => `
+    document.getElementById('team-tb').innerHTML = members.map(m => {
+      const role   = (m.role || 'admin').toLowerCase();
+      const status = (m.status || 'active').toLowerCase();
+      const name   = m.name || m.email || '—';
+      const perms  = Array.isArray(m.permissions) ? m.permissions.slice(0,2).join(', ') + (m.permissions.length > 2 ? '...' : '') : '—';
+      return `
       <tr>
-        <td style="font-size:11px;color:#666;">${m.email}</td>
-        <td>${m.name}</td>
-        <td><span class="badge ${m.role === 'owner' ? 'bvi' : m.role === 'editor' ? 'bb' : 'bgr'}">${m.role.toUpperCase()}</span></td>
-        <td style="font-size:10px;">${Array.isArray(m.permissions) ? m.permissions.slice(0,2).join(', ') + (m.permissions.length > 2 ? '...' : '') : '—'}</td>
-        <td><span class="badge ${m.status === 'active' ? 'bg' : 'bgr'}">${m.status}</span></td>
+        <td style="font-size:11px;color:#666;">${m.email || m.id || '—'}</td>
+        <td>${name}</td>
+        <td><span class="badge ${role==='owner'?'bvi':role==='editor'?'bb':'bgr'}">${role.toUpperCase()}</span></td>
+        <td style="font-size:10px;">${perms}</td>
+        <td><span class="badge ${status==='active'?'bg':'bgr'}">${status}</span></td>
         <td style="font-size:10px;color:#999;">${m.last_login ? new Date(m.last_login).toLocaleDateString() : '—'}</td>
         <td>
           ${admin.role === 'owner' ? `
-            <button class="btn btn-sm" onclick="openPermissionModal('${m.email}', '${m.name}')">Permissions</button>
-            ${m.role !== 'owner' && m.email !== admin.email ? `<button class="btn btn-sm btn-d" onclick="removeTeamMember('${m.email}')">Remove</button>` : ''}
+            <button class="btn btn-sm" onclick="openPermissionModal('${m.email||m.id}', '${name}')">Permissions</button>
+            ${role !== 'owner' && (m.email||m.id) !== admin.email ? `<button class="btn btn-sm btn-d" onclick="removeTeamMember('${m.email||m.id}')">Remove</button>` : ''}
           ` : '—'}
         </td>
-      </tr>
-    `).join('');
+      </tr>`;
+    }).join('');
   } catch (error) {
     console.error('Error loading team:', error);
     document.getElementById('team-tb').innerHTML = '<tr><td colspan="7" class="loading">Error loading team</td></tr>';
@@ -2491,13 +2544,22 @@ async function saveNotif(){
         if(el) el.value = '';
       });
       document.getElementById('nt-target').value = '';
-      toast('✓ ' + (responseData.message || 'Notification sent'));
+      const msg = responseData.message || 'Notification sent';
+      // Show warning if FCM failed but Firestore save succeeded
+      if (msg.includes('FCM error')) {
+        toast('⚠️ Saved but FCM failed: ' + msg);
+        console.warn('[NOTIF] FCM delivery error:', msg);
+      } else {
+        toast('✓ ' + msg);
+      }
       loadNotifs();
     } else {
       toast('❌ Error: ' + (responseData.error || 'Failed to send'));
+      console.error('[NOTIF] Send error:', responseData);
     }
   } catch(e) {
     toast('Error: ' + e.message);
+    console.error('[NOTIF] Exception:', e);
   }
 }
 
@@ -2857,7 +2919,76 @@ async function loadTierPricing(){
     console.error('❌ Error loading tiers:', e);
     toast('Error loading tiers');
   }
+
+  // Load country pricing into the pricing page table
+  try {
+    const cpR = await fetch('/api/v1/admin/country-pricing', apiHdr());
+    if (cpR.ok) {
+      const cp = await cpR.json();
+      renderCountryPricing(cp.pricing || {});
+    }
+  } catch(_) {}
+
+  // Load membership overrides
+  loadMembershipOverrides();
 }
+
+async function loadMembershipOverrides() {
+  try {
+    const r = await fetch('/api/v1/admin/db/users?where_field=tier_override&where_value=true&limit=100', apiHdr());
+    const tb = document.getElementById('membership-tb');
+    if (!tb) return;
+    if (!r.ok) { tb.innerHTML='<tr><td colspan="6" class="loading">—</td></tr>'; return; }
+    const data = await r.json();
+    const items = (data.items || []).filter(u => u.tier_override_expires || u.tier_override);
+    if (!items.length) {
+      tb.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:#aaa;">No membership overrides</td></tr>';
+      return;
+    }
+    tb.innerHTML = items.map(u => `
+      <tr>
+        <td style="font-size:11px;">${u.email || u.id}</td>
+        <td><span class="badge bb">${u.tier_override || u.tier || '—'}</span></td>
+        <td>${u.override_daily_limit || u.daily_limit || '—'}</td>
+        <td style="font-size:10px;color:#999;">${u.tier_override_expires ? new Date(u.tier_override_expires).toLocaleDateString() : 'Permanent'}</td>
+        <td style="font-size:10px;color:#666;">${u.override_note || '—'}</td>
+        <td>
+          <button class="btn btn-sm btn-d" onclick="removeMembershipOverride('${u.id}')">Remove</button>
+        </td>
+      </tr>`).join('');
+  } catch(_) {
+    const tb = document.getElementById('membership-tb');
+    if (tb) tb.innerHTML = '<tr><td colspan="6" class="loading">—</td></tr>';
+  }
+}
+
+async function removeMembershipOverride(uid) {
+  if (!confirm('Remove override for this user?')) return;
+  await fetch('/api/v1/admin/db/users/' + uid, {
+    method: 'PATCH',
+    headers: { ...apiHdr().headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tier_override: null, tier_override_expires: null, override_daily_limit: null })
+  });
+  toast('Override removed');
+  loadMembershipOverrides();
+}
+
+function openMembershipModal() {
+  const email = prompt('Enter user email or UID to add a tier override:');
+  if (!email) return;
+  const tier = prompt('Tier override (free / trial / premium / vip):');
+  if (!tier) return;
+  const limit = prompt('Custom daily limit (leave blank for tier default):');
+  const expires = prompt('Expiry date (YYYY-MM-DD, leave blank for permanent):');
+  const note = prompt('Note (optional):') || '';
+  dbp('users', email, 'PATCH', {
+    tier_override: tier,
+    override_daily_limit: limit ? parseInt(limit) : null,
+    tier_override_expires: expires || null,
+    override_note: note
+  }).then(() => { toast('Override saved'); loadMembershipOverrides(); });
+}
+
 
 let editingTierName = null;
 

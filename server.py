@@ -2155,15 +2155,18 @@ def admin_logs():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 401
 
-    level    = request.args.get('level')      # error | warn | info
-    category = request.args.get('category')  # scraper | auth | db | api | system
+    level    = request.args.get('level')
+    category = request.args.get('category')
     limit    = min(int(request.args.get('limit', 100)), 500)
     try:
-        # Fetch ordered by timestamp only — filtering in Python avoids requiring
-        # Firestore composite indexes (order_by + where needs index per field combo)
-        docs = list(db.collection('admin_logs')
-                    .order_by('timestamp', direction=firestore.Query.DESCENDING)
-                    .limit(500).stream())
+        # Try ordered fetch; fall back to unordered if index not ready
+        try:
+            docs = list(db.collection('admin_logs')
+                        .order_by('timestamp', direction=firestore.Query.DESCENDING)
+                        .limit(500).stream())
+        except Exception:
+            docs = list(db.collection('admin_logs').limit(500).stream())
+
         logs = []
         for d in docs:
             data = d.to_dict() or {}
