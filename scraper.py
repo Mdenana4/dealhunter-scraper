@@ -33,6 +33,11 @@ SCRAPER_API_KEY = (
     os.getenv("SCRAPER_KEY") or
     ""
 )
+RAPIDAPI_KEY = (
+    os.getenv("RAPIDAPI_KEY") or
+    os.getenv("RAPID_API_KEY") or
+    ""
+)
 
 # ─── Price filter: skip products outside this EGP range ───────────────────────
 # Set MIN_PRICE and MAX_PRICE in your .env file or Render environment variables.
@@ -513,8 +518,262 @@ def build_deal(title, site, site_display, category, current_price, original_pric
 
 
 # ─────────────────────────────────────────────────────
-# AMAZON EGYPT
+# AMAZON — RapidAPI (primary) + HTML scraper (fallback)
 # ─────────────────────────────────────────────────────
+
+_RAPIDAPI_AMAZON_HOST = "real-time-amazon-data.p.rapidapi.com"
+_RAPIDAPI_HEADERS = {
+    "x-rapidapi-host": _RAPIDAPI_AMAZON_HOST,
+    "x-rapidapi-key":  RAPIDAPI_KEY,
+    "Content-Type":    "application/json",
+}
+
+_AMAZON_SEARCH_TERMS = [
+    ("samsung galaxy",    "electronics"), ("iphone",          "electronics"),
+    ("xiaomi phone",      "electronics"), ("oppo phone",       "electronics"),
+    ("laptop lenovo",     "electronics"), ("laptop dell",      "electronics"),
+    ("laptop hp",         "electronics"), ("laptop asus",      "electronics"),
+    ("tablet android",    "electronics"), ("ipad",             "electronics"),
+    ("sony headphones",   "electronics"), ("jbl speaker",      "electronics"),
+    ("earbuds bluetooth", "electronics"), ("samsung watch",    "electronics"),
+    ("samsung tv",        "electronics"), ("lg tv",            "electronics"),
+    ("playstation",       "electronics"), ("power bank",       "electronics"),
+    ("router wifi",       "electronics"), ("gaming keyboard",  "electronics"),
+    ("digital camera",    "electronics"), ("ssd",              "electronics"),
+    ("nike shoes",        "fashion"),     ("adidas shoes",     "fashion"),
+    ("mens shirt",        "fashion"),     ("womens dress",     "fashion"),
+    ("handbag women",     "fashion"),     ("perfume men",      "fashion"),
+    ("air conditioner",   "home"),        ("refrigerator",     "home"),
+    ("washing machine",   "home"),        ("microwave oven",   "home"),
+    ("air fryer",         "home"),        ("blender",          "home"),
+    ("face cream",        "beauty"),      ("hair dryer",       "beauty"),
+    ("vitamin supplement","beauty"),      ("shampoo",          "beauty"),
+    ("protein powder",    "sports"),      ("yoga mat",         "sports"),
+    ("baby stroller",     "toys"),
+]
+
+
+def _rapidapi_amazon_search(query, country, default_cat,
+                             marketplace_country, site_display, currency,
+                             page=1):
+    """Fetch one search page via RapidAPI and save qualifying deals. Returns count."""
+    try:
+        resp = requests.get(
+            f"https://{_RAPIDAPI_AMAZON_HOST}/search",
+            headers=_RAPIDAPI_HEADERS,
+            params={
+                "query":        query,
+                "page":         page,
+                "country":      country,
+                "sort_by":      "RELEVANCE",
+                "product_condition": "ALL",
+            },
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            print(f"    RapidAPI [{country}] '{query}': HTTP {resp.status_code}")
+            return 0
+
+        data = resp.json()
+        products = (data.get("data") or {}).get("products") or []
+        saved = 0
+
+        for p in products:
+            try:
+                title = (p.get("product_title") or "").strip()
+                if not title or len(title) < 5:
+                    continue
+
+                asin = p.get("asin", "")
+                product_url = p.get("product_url") or (
+                    f"https://www.amazon.{country.lower()}/dp/{asin}" if asin else ""
+                )
+                if not product_url:
+                    continue
+
+                # Price — RapidAPI returns strings like "EGP 15,999" or "15999.00"
+                current_price  = clean_price(str(p.get("product_price") or 0))
+                original_price = clean_price(str(p.get("product_original_price") or 0))
+                if current_price < 1:
+                    continue
+                if original_price < current_price:
+                    original_price = current_price
+
+                # Discount — API may return "30%" or integer
+                disc_raw = p.get("discount_percent") or p.get("product_discount") or ""
+                if disc_raw:
+                    try:
+                        discount = int(re.sub(r"[^\d]", "", str(disc_raw)))
+                    except Exception:
+                        discount = calculate_discount(original_price, current_price)
+                else:
+                    discount = calculate_discount(original_price, current_price)
+
+                # Back-calculate original price from badge discount if missing
+                if discount >= MIN_DISCOUNT and original_price == current_price:
+                    original_price = round(current_price / (1 - discount / 100))
+
+                if discount < MIN_DISCOUNT:
+                    continue
+
+                if currency == "EGP" and not price_in_range(current_price):
+                    continue
+
+                image_url = p.get("product_photo") or p.get("thumbnail") or ""
+                rating    = float(p.get("product_star_rating") or 0)
+                rc_raw    = p.get("product_num_ratings") or p.get("product_num_offers")
+                try:
+                    review_count = int(str(rc_raw).replace(",", "")) if rc_raw else None
+                except Exception:
+                    review_count = None
+
+                cat = detect_category(title) or default_cat
+
+                print(f"    [API/{country}] [{discount}%] {title[:40]}...")
+                kb = check_price_history(
+                    asin=asin,
+                    product_url=product_url,
+                    current_price=current_price,
+                    original_price=original_price,
+                    title=title,
+                    site=marketplace_country,
+                )
+                time.sleep(0.3)
+
+                deal = build_deal(
+                    title=title,
+                    site=marketplace_country,
+                    site_display=site_display,
+                    category=cat,
+                    current_price=current_price,
+                    original_price=original_price,
+                    discount=discount,
+                    image_url=image_url,
+                    product_url=product_url,
+                    rating=rating,
+                    review_count=review_count,
+                    asin=asin,
+                    kanbkam_result=kb,
+                    currency=currency,
+                )
+                save_deal(deal)
+                saved += 1
+            except Exception:
+                continue
+
+        return saved
+
+    except Exception as e:
+        print(f"    RapidAPI [{country}] '{query}' error: {e}")
+        return 0
+
+
+def _rapidapi_amazon_deals(country, marketplace_country, site_display, currency):
+    """Fetch the Amazon Deals page via RapidAPI. Returns count."""
+    total = 0
+    try:
+        resp = requests.get(
+            f"https://{_RAPIDAPI_AMAZON_HOST}/deals-and-offers",
+            headers=_RAPIDAPI_HEADERS,
+            params={"country": country, "limit": 50},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            # deals endpoint might not exist for all regions — fall back silently
+            return 0
+
+        data  = resp.json()
+        deals = (data.get("data") or {}).get("deals") or []
+
+        for p in deals:
+            try:
+                title = (p.get("deal_title") or p.get("product_title") or "").strip()
+                if not title or len(title) < 5:
+                    continue
+
+                current_price  = clean_price(str(p.get("deal_price") or p.get("product_price") or 0))
+                original_price = clean_price(str(p.get("original_price") or p.get("list_price") or 0))
+                if current_price < 1:
+                    continue
+                if original_price < current_price:
+                    original_price = current_price
+
+                discount = calculate_discount(original_price, current_price)
+                disc_raw = p.get("discount_percent") or p.get("savings_percent") or ""
+                if disc_raw:
+                    try:
+                        discount = int(re.sub(r"[^\d]", "", str(disc_raw)))
+                    except Exception:
+                        pass
+                if discount < MIN_DISCOUNT:
+                    continue
+
+                if currency == "EGP" and not price_in_range(current_price):
+                    continue
+
+                asin        = p.get("asin", "")
+                product_url = p.get("product_url") or p.get("deal_url") or (
+                    f"https://www.amazon.{country.lower()}/dp/{asin}" if asin else ""
+                )
+                image_url   = p.get("product_photo") or p.get("deal_image") or ""
+                cat         = detect_category(title)
+
+                print(f"    [DEALS/{country}] [{discount}%] {title[:40]}...")
+                kb = check_price_history(
+                    asin=asin, product_url=product_url,
+                    current_price=current_price, original_price=original_price,
+                    title=title, site=marketplace_country,
+                )
+                deal = build_deal(
+                    title=title, site=marketplace_country, site_display=site_display,
+                    category=cat, current_price=current_price, original_price=original_price,
+                    discount=discount, image_url=image_url, product_url=product_url,
+                    asin=asin, kanbkam_result=kb, currency=currency,
+                )
+                save_deal(deal)
+                total += 1
+                time.sleep(0.3)
+            except Exception:
+                continue
+
+    except Exception as e:
+        print(f"    RapidAPI deals [{country}] error: {e}")
+    return total
+
+
+def _scrape_amazon_via_api(
+    country="EG",
+    marketplace_country="amazon_eg",
+    site_display="Amazon Egypt",
+    currency="EGP",
+):
+    """Scrape Amazon using RapidAPI — no proxy needed, no CAPTCHA."""
+    print(f"\n[AMAZON/{country}] RapidAPI mode — {site_display}...")
+    total = 0
+
+    # Phase 1: deals page
+    n = _rapidapi_amazon_deals(country, marketplace_country, site_display, currency)
+    print(f"  Deals endpoint: {n} deals")
+    total += n
+    time.sleep(2)
+
+    # Phase 2: keyword search (2 pages per term for high-discount items)
+    for term, default_cat in _AMAZON_SEARCH_TERMS:
+        for page in (1, 2):
+            n = _rapidapi_amazon_search(
+                term, country, default_cat,
+                marketplace_country, site_display, currency, page=page,
+            )
+            total += n
+            time.sleep(2)
+        if total > 0 and total % 50 == 0:
+            time.sleep(5)  # brief pause every 50 deals to respect rate limits
+
+    print(f"[AMAZON/{country}] RapidAPI done. {total} deals.")
+    return total
+
+
+# ── HTML-scraper fallback (used when RAPIDAPI_KEY is not set) ────────────────
 AMAZON_KEYWORDS = [
     {"k": "samsung galaxy",   "cat": "electronics"},
     {"k": "iphone",           "cat": "electronics"},
@@ -864,19 +1123,28 @@ def _scrape_amazon_region(
 
 
 def scrape_amazon():
-    """Amazon Egypt (EGP) — deals page first, then keyword search."""
+    """Amazon Egypt — RapidAPI primary, HTML fallback."""
+    if RAPIDAPI_KEY:
+        return _scrape_amazon_via_api("EG", "amazon_eg", "Amazon Egypt", "EGP")
+    print("\n[AMAZON/EG] No RAPIDAPI_KEY — falling back to HTML scraper (may be blocked)")
     total = _scrape_amazon_deals_page()
     total += _scrape_amazon_region()
     return total
 
 def scrape_amazon_ae():
-    """Amazon UAE (AED) — deals page first, then keyword search."""
+    """Amazon UAE — RapidAPI primary, HTML fallback."""
+    if RAPIDAPI_KEY:
+        return _scrape_amazon_via_api("AE", "amazon_ae", "Amazon UAE", "AED")
+    print("\n[AMAZON/AE] No RAPIDAPI_KEY — falling back to HTML scraper (may be blocked)")
     total = _scrape_amazon_deals_page("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
     total += _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
     return total
 
 def scrape_amazon_sa():
-    """Amazon Saudi Arabia (SAR) — deals page first, then keyword search."""
+    """Amazon Saudi Arabia — RapidAPI primary, HTML fallback."""
+    if RAPIDAPI_KEY:
+        return _scrape_amazon_via_api("SA", "amazon_sa", "Amazon Saudi Arabia", "SAR")
+    print("\n[AMAZON/SA] No RAPIDAPI_KEY — falling back to HTML scraper (may be blocked)")
     total = _scrape_amazon_deals_page("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
     total += _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
     return total
@@ -2219,10 +2487,14 @@ def run_scraper():
 
     print(f"\n{'=' * 62}")
     print(f"  SCRAPE CYCLE: {now_str()}")
+    if RAPIDAPI_KEY:
+        print(f"  RapidAPI Amazon: ACTIVE (zero-block API mode for EG/AE/SA)")
+    else:
+        print(f"  RapidAPI Amazon: NOT SET — add RAPIDAPI_KEY in Railway Variables")
     if SCRAPER_API_KEY:
         print(f"  ScraperAPI: ACTIVE (JS rendering for Noon/HyperOne/Sahla)")
     else:
-        print(f"  ScraperAPI: NOT SET — get free key at scraperapi.com")
+        print(f"  ScraperAPI: NOT SET — Noon may return 0 deals")
     if MIN_PRICE > 0 or MAX_PRICE < 9999999:
         print(f"  Price filter: EGP {MIN_PRICE:,.0f} – EGP {MAX_PRICE:,.0f}")
     print(f"{'=' * 62}")
