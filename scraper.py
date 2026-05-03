@@ -286,6 +286,10 @@ def extract_next_data(html_text):
 
 _SCRAPERAPI_EXHAUSTED = False  # set True when monthly quota gone
 
+# Tracks new deals found in the current scraper run for batch FCM notification.
+# Cleared at the end of each run_scraper() call.
+_new_deals_this_run: list = []
+
 
 def is_blocked_response(resp, min_length=2000):
     """Return True when the response looks like a CAPTCHA or bot-block page."""
@@ -443,6 +447,16 @@ def save_deal(deal):
                 "price": deal["current_price"], "timestamp": deal["timestamp"]
             })
             print(f"  NEW:     {deal['title'][:45]} | {deal['discount_percent']}% OFF | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
+            # Queue for batch FCM notification at end of scraper run
+            _new_deals_this_run.append({
+                "title":            deal["title"],
+                "discount_percent": deal.get("discount_percent", 0),
+                "site":             deal.get("site", ""),
+                "site_display":     deal.get("site_display", ""),
+                "currency":         deal.get("currency", "EGP"),
+                "current_price":    deal.get("current_price", 0),
+                "deal_id":          deal.get("deal_id", ""),
+            })
 
         # ── Record to price_tracker (builds the full price-history schema) ──
         mc = _SITE_TO_MC.get(deal.get("site", ""))
@@ -467,6 +481,92 @@ def save_deal(deal):
 
     except Exception as e:
         print(f"  SAVE ERROR: {e}")
+
+
+def _notify_new_deals(deals: list) -> None:
+    """
+    Send FCM push notifications to tier topics summarising newly found deals.
+
+    Tier thresholds (minimum discount to be notified):
+      tier_vip     → 40 %  (VIP users get everything)
+      tier_premium → 50 %
+      tier_free    → 60 %
+
+    One FCM message is sent per tier — so at most 3 FCM calls per scraper run
+    regardless of how many deals were found.  Each message picks the best deal
+    as the headline and mentions the total count.
+
+    Debug notes printed:
+      [FCM-DEALS] Sent to <topic>: N deals, best XX% — <title>
+      [FCM-DEALS] Error sending to <topic>: <error>   ← root cause visible in Railway logs
+      [FCM-DEALS] No new deals this cycle — skipping notifications
+    """
+    if not deals:
+        print("  [FCM-DEALS] No new deals this cycle — skipping notifications")
+        return
+
+    # Sort by discount descending so the best deal is always first
+    sorted_deals = sorted(deals, key=lambda d: d.get("discount_percent", 0), reverse=True)
+
+    tier_configs = [
+        ("tier_vip",     40),
+        ("tier_premium", 50),
+        ("tier_free",    60),
+    ]
+
+    for topic, min_disc in tier_configs:
+        qualifying = [d for d in sorted_deals if d.get("discount_percent", 0) >= min_disc]
+        if not qualifying:
+            print(f"  [FCM-DEALS] {topic}: no deals >= {min_disc}% — skipping")
+            continue
+
+        best   = qualifying[0]
+        count  = len(qualifying)
+        title_text = f"🔥 {count} New Deal{'s' if count > 1 else ''} — {best['site_display'] or best['site']}"
+        if count == 1:
+            body_text = f"{best['title'][:60]} — {best['discount_percent']}% OFF"
+        else:
+            body_text = (
+                f"Best: {best['title'][:40]} {best['discount_percent']}% OFF"
+                f" (+{count - 1} more)"
+            )
+
+        try:
+            msg_id = messaging.send(messaging.Message(
+                topic=topic,
+                notification=messaging.Notification(
+                    title=title_text,
+                    body=body_text,
+                ),
+                data={
+                    "type":           "new_deals",
+                    "count":          str(count),
+                    "best_discount":  str(best["discount_percent"]),
+                    "best_deal_id":   str(best["deal_id"]),
+                    "site":           str(best["site"]),
+                },
+                android=messaging.AndroidConfig(priority="high"),
+            ))
+            print(f"  [FCM-DEALS] ✓ Sent to {topic}: {count} deals, best {best['discount_percent']}% — msg_id={msg_id}")
+        except Exception as fcm_err:
+            # Log the full error so Railway logs show the root cause
+            print(
+                f"  [FCM-DEALS] ✗ Error sending to {topic}: {fcm_err}\n"
+                f"             Root cause: {type(fcm_err).__name__} — check Firebase service account\n"
+                f"             has 'Firebase Cloud Messaging Admin' role in Google Cloud IAM."
+            )
+            # Persist to Firestore so it appears in the admin Logs panel
+            if db:
+                try:
+                    db.collection("admin_logs").document().set({
+                        "level":     "error",
+                        "type":      "fcm_error",
+                        "topic":     topic,
+                        "message":   str(fcm_err)[:800],
+                        "timestamp": now_iso(),
+                    })
+                except Exception:
+                    pass
 
 
 def build_deal(title, site, site_display, category, current_price, original_price,
@@ -1989,11 +2089,31 @@ def _scrape_noon_region(
     total = 0
 
     def _noon_fetch(url):
-        """Try direct first (free), fall back to ScraperAPI only if needed."""
+        """
+        Fetch strategy for Noon pages:
+        1. Direct request — free, fast, but Noon often requires JS rendering.
+        2. ScraperAPI with render_js=True — 5 credits, reliable for Noon's
+           Next.js pages.  Only used when direct fetch returns a short/blocked
+           response (< 5 000 bytes or a known block signal).
+
+        Debug lines printed:
+          [NOON/XX] direct OK (NNNNb)   → direct fetch returned usable HTML
+          [NOON/XX] direct blocked → trying ScraperAPI render_js=True
+          [NOON/XX] ScraperAPI OK (NNNNb)
+          [NOON/XX] ScraperAPI also blocked — 0 products expected for this URL
+        """
         resp = fetch_noon_direct(url, country_code)
-        if resp and resp.status_code == 200 and len(resp.text) > 5000:
+        if resp and resp.status_code == 200 and len(resp.text or "") > 5000:
+            print(f"  [NOON/{country_code.upper()}] direct OK ({len(resp.text)}b) {url[:60]}")
             return resp
-        return fetch_with_scraperapi(url, render_js=False, country=country_code)
+        # Direct failed or too short — switch to JS rendering
+        print(f"  [NOON/{country_code.upper()}] direct blocked ({resp.status_code if resp else 'no resp'}) → ScraperAPI render_js=True")
+        resp2 = fetch_with_scraperapi(url, render_js=True, country=country_code)
+        if resp2 and resp2.status_code == 200 and len(resp2.text or "") > 3000:
+            print(f"  [NOON/{country_code.upper()}] ScraperAPI OK ({len(resp2.text)}b)")
+            return resp2
+        print(f"  [NOON/{country_code.upper()}] ScraperAPI also blocked — 0 products expected")
+        return resp2  # caller will handle empty result
 
     # ── Phase 1: Deals / sale pages (server-side rendered, most reliable) ──
     deals_pages = [
@@ -2004,20 +2124,12 @@ def _scrape_noon_region(
     for dp_url in deals_pages:
         try:
             resp = _noon_fetch(dp_url)
-            if is_blocked_response(resp, min_length=3000):
-                print(f"  [NOON/{country_code.upper()}] Deals page blocked — trying JS render")
-                resp = fetch_with_scraperapi(dp_url, render_js=False, country=country_code)
             if resp and resp.status_code == 200:
                 n = _parse_noon_products(resp.text, "general", region_path, currency,
                                          marketplace_country, site_display, country_code)
                 if n == 0:
-                    # Last resort: JS render
-                    resp2 = fetch_with_scraperapi(dp_url, render_js=False, country=country_code)
-                    if resp2 and resp2.status_code == 200:
-                        n = _parse_noon_products(resp2.text, "general", region_path, currency,
-                                                 marketplace_country, site_display, country_code)
-                if n == 0:
-                    _log_scraper_error(marketplace_country, dp_url, "0 products on deals page — selector may be broken")
+                    _log_scraper_error(marketplace_country, dp_url,
+                                       "0 products on deals page — HTML selector may have changed")
                 print(f"  [NOON/{country_code.upper()}] Deals page: {n} deals")
                 total += n
                 time.sleep(3)
@@ -2042,19 +2154,13 @@ def _scrape_noon_region(
     for term, default_cat in search_terms:
         try:
             url = f"https://www.noon.com/{region_path}/search/?q={term.replace(' ', '+')}&limit=48&sort%5Bby%5D=discount&sort%5Bdir%5D=desc"
-
-            # Try direct first (free), then ScraperAPI, then JS render
+            # _noon_fetch handles direct → ScraperAPI render_js=True cascade
             resp = _noon_fetch(url)
             if not resp or resp.status_code != 200:
                 time.sleep(2)
                 continue
             n = _parse_noon_products(resp.text, default_cat, region_path, currency,
                                      marketplace_country, site_display, country_code)
-            if n == 0:
-                resp2 = fetch_with_scraperapi(url, render_js=False, country=country_code)
-                if resp2 and resp2.status_code == 200:
-                    n = _parse_noon_products(resp2.text, default_cat, region_path, currency,
-                                             marketplace_country, site_display, country_code)
             print(f"  [NOON/{country_code.upper()}] '{term}': {n} deals")
             total += n
             time.sleep(2)
@@ -2563,6 +2669,13 @@ def run_scraper():
 
     update_analytics()
     _health.flush()   # write health summary + send FCM alert if anything broke
+
+    # ── Send deal notifications to users ─────────────────────────────────────
+    # _new_deals_this_run was populated by save_deal() for every brand-new deal.
+    print(f"\n  [FCM-DEALS] New deals this cycle: {len(_new_deals_this_run)}")
+    _notify_new_deals(_new_deals_this_run)
+    _new_deals_this_run.clear()  # reset for next cycle
+
     print(f"\n  TOTAL: {total} deals | Next in: {INTERVAL} min")
     print(f"{'=' * 62}\n")
 

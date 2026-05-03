@@ -916,7 +916,7 @@ tr:hover td{background:#fafafa;}
     </div>
     <div class="cb" style="padding:0;">
       <table>
-        <thead><tr><th>Country</th><th>Currency</th><th>Free</th><th>Premium /mo</th><th>VIP /mo</th><th>Min Discount %</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Country</th><th>Currency</th><th>Free</th><th>Trial</th><th>Premium /mo</th><th>VIP /mo</th><th>Actions</th></tr></thead>
         <tbody id="country-pricing-tb"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody>
       </table>
     </div>
@@ -2543,28 +2543,28 @@ async function saveNotif(){
 
     const responseData = await response.json();
 
-    if (response.ok) {
+    if (response.ok && responseData.success) {
       document.getElementById('notif-modal').classList.remove('show');
       ['nt-title','nt-title-ar','nt-msg','nt-msg-ar','nt-user'].forEach(id => {
         const el = document.getElementById(id);
         if(el) el.value = '';
       });
       document.getElementById('nt-target').value = '';
-      const msg = responseData.message || 'Notification sent';
-      // Show warning if FCM failed but Firestore save succeeded
-      if (msg.includes('FCM error')) {
-        toast('⚠️ Saved but FCM failed: ' + msg);
-        console.warn('[NOTIF] FCM delivery error:', msg);
-      } else {
-        toast('✓ ' + msg);
-      }
+      toast('✓ ' + (responseData.message || 'Notification sent'));
       loadNotifs();
     } else {
-      toast('❌ Error: ' + (responseData.error || 'Failed to send'));
-      console.error('[NOTIF] Send error:', responseData);
+      // FCM failed — show full error + diagnosis hint
+      const err = responseData.error || responseData.message || 'Unknown error';
+      const hint = responseData.hint || '';
+      console.error('[NOTIF] FCM send failed:', responseData);
+      toast('❌ FCM Error: ' + err);
+      if (hint) {
+        // Show hint as a secondary toast after 2s
+        setTimeout(() => toast('💡 ' + hint), 2000);
+      }
     }
   } catch(e) {
-    toast('Error: ' + e.message);
+    toast('Network error: ' + e.message);
     console.error('[NOTIF] Exception:', e);
   }
 }
@@ -2936,8 +2936,17 @@ async function loadTierPricing(){
       </tr>
     `).join('');
   }catch(e){
-    console.error('❌ Error loading tiers:', e);
-    toast('Error loading tiers');
+    // Show the REAL error so we can diagnose without guessing
+    const errMsg = e?.message || String(e);
+    console.error('❌ Error loading tiers — root cause:', errMsg, e);
+    toast('Error loading tiers: ' + errMsg);
+    // Write error into the table so it's visible without opening DevTools
+    const tb = document.getElementById('tier-tb');
+    if (tb) tb.innerHTML = `<tr><td colspan="6" style="color:#c00;padding:12px;">
+      ❌ Load failed: ${errMsg}<br>
+      <small>Check browser console (F12) for full stack trace, or visit
+      <a href="/api/debug/fcm-test" target="_blank">/api/debug/fcm-test</a></small>
+    </td></tr>`;
   }
 
   // Load country pricing into the pricing page table
@@ -2946,8 +2955,12 @@ async function loadTierPricing(){
     if (cpR.ok) {
       const cp = await cpR.json();
       renderCountryPricing(cp.pricing || {});
+    } else {
+      console.warn('[PRICING] country-pricing HTTP', cpR.status);
     }
-  } catch(_) {}
+  } catch(cpErr) {
+    console.error('[PRICING] country-pricing load error:', cpErr);
+  }
 
   // Load membership overrides
   loadMembershipOverrides();
