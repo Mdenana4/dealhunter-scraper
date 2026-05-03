@@ -1790,6 +1790,103 @@ def debug_noon():
     })
 
 
+@app.route('/api/debug/fcm-test')
+def debug_fcm_test():
+    """
+    Diagnose FCM configuration. Sends two test messages and reports results.
+    No auth required — Railway internal use only.
+
+    Visit: /api/debug/fcm-test
+
+    What to look for:
+      topic_test.status = 'success'  → FCM works, service account has correct permissions
+      topic_test.status = 'error'    → See topic_test.error + topic_test.cause for fix
+      all_users_test.status = 'success' → Users subscribed to all_users will receive pushes
+
+    Common errors and fixes:
+      'SERVICE_UNAVAILABLE'  → Transient Firebase outage; retry later
+      'INVALID_ARGUMENT'     → Message format bug; check data fields are all strings
+      '403 Forbidden' / 'Caller does not have permission'
+          → Firebase service account is missing 'Firebase Cloud Messaging Admin' role.
+             Fix: Google Cloud Console → IAM → find your service account → Add role →
+             'Firebase Cloud Messaging Admin'  (or 'Firebase Admin SDK Administrator Service Agent')
+      'App not initialized'  → FIREBASE_KEY_JSON env var missing or malformed
+    """
+    results = {}
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    # Test 1 — send to a throwaway debug topic (no real users affected)
+    try:
+        msg_id = messaging.send(messaging.Message(
+            topic="fcm_debug_test",
+            notification=messaging.Notification(
+                title="FCM Connectivity Test",
+                body=f"Backend FCM test at {timestamp}",
+            ),
+            data={"type": "debug_test", "ts": timestamp},
+        ))
+        results['topic_test'] = {
+            'status': 'success',
+            'message_id': msg_id,
+            'meaning': 'FCM is working. Service account has correct permissions.',
+        }
+    except Exception as e:
+        results['topic_test'] = {
+            'status': 'error',
+            'error': str(e),
+            'type': type(e).__name__,
+            'cause': (
+                'Service account missing FCM permissions'
+                if 'permission' in str(e).lower() or '403' in str(e)
+                else 'Check error message above for root cause'
+            ),
+        }
+
+    # Test 2 — send to all_users topic (real users will receive this if subscribed)
+    try:
+        msg_id = messaging.send(messaging.Message(
+            topic="all_users",
+            notification=messaging.Notification(
+                title="🔔 DealHunter Test Notification",
+                body="If you see this, push notifications are working correctly!",
+            ),
+            data={"type": "test", "ts": timestamp},
+            android=messaging.AndroidConfig(priority="high"),
+        ))
+        results['all_users_test'] = {
+            'status': 'success',
+            'message_id': msg_id,
+            'meaning': 'Sent to all_users topic. Users subscribed will receive this push.',
+        }
+    except Exception as e:
+        results['all_users_test'] = {
+            'status': 'error',
+            'error': str(e),
+            'type': type(e).__name__,
+        }
+
+    # Test 3 — check Firebase app is initialized
+    try:
+        _ = firebase_admin.get_app()
+        results['firebase_init'] = {'status': 'ok', 'app_name': firebase_admin.get_app().name}
+    except Exception as e:
+        results['firebase_init'] = {'status': 'error', 'error': str(e)}
+
+    overall_ok = all(v.get('status') in ('success', 'ok') for v in results.values())
+    return jsonify({
+        'overall': 'ALL OK — notifications should be working' if overall_ok else 'ERRORS FOUND — see results',
+        'timestamp': timestamp,
+        'results': results,
+        'next_step': (
+            'FCM is healthy. If users still do not receive notifications, check '
+            'that the Flutter app subscribes to the correct FCM topic on login '
+            '(all_users, tier_vip, tier_premium, or tier_free).'
+            if overall_ok else
+            'Fix the errors shown in results.topic_test.error above, then reload this page.'
+        ),
+    })
+
+
 @app.route('/api/v1/admin/check-auth')
 def admin_check_auth():
     """Verify Firebase token and confirm the user is in admin_users (by UID or email)."""
@@ -2203,13 +2300,18 @@ def send_notification():
         extra = {'title_ar': title_ar, 'message_ar': message_ar, 'channel': channel}
 
         if target in topic_map:
-            msg = messaging.Message(notification=notif_obj, data=extra,
-                                    topic=topic_map[target])
+            topic = topic_map[target]
+            msg = messaging.Message(notification=notif_obj, data=extra, topic=topic)
             try:
-                messaging.send(msg)
+                msg_id = messaging.send(msg)
                 recipients = -1   # topic — unknown count
+                print(f"[NOTIFY] ✓ FCM topic={topic} msg_id={msg_id} by={email}")
             except Exception as e:
                 fcm_error = str(e)
+                print(
+                    f"[NOTIFY] ✗ FCM FAILED topic={topic} error={e}\n"
+                    f"          type={type(e).__name__} — see /api/debug/fcm-test for diagnosis"
+                )
         elif target == 'group' and group_id:
             gdoc = db.collection('user_groups').document(group_id).get()
             members = (gdoc.to_dict() or {}).get('members', []) if gdoc.exists else []
@@ -2224,8 +2326,9 @@ def send_notification():
                             messaging.send(messaging.Message(
                                 notification=notif_obj, data=extra, token=tok))
                             recipients += 1
-                        except Exception:
-                            pass
+                        except Exception as te:
+                            fcm_error = str(te)
+                            print(f"[NOTIFY] ✗ FCM token send error: {te}")
         elif target == 'user' and specific_user:
             for field in ('email', 'phone'):
                 if recipients:
@@ -2239,8 +2342,10 @@ def send_notification():
                             recipients += 1
                         except Exception as ue:
                             fcm_error = str(ue)
+                            print(f"[NOTIFY] ✗ FCM user token error: {ue}")
     except Exception as e:
         fcm_error = str(e)
+        print(f"[NOTIFY] ✗ Unexpected error: {e} — type={type(e).__name__}")
 
     # Save to Firestore regardless of FCM outcome
     db.collection('notifications').add({
@@ -2255,9 +2360,13 @@ def send_notification():
     })
 
     if fcm_error:
-        return jsonify({'success': True,
-                        'message': 'Saved to Firestore (FCM error: ' + fcm_error + ')',
-                        'recipients': recipients})
+        # Return the full error so admin.html can display the root cause
+        return jsonify({
+            'success': False,
+            'error': f'FCM error: {fcm_error}',
+            'hint': 'Visit /api/debug/fcm-test in your browser for a full diagnosis.',
+            'recipients': recipients,
+        }), 500
     cnt = 'all subscribers' if recipients == -1 else str(recipients)
     return jsonify({'success': True,
                     'message': f'Notification sent to {cnt}',

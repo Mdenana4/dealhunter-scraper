@@ -286,6 +286,10 @@ def extract_next_data(html_text):
 
 _SCRAPERAPI_EXHAUSTED = False  # set True when monthly quota gone
 
+# Tracks new deals found in the current scraper run for batch FCM notification.
+# Cleared at the end of each run_scraper() call.
+_new_deals_this_run: list = []
+
 
 def is_blocked_response(resp, min_length=2000):
     """Return True when the response looks like a CAPTCHA or bot-block page."""
@@ -443,6 +447,16 @@ def save_deal(deal):
                 "price": deal["current_price"], "timestamp": deal["timestamp"]
             })
             print(f"  NEW:     {deal['title'][:45]} | {deal['discount_percent']}% OFF | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
+            # Queue for batch FCM notification at end of scraper run
+            _new_deals_this_run.append({
+                "title":            deal["title"],
+                "discount_percent": deal.get("discount_percent", 0),
+                "site":             deal.get("site", ""),
+                "site_display":     deal.get("site_display", ""),
+                "currency":         deal.get("currency", "EGP"),
+                "current_price":    deal.get("current_price", 0),
+                "deal_id":          deal.get("deal_id", ""),
+            })
 
         # ── Record to price_tracker (builds the full price-history schema) ──
         mc = _SITE_TO_MC.get(deal.get("site", ""))
@@ -467,6 +481,92 @@ def save_deal(deal):
 
     except Exception as e:
         print(f"  SAVE ERROR: {e}")
+
+
+def _notify_new_deals(deals: list) -> None:
+    """
+    Send FCM push notifications to tier topics summarising newly found deals.
+
+    Tier thresholds (minimum discount to be notified):
+      tier_vip     → 40 %  (VIP users get everything)
+      tier_premium → 50 %
+      tier_free    → 60 %
+
+    One FCM message is sent per tier — so at most 3 FCM calls per scraper run
+    regardless of how many deals were found.  Each message picks the best deal
+    as the headline and mentions the total count.
+
+    Debug notes printed:
+      [FCM-DEALS] Sent to <topic>: N deals, best XX% — <title>
+      [FCM-DEALS] Error sending to <topic>: <error>   ← root cause visible in Railway logs
+      [FCM-DEALS] No new deals this cycle — skipping notifications
+    """
+    if not deals:
+        print("  [FCM-DEALS] No new deals this cycle — skipping notifications")
+        return
+
+    # Sort by discount descending so the best deal is always first
+    sorted_deals = sorted(deals, key=lambda d: d.get("discount_percent", 0), reverse=True)
+
+    tier_configs = [
+        ("tier_vip",     40),
+        ("tier_premium", 50),
+        ("tier_free",    60),
+    ]
+
+    for topic, min_disc in tier_configs:
+        qualifying = [d for d in sorted_deals if d.get("discount_percent", 0) >= min_disc]
+        if not qualifying:
+            print(f"  [FCM-DEALS] {topic}: no deals >= {min_disc}% — skipping")
+            continue
+
+        best   = qualifying[0]
+        count  = len(qualifying)
+        title_text = f"🔥 {count} New Deal{'s' if count > 1 else ''} — {best['site_display'] or best['site']}"
+        if count == 1:
+            body_text = f"{best['title'][:60]} — {best['discount_percent']}% OFF"
+        else:
+            body_text = (
+                f"Best: {best['title'][:40]} {best['discount_percent']}% OFF"
+                f" (+{count - 1} more)"
+            )
+
+        try:
+            msg_id = messaging.send(messaging.Message(
+                topic=topic,
+                notification=messaging.Notification(
+                    title=title_text,
+                    body=body_text,
+                ),
+                data={
+                    "type":           "new_deals",
+                    "count":          str(count),
+                    "best_discount":  str(best["discount_percent"]),
+                    "best_deal_id":   str(best["deal_id"]),
+                    "site":           str(best["site"]),
+                },
+                android=messaging.AndroidConfig(priority="high"),
+            ))
+            print(f"  [FCM-DEALS] ✓ Sent to {topic}: {count} deals, best {best['discount_percent']}% — msg_id={msg_id}")
+        except Exception as fcm_err:
+            # Log the full error so Railway logs show the root cause
+            print(
+                f"  [FCM-DEALS] ✗ Error sending to {topic}: {fcm_err}\n"
+                f"             Root cause: {type(fcm_err).__name__} — check Firebase service account\n"
+                f"             has 'Firebase Cloud Messaging Admin' role in Google Cloud IAM."
+            )
+            # Persist to Firestore so it appears in the admin Logs panel
+            if db:
+                try:
+                    db.collection("admin_logs").document().set({
+                        "level":     "error",
+                        "type":      "fcm_error",
+                        "topic":     topic,
+                        "message":   str(fcm_err)[:800],
+                        "timestamp": now_iso(),
+                    })
+                except Exception:
+                    pass
 
 
 def build_deal(title, site, site_display, category, current_price, original_price,
@@ -557,206 +657,156 @@ def _rapidapi_amazon_search(query, country, default_cat,
                              marketplace_country, site_display, currency,
                              page=1):
     """Fetch one search page via RapidAPI and save qualifying deals. Returns count."""
+    resp, ok = _rapidapi_get(
+        "search",
+        {
+            "query":   query,
+            "page":    page,
+            "country": country,
+            "sort_by": "RELEVANCE",
+        },
+        f"SEARCH/{country}",
+    )
+    if not ok or resp is None:
+        return 0
+    products = (resp.json().get("data") or {}).get("products") or []
+    return _parse_and_save_rapidapi_products(
+        products, country, marketplace_country, site_display, currency, "SEARCH")
+
+
+def _rapidapi_get(endpoint, params, label="RapidAPI"):
+    """
+    Make one RapidAPI call with rate-limit handling.
+    Returns (response, ok) where ok=False means caller should stop/skip.
+    """
     try:
         resp = requests.get(
-            f"https://{_RAPIDAPI_AMAZON_HOST}/search",
+            f"https://{_RAPIDAPI_AMAZON_HOST}/{endpoint}",
             headers=_RAPIDAPI_HEADERS,
-            params={
-                "query":        query,
-                "page":         page,
-                "country":      country,
-                "sort_by":           "RELEVANCE",
-                "discount_only":     "true",
-                "product_condition": "ALL",
-            },
+            params=params,
             timeout=30,
         )
+        if resp.status_code == 429:
+            print(f"    [{label}] Rate limit (429) — sleeping 60s...")
+            time.sleep(60)
+            resp = requests.get(
+                f"https://{_RAPIDAPI_AMAZON_HOST}/{endpoint}",
+                headers=_RAPIDAPI_HEADERS,
+                params=params,
+                timeout=30,
+            )
+        if resp.status_code == 403:
+            print(f"    [{label}] 403 Forbidden — feature may require paid plan, skipping")
+            return None, False
         if resp.status_code != 200:
-            print(f"    RapidAPI [{country}] '{query}': HTTP {resp.status_code}")
-            return 0
+            print(f"    [{label}] HTTP {resp.status_code}")
+            return None, False
+        return resp, True
+    except Exception as e:
+        print(f"    [{label}] request error: {e}")
+        return None, False
 
-        data = resp.json()
-        products = (data.get("data") or {}).get("products") or []
-        saved = 0
 
-        for p in products:
-            try:
-                title = (p.get("product_title") or "").strip()
-                if not title or len(title) < 5:
-                    continue
-
-                asin = p.get("asin", "")
-                product_url = p.get("product_url") or (
-                    f"https://www.amazon.{country.lower()}/dp/{asin}" if asin else ""
-                )
-                if not product_url:
-                    continue
-
-                # Price — API returns strings like "EGP 15,999" or "15,999.00"
-                current_price  = clean_price(str(p.get("product_price") or 0))
-                original_price = clean_price(str(p.get("product_original_price") or 0))
-                if current_price < 1:
-                    continue
-                if original_price < current_price:
-                    original_price = current_price
-
-                # Discount — API returns "-43%" / "43%" / "43" / integer
-                disc_raw = (
-                    p.get("discount_percent") or
-                    p.get("product_discount") or
-                    p.get("savings_percent") or
-                    ""
-                )
-                if disc_raw:
-                    try:
-                        discount = int(re.sub(r"[^\d]", "", str(disc_raw)))
-                    except Exception:
-                        discount = calculate_discount(original_price, current_price)
-                else:
-                    discount = calculate_discount(original_price, current_price)
-
-                # Back-calculate original price from badge discount if missing
-                if discount >= MIN_DISCOUNT and original_price <= current_price:
-                    original_price = round(current_price / (1 - discount / 100))
-                # If still no discount signal, skip (discount_only=true should prevent this)
-                if discount < MIN_DISCOUNT:
-                    continue
-
-                if currency == "EGP" and not price_in_range(current_price):
-                    continue
-
-                image_url = (
-                    p.get("product_photo") or
-                    p.get("thumbnail") or
-                    p.get("product_image") or ""
-                )
-                try:
-                    rating = float(p.get("product_star_rating") or 0)
-                except Exception:
-                    rating = 0.0
-                rc_raw = p.get("product_num_ratings") or p.get("product_num_offers")
-                try:
-                    review_count = int(str(rc_raw).replace(",", "")) if rc_raw else None
-                except Exception:
-                    review_count = None
-
-                cat = detect_category(title) or default_cat
-
-                print(f"    [API/{country}] [{discount}%] {title[:40]}...")
-                kb = check_price_history(
-                    asin=asin,
-                    product_url=product_url,
-                    current_price=current_price,
-                    original_price=original_price,
-                    title=title,
-                    site=marketplace_country,
-                )
-                time.sleep(0.3)
-
-                deal = build_deal(
-                    title=title,
-                    site=marketplace_country,
-                    site_display=site_display,
-                    category=cat,
-                    current_price=current_price,
-                    original_price=original_price,
-                    discount=discount,
-                    image_url=image_url,
-                    product_url=product_url,
-                    rating=rating,
-                    review_count=review_count,
-                    asin=asin,
-                    kanbkam_result=kb,
-                    currency=currency,
-                )
-                save_deal(deal)
-                saved += 1
-            except Exception:
+def _parse_and_save_rapidapi_products(products, country, marketplace_country,
+                                       site_display, currency, label="API"):
+    """Parse product list from RapidAPI and save qualifying deals. Returns count."""
+    saved = 0
+    for p in products:
+        try:
+            title = (p.get("product_title") or p.get("deal_title") or p.get("title") or "").strip()
+            if not title or len(title) < 5:
                 continue
 
-        return saved
+            asin = p.get("asin", "")
+            product_url = p.get("product_url") or p.get("deal_url") or (
+                f"https://www.amazon.{country.lower()}/dp/{asin}" if asin else "")
+            if not product_url:
+                continue
 
-    except Exception as e:
-        print(f"    RapidAPI [{country}] '{query}' error: {e}")
-        return 0
+            cp = clean_price(str(
+                p.get("product_price") or p.get("deal_price") or 0))
+            op = clean_price(str(
+                p.get("product_original_price") or p.get("original_price") or
+                p.get("list_price") or 0))
+            if cp < 1:
+                continue
+            if op < cp:
+                op = cp
+
+            disc_raw = (p.get("discount_percent") or p.get("savings_percent") or
+                        p.get("product_discount") or "")
+            try:
+                disc = int(re.sub(r"[^\d]", "", str(disc_raw))) if disc_raw else 0
+            except Exception:
+                disc = 0
+            if disc == 0:
+                disc = calculate_discount(op, cp)
+            if disc >= MIN_DISCOUNT and op <= cp:
+                op = round(cp / (1 - disc / 100))
+            if disc < MIN_DISCOUNT:
+                continue
+            if currency == "EGP" and not price_in_range(cp):
+                continue
+
+            image_url = (p.get("product_photo") or p.get("thumbnail") or
+                         p.get("deal_image") or p.get("product_image") or "")
+            try:
+                rating = float(p.get("product_star_rating") or 0)
+            except Exception:
+                rating = 0.0
+            rc_raw = p.get("product_num_ratings") or p.get("product_num_offers")
+            try:
+                review_count = int(str(rc_raw).replace(",", "")) if rc_raw else None
+            except Exception:
+                review_count = None
+
+            cat = detect_category(title)
+            print(f"    [{label}/{country}] [{disc}%] {title[:42]}...")
+            kb = check_price_history(
+                asin=asin, product_url=product_url, current_price=cp,
+                original_price=op, title=title, site=marketplace_country,
+            )
+            time.sleep(0.5)
+            deal = build_deal(
+                title=title, site=marketplace_country, site_display=site_display,
+                category=cat, current_price=cp, original_price=op,
+                discount=disc, image_url=image_url, product_url=product_url,
+                rating=rating, review_count=review_count, asin=asin,
+                kanbkam_result=kb, currency=currency,
+            )
+            save_deal(deal)
+            saved += 1
+        except Exception:
+            continue
+    return saved
 
 
 def _rapidapi_amazon_deals(country, marketplace_country, site_display, currency):
-    """Fetch the Amazon Deals page via RapidAPI. Returns count."""
+    """Fetch Amazon deals/offers via RapidAPI. Returns count."""
     total = 0
+    all_deals = []
     try:
         for offset in (0, 50):
-            resp = requests.get(
-                f"https://{_RAPIDAPI_AMAZON_HOST}/deals-and-offers",
-                headers=_RAPIDAPI_HEADERS,
-                params={"country": country, "offset": offset, "limit": 50},
-                timeout=30,
+            resp, ok = _rapidapi_get(
+                "deals-and-offers",
+                {"country": country, "offset": offset, "limit": 50},
+                f"DEALS/{country}",
             )
-            if resp.status_code != 200:
+            if not ok or resp is None:
                 break
-            data  = resp.json()
-            deals = (
+            data = resp.json()
+            batch = (
                 (data.get("data") or {}).get("deals") or
                 (data.get("data") or {}).get("products") or
                 data.get("deals") or []
             )
-            if not deals:
+            if not batch:
                 break
+            all_deals.extend(batch)
+            time.sleep(2)
 
-        for p in deals:
-            try:
-                title = (
-                    p.get("deal_title") or p.get("product_title") or
-                    p.get("title") or ""
-                ).strip()
-                if not title or len(title) < 5:
-                    continue
-
-                current_price  = clean_price(str(p.get("deal_price") or p.get("product_price") or 0))
-                original_price = clean_price(str(p.get("original_price") or p.get("list_price") or 0))
-                if current_price < 1:
-                    continue
-                if original_price < current_price:
-                    original_price = current_price
-
-                discount = calculate_discount(original_price, current_price)
-                disc_raw = p.get("discount_percent") or p.get("savings_percent") or ""
-                if disc_raw:
-                    try:
-                        discount = int(re.sub(r"[^\d]", "", str(disc_raw)))
-                    except Exception:
-                        pass
-                if discount < MIN_DISCOUNT:
-                    continue
-
-                if currency == "EGP" and not price_in_range(current_price):
-                    continue
-
-                asin        = p.get("asin", "")
-                product_url = p.get("product_url") or p.get("deal_url") or (
-                    f"https://www.amazon.{country.lower()}/dp/{asin}" if asin else ""
-                )
-                image_url   = p.get("product_photo") or p.get("deal_image") or ""
-                cat         = detect_category(title)
-
-                print(f"    [DEALS/{country}] [{discount}%] {title[:40]}...")
-                kb = check_price_history(
-                    asin=asin, product_url=product_url,
-                    current_price=current_price, original_price=original_price,
-                    title=title, site=marketplace_country,
-                )
-                deal = build_deal(
-                    title=title, site=marketplace_country, site_display=site_display,
-                    category=cat, current_price=current_price, original_price=original_price,
-                    discount=discount, image_url=image_url, product_url=product_url,
-                    asin=asin, kanbkam_result=kb, currency=currency,
-                )
-                save_deal(deal)
-                total += 1
-                time.sleep(0.3)
-            except Exception:
-                continue
-
+        total = _parse_and_save_rapidapi_products(
+            all_deals, country, marketplace_country, site_display, currency, "DEALS")
     except Exception as e:
         print(f"    RapidAPI deals [{country}] error: {e}")
     return total
@@ -764,81 +814,28 @@ def _rapidapi_amazon_deals(country, marketplace_country, site_display, currency)
 
 def _rapidapi_amazon_category(country, category_id, default_cat,
                                marketplace_country, site_display, currency):
-    """Fetch best-sellers/sale for a category, filter for MIN_DISCOUNT. Returns count."""
+    """Search a category on Amazon via RapidAPI. Returns count."""
     total = 0
     for page in (1, 2):
-        try:
-            resp = requests.get(
-                f"https://{_RAPIDAPI_AMAZON_HOST}/search",
-                headers=_RAPIDAPI_HEADERS,
-                params={
-                    "query":         f"discount sale {default_cat}",
-                    "page":          page,
-                    "country":       country,
-                    "category_id":   category_id,
-                    "sort_by":       "RELEVANCE",
-                    "discount_only": "true",
-                },
-                timeout=30,
-            )
-            if resp.status_code != 200:
-                break
-            products = (resp.json().get("data") or {}).get("products") or []
-            for p in products:
-                try:
-                    title = (p.get("product_title") or "").strip()
-                    if not title or len(title) < 5:
-                        continue
-                    asin        = p.get("asin", "")
-                    product_url = p.get("product_url") or (
-                        f"https://www.amazon.{country.lower()}/dp/{asin}" if asin else "")
-                    if not product_url:
-                        continue
-                    cp = clean_price(str(p.get("product_price") or 0))
-                    op = clean_price(str(p.get("product_original_price") or 0))
-                    if cp < 1:
-                        continue
-                    if op < cp:
-                        op = cp
-                    disc_raw = (p.get("discount_percent") or p.get("savings_percent") or "")
-                    try:
-                        disc = int(re.sub(r"[^\d]", "", str(disc_raw))) if disc_raw else 0
-                    except Exception:
-                        disc = 0
-                    if disc == 0:
-                        disc = calculate_discount(op, cp)
-                    if disc >= MIN_DISCOUNT and op <= cp:
-                        op = round(cp / (1 - disc / 100))
-                    if disc < MIN_DISCOUNT:
-                        continue
-                    if currency == "EGP" and not price_in_range(cp):
-                        continue
-                    cat = detect_category(title) or default_cat
-                    image_url = p.get("product_photo") or p.get("thumbnail") or ""
-                    try:
-                        rating = float(p.get("product_star_rating") or 0)
-                    except Exception:
-                        rating = 0.0
-                    print(f"    [CAT/{country}/{category_id}] [{disc}%] {title[:38]}...")
-                    kb = check_price_history(
-                        asin=asin, product_url=product_url,
-                        current_price=cp, original_price=op,
-                        title=title, site=marketplace_country,
-                    )
-                    time.sleep(0.3)
-                    deal = build_deal(
-                        title=title, site=marketplace_country, site_display=site_display,
-                        category=cat, current_price=cp, original_price=op,
-                        discount=disc, image_url=image_url, product_url=product_url,
-                        rating=rating, asin=asin, kanbkam_result=kb, currency=currency,
-                    )
-                    save_deal(deal)
-                    total += 1
-                except Exception:
-                    continue
-            time.sleep(2)
-        except Exception as e:
-            print(f"    [CAT/{country}] {category_id} page {page} error: {e}")
+        resp, ok = _rapidapi_get(
+            "search",
+            {
+                "query":       default_cat,
+                "page":        page,
+                "country":     country,
+                "category_id": category_id,
+                "sort_by":     "RELEVANCE",
+            },
+            f"CAT/{country}/{category_id}",
+        )
+        if not ok or resp is None:
+            break
+        products = (resp.json().get("data") or {}).get("products") or []
+        total += _parse_and_save_rapidapi_products(
+            products, country, marketplace_country, site_display, currency,
+            f"CAT/{category_id}",
+        )
+        time.sleep(2)
     return total
 
 
@@ -2092,11 +2089,31 @@ def _scrape_noon_region(
     total = 0
 
     def _noon_fetch(url):
-        """Try direct first (free), fall back to ScraperAPI only if needed."""
+        """
+        Fetch strategy for Noon pages:
+        1. Direct request — free, fast, but Noon often requires JS rendering.
+        2. ScraperAPI with render_js=True — 5 credits, reliable for Noon's
+           Next.js pages.  Only used when direct fetch returns a short/blocked
+           response (< 5 000 bytes or a known block signal).
+
+        Debug lines printed:
+          [NOON/XX] direct OK (NNNNb)   → direct fetch returned usable HTML
+          [NOON/XX] direct blocked → trying ScraperAPI render_js=True
+          [NOON/XX] ScraperAPI OK (NNNNb)
+          [NOON/XX] ScraperAPI also blocked — 0 products expected for this URL
+        """
         resp = fetch_noon_direct(url, country_code)
-        if resp and resp.status_code == 200 and len(resp.text) > 5000:
+        if resp and resp.status_code == 200 and len(resp.text or "") > 5000:
+            print(f"  [NOON/{country_code.upper()}] direct OK ({len(resp.text)}b) {url[:60]}")
             return resp
-        return fetch_with_scraperapi(url, render_js=False, country=country_code)
+        # Direct failed or too short — switch to JS rendering
+        print(f"  [NOON/{country_code.upper()}] direct blocked ({resp.status_code if resp else 'no resp'}) → ScraperAPI render_js=True")
+        resp2 = fetch_with_scraperapi(url, render_js=True, country=country_code)
+        if resp2 and resp2.status_code == 200 and len(resp2.text or "") > 3000:
+            print(f"  [NOON/{country_code.upper()}] ScraperAPI OK ({len(resp2.text)}b)")
+            return resp2
+        print(f"  [NOON/{country_code.upper()}] ScraperAPI also blocked — 0 products expected")
+        return resp2  # caller will handle empty result
 
     # ── Phase 1: Deals / sale pages (server-side rendered, most reliable) ──
     deals_pages = [
@@ -2107,20 +2124,12 @@ def _scrape_noon_region(
     for dp_url in deals_pages:
         try:
             resp = _noon_fetch(dp_url)
-            if is_blocked_response(resp, min_length=3000):
-                print(f"  [NOON/{country_code.upper()}] Deals page blocked — trying JS render")
-                resp = fetch_with_scraperapi(dp_url, render_js=True, country=country_code)
             if resp and resp.status_code == 200:
                 n = _parse_noon_products(resp.text, "general", region_path, currency,
                                          marketplace_country, site_display, country_code)
                 if n == 0:
-                    # Last resort: JS render
-                    resp2 = fetch_with_scraperapi(dp_url, render_js=True, country=country_code)
-                    if resp2 and resp2.status_code == 200:
-                        n = _parse_noon_products(resp2.text, "general", region_path, currency,
-                                                 marketplace_country, site_display, country_code)
-                if n == 0:
-                    _log_scraper_error(marketplace_country, dp_url, "0 products on deals page — selector may be broken")
+                    _log_scraper_error(marketplace_country, dp_url,
+                                       "0 products on deals page — HTML selector may have changed")
                 print(f"  [NOON/{country_code.upper()}] Deals page: {n} deals")
                 total += n
                 time.sleep(3)
@@ -2145,19 +2154,13 @@ def _scrape_noon_region(
     for term, default_cat in search_terms:
         try:
             url = f"https://www.noon.com/{region_path}/search/?q={term.replace(' ', '+')}&limit=48&sort%5Bby%5D=discount&sort%5Bdir%5D=desc"
-
-            # Try direct first (free), then ScraperAPI, then JS render
+            # _noon_fetch handles direct → ScraperAPI render_js=True cascade
             resp = _noon_fetch(url)
             if not resp or resp.status_code != 200:
                 time.sleep(2)
                 continue
             n = _parse_noon_products(resp.text, default_cat, region_path, currency,
                                      marketplace_country, site_display, country_code)
-            if n == 0:
-                resp2 = fetch_with_scraperapi(url, render_js=True, country=country_code)
-                if resp2 and resp2.status_code == 200:
-                    n = _parse_noon_products(resp2.text, default_cat, region_path, currency,
-                                             marketplace_country, site_display, country_code)
             print(f"  [NOON/{country_code.upper()}] '{term}': {n} deals")
             total += n
             time.sleep(2)
@@ -2215,7 +2218,7 @@ def scrape_hyperone():
                 pass
 
             if not resp or resp.status_code != 200:
-                resp = fetch_with_scraperapi(url, render_js=True, country="eg")
+                resp = fetch_with_scraperapi(url, render_js=False, country="eg")
             if not resp or resp.status_code != 200:
                 time.sleep(2)
                 continue
@@ -2389,7 +2392,7 @@ def scrape_sahla():
         ]
         for url in sahla_pages:
             try:
-                resp = fetch_with_scraperapi(url, render_js=True, country="eg")
+                resp = fetch_with_scraperapi(url, render_js=False, country="eg")
                 if not resp or resp.status_code != 200:
                     resp = fetch_direct(url)
                 if not resp or resp.status_code != 200:
@@ -2492,7 +2495,7 @@ def scrape_custom_sources():
 
                 if not products:
                     print(f"    No products in direct fetch — trying ScraperAPI...")
-                    resp = fetch_with_scraperapi(site_url, render_js=True, country="eg")
+                    resp = fetch_with_scraperapi(site_url, render_js=False, country="eg")
                     if resp and resp.status_code == 200:
                         soup     = BeautifulSoup(resp.content, "lxml")
                         products = (
@@ -2666,6 +2669,13 @@ def run_scraper():
 
     update_analytics()
     _health.flush()   # write health summary + send FCM alert if anything broke
+
+    # ── Send deal notifications to users ─────────────────────────────────────
+    # _new_deals_this_run was populated by save_deal() for every brand-new deal.
+    print(f"\n  [FCM-DEALS] New deals this cycle: {len(_new_deals_this_run)}")
+    _notify_new_deals(_new_deals_this_run)
+    _new_deals_this_run.clear()  # reset for next cycle
+
     print(f"\n  TOTAL: {total} deals | Next in: {INTERVAL} min")
     print(f"{'=' * 62}\n")
 
