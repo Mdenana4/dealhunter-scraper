@@ -3663,10 +3663,18 @@ async function loadRevenue(){
 
 const COUNTRY_NAMES={eg:'🇪🇬 Egypt',sa:'🇸🇦 Saudi Arabia',ae:'🇦🇪 UAE',kw:'🇰🇼 Kuwait',qa:'🇶🇦 Qatar'};
 
+// Root cause of previous error: inlining JSON.stringify() inside an onclick
+// attribute breaks when the JSON contains double-quotes — the HTML parser
+// truncates the attribute and pricing arrives as undefined.
+// Fix: store the full pricing object in a module-level variable and look it
+// up by country code inside openCountryModal().
+let _currentCountryPricing = {};
+
 function renderCountryPricing(pricing){
+  _currentCountryPricing = pricing || {};  // safe global store
   const countries=['eg','sa','ae','kw','qa'];
   document.getElementById('country-pricing-tb').innerHTML=countries.map(cc=>{
-    const p=pricing[cc]||{};
+    const p=_currentCountryPricing[cc]||{};
     const name=COUNTRY_NAMES[cc]||cc.toUpperCase();
     return`<tr>
       <td style="font-weight:500;">${name}</td>
@@ -3675,16 +3683,18 @@ function renderCountryPricing(pricing){
       <td style="font-size:11px;">${p.trial??0} ${p.symbol||''}</td>
       <td style="font-size:11px;font-weight:500;color:#7F77DD;">${p.premium??'—'} ${p.symbol||''}</td>
       <td style="font-size:11px;font-weight:500;color:#E24B4A;">${p.vip??'—'} ${p.symbol||''}</td>
-      <td><button class="btn btn-sm" onclick="openCountryModal('${cc}',${JSON.stringify(p).replace(/'/g,"\\'")})">Edit</button></td>
+      <td><button class="btn btn-sm" onclick="openCountryModal('${cc}')">Edit</button></td>
     </tr>`;
   }).join('');
 }
 
 let editingCountryCode=null;
 
-function openCountryModal(code, pricing){
+function openCountryModal(code){
+  // Look up from global store — no JSON-in-onclick, no parse errors
+  const pricing = _currentCountryPricing[code] || {};
   editingCountryCode=code;
-  document.getElementById('country-modal-title').textContent='Edit Pricing — '+COUNTRY_NAMES[code];
+  document.getElementById('country-modal-title').textContent='Edit Pricing — '+(COUNTRY_NAMES[code]||code);
   document.getElementById('cp-code').value=code;
   document.getElementById('cp-currency').value=pricing.currency||'';
   document.getElementById('cp-symbol').value=pricing.symbol||'';

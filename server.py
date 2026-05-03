@@ -2,7 +2,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore, messaging, auth as fb_auth
-import json, os, re, requests, hashlib, hmac, base64, time, traceback
+import json, os, re, requests, hashlib, hmac, base64, time, traceback, math
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -24,6 +24,24 @@ else:
     raise RuntimeError("Firebase credentials not found — set FIREBASE_KEY_JSON env var")
 
 db = firestore.client()
+
+def _sanitize_json(obj):
+    """
+    Recursively replace NaN/Infinity float values with 0 so Flask's jsonify
+    never emits the literal token 'NaN' (invalid JSON).
+
+    Root cause: Firestore can store NaN via Python's float('nan').  When that
+    value is returned through jsonify it produces  "price":NaN  which the
+    browser's JSON.parse rejects with
+    'Unexpected token N … is not valid JSON'.
+    """
+    if isinstance(obj, dict):
+        return {k: _sanitize_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_json(v) for v in obj]
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return 0
+    return obj
 
 # ── In-memory admin cache (loaded once at startup, refreshed hourly) ────────
 # Eliminates Firestore reads on every login — critical to stay under quota.
@@ -2358,11 +2376,14 @@ def admin_tiers():
         if not docs:
             docs = list(db.collection('tiers').stream())
         if docs:
-            tiers = [{'name': d.id, **d.to_dict()} for d in docs]
+            # _sanitize_json converts any NaN/Infinity floats → 0 so the
+            # browser's JSON.parse never sees the invalid token 'NaN'.
+            tiers = [_sanitize_json({'name': d.id, **d.to_dict()}) for d in docs]
         else:
             tiers = defaults
         return jsonify({'success': True, 'tiers': tiers})
     except Exception as e:
+        print(f"[ERROR] admin_tiers: {e}")
         return jsonify({'success': True, 'tiers': defaults})
 
 
