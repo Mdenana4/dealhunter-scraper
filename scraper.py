@@ -731,8 +731,9 @@ def _rapidapi_amazon_search(query, country, default_cat,
 
 def _rapidapi_get(endpoint, params, label="RapidAPI"):
     """
-    Make one RapidAPI call with rate-limit handling.
+    Make one RapidAPI call.
     Returns (response, ok) where ok=False means caller should stop/skip.
+    Returns (None, "blocked") specifically on 403 (plan does not cover this endpoint).
     """
     try:
         resp = requests.get(
@@ -742,17 +743,12 @@ def _rapidapi_get(endpoint, params, label="RapidAPI"):
             timeout=30,
         )
         if resp.status_code == 429:
-            print(f"    [{label}] Rate limit (429) — sleeping 60s...")
-            time.sleep(60)
-            resp = requests.get(
-                f"https://{_RAPIDAPI_AMAZON_HOST}/{endpoint}",
-                headers=_RAPIDAPI_HEADERS,
-                params=params,
-                timeout=30,
-            )
+            # Don't sleep — caller will fall back to HTML scraper
+            print(f"    [{label}] Rate limit (429) — skipping (use HTML scraper)")
+            return None, False
         if resp.status_code == 403:
             print(f"    [{label}] 403 Forbidden — feature may require paid plan, skipping")
-            return None, False
+            return None, "blocked"
         if resp.status_code != 200:
             print(f"    [{label}] HTTP {resp.status_code}")
             return None, False
@@ -837,7 +833,7 @@ def _parse_and_save_rapidapi_products(products, country, marketplace_country,
 
 
 def _rapidapi_amazon_deals(country, marketplace_country, site_display, currency):
-    """Fetch Amazon deals/offers via RapidAPI. Returns count."""
+    """Fetch Amazon deals/offers via RapidAPI. Returns count, or -1 if plan blocked (403)."""
     total = 0
     all_deals = []
     try:
@@ -847,6 +843,8 @@ def _rapidapi_amazon_deals(country, marketplace_country, site_display, currency)
                 {"country": country, "offset": offset, "limit": 50},
                 f"DEALS/{country}",
             )
+            if ok == "blocked":
+                return -1  # signal to caller: abort all RapidAPI phases
             if not ok or resp is None:
                 break
             data = resp.json()
@@ -919,6 +917,9 @@ def _scrape_amazon_via_api(
 
     # Phase 1: dedicated deals/offers endpoint
     n = _rapidapi_amazon_deals(country, marketplace_country, site_display, currency)
+    if n == -1:
+        print(f"  Deals endpoint: 403 blocked — aborting RapidAPI for {country}, will use HTML scraper")
+        return 0
     print(f"  Deals endpoint: {n} deals")
     total += n
     time.sleep(3)
