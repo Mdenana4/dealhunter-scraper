@@ -104,6 +104,9 @@ except Exception as e:
 # ─────────────────────────────────────────────────────
 # PROXY STATUS LOG
 # ─────────────────────────────────────────────────────
+# Set to True when scrape.do returns 401/403 so we stop wasting requests
+_scrapedo_dead = False
+
 if SCRAPEDO_TOKEN:
     print(f"[PROXY] scrape.do active (token={SCRAPEDO_TOKEN[:6]}...)")
 elif SCRAPER_API_KEY:
@@ -362,7 +365,8 @@ def is_blocked_response(resp, min_length=2000):
 
 def fetch_with_scrapedo(url, render_js=False, country="eg"):
     """Fetch via scrape.do proxy. 1 credit (HTML) or 5 credits (JS render)."""
-    if not SCRAPEDO_TOKEN:
+    global _scrapedo_dead
+    if not SCRAPEDO_TOKEN or _scrapedo_dead:
         return None
     try:
         params = {
@@ -381,6 +385,10 @@ def fetch_with_scrapedo(url, render_js=False, country="eg"):
         )
         if resp.status_code in (200, 301, 302) and len(resp.text or "") > 500:
             return resp
+        if resp.status_code in (401, 403):
+            print(f"    [scrape.do] HTTP {resp.status_code} — token invalid or credits exhausted, disabling for this session")
+            _scrapedo_dead = True
+            return None
         print(f"    [scrape.do] HTTP {resp.status_code} for {url[:60]}")
         return None
     except Exception as e:
