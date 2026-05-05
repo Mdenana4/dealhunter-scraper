@@ -1641,6 +1641,20 @@ def scraper_log():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/debug/scrape-now', methods=['POST', 'GET'])
+def scrape_now():
+    """Trigger one scraper cycle immediately in a background thread."""
+    import threading, scraper as _scraper
+    def _run():
+        try:
+            _scraper.run_scraper()
+        except Exception as e:
+            print(f"[scrape-now] error: {e}")
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return jsonify({"success": True, "message": "Scrape cycle started — check /api/debug/scraper-log"})
+
+
 @app.route('/api/debug/amazon-test')
 def debug_amazon_test():
     """
