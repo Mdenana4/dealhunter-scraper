@@ -709,6 +709,8 @@ _RAPIDAPI_HEADERS = {
     "x-rapidapi-key":  RAPIDAPI_KEY,
     "Content-Type":    "application/json",
 }
+# Set to True once we receive a 403; prevents all subsequent API calls this process lifetime
+_rapidapi_plan_blocked = False
 
 _AMAZON_SEARCH_TERMS = [
     ("samsung galaxy",    "electronics"), ("iphone",          "electronics"),
@@ -749,6 +751,8 @@ def _rapidapi_amazon_search(query, country, default_cat,
         },
         f"SEARCH/{country}",
     )
+    if ok == "blocked":
+        return -1  # signal caller to abort all remaining search calls
     if not ok or resp is None:
         return 0
     products = (resp.json().get("data") or {}).get("products") or []
@@ -762,6 +766,9 @@ def _rapidapi_get(endpoint, params, label="RapidAPI"):
     Returns (response, ok) where ok=False means caller should stop/skip.
     Returns (None, "blocked") specifically on 403 (plan does not cover this endpoint).
     """
+    global _rapidapi_plan_blocked
+    if _rapidapi_plan_blocked:
+        return None, "blocked"
     try:
         resp = requests.get(
             f"https://{_RAPIDAPI_AMAZON_HOST}/{endpoint}",
@@ -770,11 +777,11 @@ def _rapidapi_get(endpoint, params, label="RapidAPI"):
             timeout=30,
         )
         if resp.status_code == 429:
-            # Don't sleep — caller will fall back to HTML scraper
             print(f"    [{label}] Rate limit (429) — skipping (use HTML scraper)")
             return None, False
         if resp.status_code == 403:
-            print(f"    [{label}] 403 Forbidden — feature may require paid plan, skipping")
+            print(f"    [{label}] 403 Forbidden — plan blocked, disabling RapidAPI for this session")
+            _rapidapi_plan_blocked = True
             return None, "blocked"
         if resp.status_code != 200:
             print(f"    [{label}] HTTP {resp.status_code}")
@@ -908,6 +915,8 @@ def _rapidapi_amazon_category(country, category_id, default_cat,
             },
             f"CAT/{country}/{category_id}",
         )
+        if ok == "blocked":
+            return -1
         if not ok or resp is None:
             break
         products = (resp.json().get("data") or {}).get("products") or []
@@ -951,24 +960,34 @@ def _scrape_amazon_via_api(
     total += n
     time.sleep(3)
 
-    # Phase 2: keyword search (discount_only=true, 2 pages each)
+    # Phase 2: keyword search (abort immediately if plan is blocked)
+    _search_blocked = False
     for term, default_cat in _AMAZON_SEARCH_TERMS:
+        if _search_blocked:
+            break
         for page in (1, 2):
             n = _rapidapi_amazon_search(
                 term, country, default_cat,
                 marketplace_country, site_display, currency, page=page,
             )
+            if n == -1:
+                print(f"  Search endpoint: 403 blocked — aborting Phase 2+3 for {country}")
+                _search_blocked = True
+                break
             total += n
             time.sleep(2)
 
     # Phase 3: broad category search with discount filter
-    for cat_id, default_cat in _AMAZON_CATEGORIES:
-        n = _rapidapi_amazon_category(
-            country, cat_id, default_cat,
-            marketplace_country, site_display, currency,
-        )
-        total += n
-        time.sleep(3)
+    if not _search_blocked:
+        for cat_id, default_cat in _AMAZON_CATEGORIES:
+            n = _rapidapi_amazon_category(
+                country, cat_id, default_cat,
+                marketplace_country, site_display, currency,
+            )
+            if n == -1:
+                break
+            total += n
+            time.sleep(3)
 
     print(f"[AMAZON/{country}] RapidAPI done. {total} deals.")
     return total
@@ -2777,7 +2796,20 @@ def update_analytics():
 # ─────────────────────────────────────────────────────
 # MAIN CYCLE
 # ─────────────────────────────────────────────────────
+import threading as _threading
+_scrape_lock = _threading.Lock()
+
 def run_scraper():
+    if not _scrape_lock.acquire(blocking=False):
+        print("  [run_scraper] cycle already in progress — skipping duplicate trigger")
+        return
+    try:
+        _run_scraper_inner()
+    finally:
+        _scrape_lock.release()
+
+
+def _run_scraper_inner():
     if not check_scraper_control():
         return
 
