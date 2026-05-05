@@ -275,7 +275,19 @@ def detect_category(title):
 # ─────────────────────────────────────────────────────
 def extract_next_data(html_text):
     """Extract __NEXT_DATA__ JSON embedded in Next.js pages."""
-    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>\s*({.+?})\s*</script>', html_text, re.DOTALL)
+    # Use string slicing to avoid regex backtracking issues with large JSON
+    tag_match = re.search(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>', html_text)
+    if tag_match:
+        start = tag_match.end()
+        end = html_text.find('</script>', start)
+        if end != -1:
+            raw = html_text[start:end].strip()
+            try:
+                return json.loads(raw)
+            except Exception:
+                pass
+    # Fallback: original regex (handles reversed attribute order)
+    m = re.search(r'<script[^>]*__NEXT_DATA__[^>]*>\s*({.+})\s*</script>', html_text, re.DOTALL)
     if m:
         try:
             return json.loads(m.group(1))
@@ -1241,28 +1253,34 @@ def _scrape_amazon_region(
 
 
 def scrape_amazon():
-    """Amazon Egypt — RapidAPI primary, HTML fallback."""
+    """Amazon Egypt — RapidAPI primary, HTML fallback when API returns 0."""
     if RAPIDAPI_KEY:
-        return _scrape_amazon_via_api("EG", "amazon_eg", "Amazon Egypt", "EGP")
-    print("\n[AMAZON/EG] No RAPIDAPI_KEY — falling back to HTML scraper (may be blocked)")
+        api_total = _scrape_amazon_via_api("EG", "amazon_eg", "Amazon Egypt", "EGP")
+        if api_total > 0:
+            return api_total
+        print("\n[AMAZON/EG] RapidAPI returned 0 deals (free plan only supports US) — using HTML scraper")
     total = _scrape_amazon_deals_page()
     total += _scrape_amazon_region()
     return total
 
 def scrape_amazon_ae():
-    """Amazon UAE — RapidAPI primary, HTML fallback."""
+    """Amazon UAE — RapidAPI primary, HTML fallback when API returns 0."""
     if RAPIDAPI_KEY:
-        return _scrape_amazon_via_api("AE", "amazon_ae", "Amazon UAE", "AED")
-    print("\n[AMAZON/AE] No RAPIDAPI_KEY — falling back to HTML scraper (may be blocked)")
+        api_total = _scrape_amazon_via_api("AE", "amazon_ae", "Amazon UAE", "AED")
+        if api_total > 0:
+            return api_total
+        print("\n[AMAZON/AE] RapidAPI returned 0 deals — using HTML scraper")
     total = _scrape_amazon_deals_page("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
     total += _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
     return total
 
 def scrape_amazon_sa():
-    """Amazon Saudi Arabia — RapidAPI primary, HTML fallback."""
+    """Amazon Saudi Arabia — RapidAPI primary, HTML fallback when API returns 0."""
     if RAPIDAPI_KEY:
-        return _scrape_amazon_via_api("SA", "amazon_sa", "Amazon Saudi Arabia", "SAR")
-    print("\n[AMAZON/SA] No RAPIDAPI_KEY — falling back to HTML scraper (may be blocked)")
+        api_total = _scrape_amazon_via_api("SA", "amazon_sa", "Amazon Saudi Arabia", "SAR")
+        if api_total > 0:
+            return api_total
+        print("\n[AMAZON/SA] RapidAPI returned 0 deals — using HTML scraper")
     total = _scrape_amazon_deals_page("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
     total += _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
     return total
