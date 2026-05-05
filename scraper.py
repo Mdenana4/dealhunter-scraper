@@ -2112,14 +2112,17 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
     soup = BeautifulSoup(content, "lxml")
     blocks = (
         soup.find_all("div", attrs={"data-qa": "product-block"}) or
+        soup.find_all("div", attrs={"data-qa": "product-container"}) or
         soup.find_all("div", attrs={"data-testid": "product-block"}) or
+        soup.find_all("div", attrs={"data-testid": "product-card"}) or
         soup.find_all("div", class_=lambda c: c and any(
-            k in str(c) for k in ("productContainer", "ProductCard", "product-card"))) or
+            k in str(c) for k in ("productContainer", "ProductCard", "product-card", "grid_item"))) or
         soup.find_all("article", class_=lambda c: c and "product" in str(c).lower())
     )
     for p in blocks:
         try:
             title_el = (p.find(attrs={"data-qa": "product-name"}) or
+                        p.find(attrs={"data-testid": "product-name"}) or
                         p.find(class_=lambda c: c and "name" in str(c).lower()) or
                         p.find("h2") or p.find("p"))
             if not title_el:
@@ -2128,6 +2131,7 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
             if not title or len(title) < 5:
                 continue
             price_el = (p.find(attrs={"data-qa": "price-now"}) or
+                        p.find(attrs={"data-testid": "price"}) or
                         p.find(class_=lambda c: c and "price" in str(c).lower()))
             if not price_el:
                 continue
@@ -2135,8 +2139,8 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
             if cp < 50:
                 continue
             orig_el = (p.find(attrs={"data-qa": "price-was"}) or
-                       p.find("del") or
-                       p.find(class_=lambda c: c and "was" in str(c).lower()))
+                       p.find("del") or p.find("s") or
+                       p.find(class_=lambda c: c and ("was" in str(c).lower() or "old" in str(c).lower())))
             op = clean_price(orig_el.get_text()) if orig_el else cp
             if op < cp:
                 op = cp
@@ -2145,8 +2149,7 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                 continue
             link_el = p.find("a", href=True)
             href = link_el["href"] if link_el else ""
-            purl = ("https://www.noon.com" + href
-                    if href.startswith("/") else href)
+            purl = ("https://www.noon.com" + href if href.startswith("/") else href)
             img_el = p.find("img")
             img = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
             cat = detect_category(title) or default_cat
@@ -2163,6 +2166,70 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
         except Exception:
             continue
 
+    if saved:
+        return saved
+
+    # Method D: product link scan — works regardless of class names.
+    # Noon product URLs always match /<region>/some-product-name/p/<SKU>/
+    import re as _re
+    noon_product_re = _re.compile(
+        r'^/[a-z-]+-[a-z]+/.+/p/[A-Z0-9]{5,}', _re.IGNORECASE
+    )
+    seen_urls: set = set()
+    for a_tag in soup.find_all("a", href=noon_product_re):
+        try:
+            href = a_tag["href"]
+            purl = "https://www.noon.com" + href if href.startswith("/") else href
+            if purl in seen_urls:
+                continue
+            seen_urls.add(purl)
+            # Walk up to find a container with price info
+            container = a_tag
+            for _ in range(6):
+                container = container.parent
+                if not container:
+                    break
+                text = container.get_text(" ", strip=True)
+                # Need both a price number and a reasonable title
+                prices = _re.findall(r'[\d,]+(?:\.\d+)?', text)
+                price_nums = sorted([float(p.replace(",","")) for p in prices
+                                     if float(p.replace(",","")) > 10], reverse=True)
+                if len(price_nums) < 1:
+                    continue
+                # Title: longest text node or heading in container
+                title_el = (container.find(attrs={"data-qa": "product-name"}) or
+                            container.find("h2") or container.find("h3") or
+                            container.find("p"))
+                title = title_el.get_text(strip=True) if title_el else ""
+                if not title or len(title) < 5 or len(title) > 300:
+                    continue
+                cp = price_nums[-1]   # smallest = sale price
+                op = price_nums[0] if len(price_nums) > 1 else cp
+                if op < cp:
+                    op = cp
+                disc = calculate_discount(op, cp)
+                if disc < MIN_DISCOUNT:
+                    continue
+                if not price_in_range(cp):
+                    continue
+                img_el = container.find("img")
+                img = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+                cat = detect_category(title) or default_cat
+                kb = check_price_history(product_url=purl, current_price=cp,
+                                         original_price=op, title=title,
+                                         site=marketplace_country)
+                deal = build_deal(title=title, site=marketplace_country,
+                                  site_display=site_display, category=cat,
+                                  current_price=cp, original_price=op,
+                                  discount=disc, image_url=img, product_url=purl,
+                                  kanbkam_result=kb, currency=currency)
+                save_deal(deal)
+                saved += 1
+                break  # found the container for this link
+        except Exception:
+            continue
+
+    print(f"    [noon parse] Method D (link scan) saved={saved}")
     return saved
 
 
@@ -2206,9 +2273,9 @@ def _scrape_noon_region(
 
     # ── Phase 1: Deals / sale pages (server-side rendered, most reliable) ──
     deals_pages = [
-        f"https://www.noon.com/{region_path}/deals/?limit=48&sort%5Bby%5D=discount_percent&sort%5Bdir%5D=desc",
-        f"https://www.noon.com/{region_path}/flash-sale/?limit=48",
-        f"https://www.noon.com/{region_path}/sale/?limit=48&sort%5Bby%5D=discount_percent",
+        f"https://www.noon.com/{region_path}/sale/?limit=48&sort%5Bby%5D=discount_percent&sort%5Bdir%5D=desc",
+        f"https://www.noon.com/{region_path}/offers/?limit=48&sort%5Bby%5D=discount_percent",
+        f"https://www.noon.com/{region_path}/category/deals/?limit=48",
     ]
     for dp_url in deals_pages:
         try:
