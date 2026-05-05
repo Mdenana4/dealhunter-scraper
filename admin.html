@@ -1942,10 +1942,14 @@ async function dbp(col,docId,method,body,params){
 async function loadScraperSources(){
   try{
     const r=await fetch('/api/v1/admin/scraper-sources',apiHdr());
-    if(!r.ok) return;
-    const {sources}=await r.json();
     const el=document.getElementById('scraper-source-toggles');
     if(!el) return;
+    if(!r.ok){
+      el.innerHTML=`<tr><td colspan="3" style="color:#E24B4A;padding:12px;">API error ${r.status} — ${await r.text()}</td></tr>`;
+      return;
+    }
+    const {sources,error}=await r.json();
+    if(error){el.innerHTML=`<tr><td colspan="3" style="color:#E24B4A;padding:12px;">${error}</td></tr>`;return;}
     el.innerHTML=sources.map(s=>`
       <tr>
         <td><strong>${s.flag} ${s.label}</strong></td>

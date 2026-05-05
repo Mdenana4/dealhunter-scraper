@@ -2800,7 +2800,7 @@ ALL_SOURCES = [
 ]
 
 @app.route('/api/v1/admin/scraper-sources', methods=['GET'])
-@require_admin
+@require_auth
 def get_scraper_sources():
     """Return all sources with their enabled/disabled state."""
     try:
@@ -2816,7 +2816,7 @@ def get_scraper_sources():
 
 
 @app.route('/api/v1/admin/scraper-sources/<key>', methods=['PATCH'])
-@require_admin
+@require_auth
 def toggle_scraper_source(key):
     """Enable or disable a single scraper source. Body: {"enabled": true/false}"""
     valid_keys = {s["key"] for s in ALL_SOURCES}
@@ -2833,7 +2833,7 @@ def toggle_scraper_source(key):
 
 
 @app.route('/api/v1/admin/scraper-sources', methods=['PUT'])
-@require_admin
+@require_auth
 def set_all_scraper_sources():
     """Bulk enable/disable. Body: {"enabled": ["amazon_eg"], "disabled": ["btech_eg", ...]}"""
     data = request.get_json() or {}
