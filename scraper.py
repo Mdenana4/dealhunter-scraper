@@ -33,6 +33,11 @@ SCRAPER_API_KEY = (
     os.getenv("SCRAPER_KEY") or
     ""
 )
+SCRAPEDO_TOKEN = (
+    os.getenv("SCRAPEDO_TOKEN") or
+    os.getenv("SCRAPE_DO_TOKEN") or
+    ""
+)
 RAPIDAPI_KEY = (
     os.getenv("RAPIDAPI_KEY") or
     os.getenv("RAPID_API_KEY") or
@@ -95,6 +100,17 @@ except Exception as e:
     print(f"Firebase initialization/connection failed: {e}")
     db = None
 
+
+# ─────────────────────────────────────────────────────
+# PROXY STATUS LOG
+# ─────────────────────────────────────────────────────
+if SCRAPEDO_TOKEN:
+    print(f"[PROXY] scrape.do active (token={SCRAPEDO_TOKEN[:6]}...)")
+elif SCRAPER_API_KEY:
+    print(f"[PROXY] ScraperAPI active (key={SCRAPER_API_KEY[:6]}...)")
+else:
+    print("[PROXY] ⚠️  NO PROXY CONFIGURED — direct requests only (sites will block us!)")
+    print("[PROXY]    Fix: set SCRAPEDO_TOKEN in Railway environment variables")
 
 # ─────────────────────────────────────────────────────
 # SCRAPER CONTROL (kill switch from admin dashboard)
@@ -275,7 +291,19 @@ def detect_category(title):
 # ─────────────────────────────────────────────────────
 def extract_next_data(html_text):
     """Extract __NEXT_DATA__ JSON embedded in Next.js pages."""
-    m = re.search(r'<script id="__NEXT_DATA__"[^>]*>\s*({.+?})\s*</script>', html_text, re.DOTALL)
+    # Use string slicing to avoid regex backtracking issues with large JSON
+    tag_match = re.search(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>', html_text)
+    if tag_match:
+        start = tag_match.end()
+        end = html_text.find('</script>', start)
+        if end != -1:
+            raw = html_text[start:end].strip()
+            try:
+                return json.loads(raw)
+            except Exception:
+                pass
+    # Fallback: original regex (handles reversed attribute order)
+    m = re.search(r'<script[^>]*__NEXT_DATA__[^>]*>\s*({.+})\s*</script>', html_text, re.DOTALL)
     if m:
         try:
             return json.loads(m.group(1))
@@ -312,8 +340,35 @@ def is_blocked_response(resp, min_length=2000):
     return False
 
 
+def fetch_with_scrapedo(url, render_js=False, country="eg"):
+    """Fetch via scrape.do proxy. 1 credit (HTML) or 5 credits (JS render)."""
+    if not SCRAPEDO_TOKEN:
+        return None
+    try:
+        params = {
+            "token":   SCRAPEDO_TOKEN,
+            "url":     url,
+            "render":  "true" if render_js else "false",
+            "geoCode": country.upper(),
+        }
+        resp = requests.get("https://api.scrape.do", params=params, timeout=60)
+        if resp.status_code == 200 and len(resp.text or "") > 500:
+            return resp
+        print(f"    [scrape.do] HTTP {resp.status_code} for {url[:60]}")
+        return None
+    except Exception as e:
+        print(f"    [scrape.do] error: {e}")
+        return None
+
+
 def fetch_with_scraperapi(url, render_js=True, country="eg"):
     global _SCRAPERAPI_EXHAUSTED
+    # Prefer scrape.do when token is set
+    if SCRAPEDO_TOKEN:
+        resp = fetch_with_scrapedo(url, render_js=render_js, country=country)
+        if resp:
+            return resp
+        # scrape.do failed — fall through to ScraperAPI or direct
     if not SCRAPER_API_KEY or _SCRAPERAPI_EXHAUSTED:
         return fetch_direct(url)
     try:
@@ -1241,28 +1296,34 @@ def _scrape_amazon_region(
 
 
 def scrape_amazon():
-    """Amazon Egypt — RapidAPI primary, HTML fallback."""
+    """Amazon Egypt — RapidAPI primary, HTML fallback when API returns 0."""
     if RAPIDAPI_KEY:
-        return _scrape_amazon_via_api("EG", "amazon_eg", "Amazon Egypt", "EGP")
-    print("\n[AMAZON/EG] No RAPIDAPI_KEY — falling back to HTML scraper (may be blocked)")
+        api_total = _scrape_amazon_via_api("EG", "amazon_eg", "Amazon Egypt", "EGP")
+        if api_total > 0:
+            return api_total
+        print("\n[AMAZON/EG] RapidAPI returned 0 deals (free plan only supports US) — using HTML scraper")
     total = _scrape_amazon_deals_page()
     total += _scrape_amazon_region()
     return total
 
 def scrape_amazon_ae():
-    """Amazon UAE — RapidAPI primary, HTML fallback."""
+    """Amazon UAE — RapidAPI primary, HTML fallback when API returns 0."""
     if RAPIDAPI_KEY:
-        return _scrape_amazon_via_api("AE", "amazon_ae", "Amazon UAE", "AED")
-    print("\n[AMAZON/AE] No RAPIDAPI_KEY — falling back to HTML scraper (may be blocked)")
+        api_total = _scrape_amazon_via_api("AE", "amazon_ae", "Amazon UAE", "AED")
+        if api_total > 0:
+            return api_total
+        print("\n[AMAZON/AE] RapidAPI returned 0 deals — using HTML scraper")
     total = _scrape_amazon_deals_page("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
     total += _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
     return total
 
 def scrape_amazon_sa():
-    """Amazon Saudi Arabia — RapidAPI primary, HTML fallback."""
+    """Amazon Saudi Arabia — RapidAPI primary, HTML fallback when API returns 0."""
     if RAPIDAPI_KEY:
-        return _scrape_amazon_via_api("SA", "amazon_sa", "Amazon Saudi Arabia", "SAR")
-    print("\n[AMAZON/SA] No RAPIDAPI_KEY — falling back to HTML scraper (may be blocked)")
+        api_total = _scrape_amazon_via_api("SA", "amazon_sa", "Amazon Saudi Arabia", "SAR")
+        if api_total > 0:
+            return api_total
+        print("\n[AMAZON/SA] RapidAPI returned 0 deals — using HTML scraper")
     total = _scrape_amazon_deals_page("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
     total += _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
     return total

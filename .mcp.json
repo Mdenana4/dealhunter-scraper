@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "scrape-do": {
+      "command": "node",
+      "args": ["/opt/node22/lib/node_modules/scrape-do-mcp/dist/index.js"],
+      "env": {
+        "SCRAPEDO_TOKEN": ""
+      }
+    }
+  }
+}
