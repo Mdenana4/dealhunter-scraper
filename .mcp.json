@@ -4,7 +4,7 @@
       "command": "node",
       "args": ["/opt/node22/lib/node_modules/scrape-do-mcp/dist/index.js"],
       "env": {
-        "SCRAPEDO_TOKEN": ""
+        "SCRAPEDO_TOKEN": "01b7c3869c6a46ed8897797da8963c031f7ac151b22"
       }
     }
   }
