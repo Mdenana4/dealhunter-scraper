@@ -368,6 +368,7 @@ def fetch_with_scrapedo(url, render_js=False, country="eg"):
     global _scrapedo_dead
     if not SCRAPEDO_TOKEN or _scrapedo_dead:
         return None
+    import gzip as _gz
     try:
         params = {
             "token":   SCRAPEDO_TOKEN,
@@ -375,22 +376,50 @@ def fetch_with_scrapedo(url, render_js=False, country="eg"):
             "render":  "true" if render_js else "false",
             "geoCode": country.upper(),
         }
-        # Accept-Encoding: identity prevents gzip decompression mismatches
+        # stream=True lets us read raw bytes before decompression
         resp = requests.get(
             "https://api.scrape.do",
             params=params,
             timeout=60,
-            headers={"Accept-Encoding": "identity"},
+            headers={"Accept-Encoding": "gzip, deflate"},
             allow_redirects=True,
+            stream=True,
         )
-        if resp.status_code in (200, 301, 302) and len(resp.text or "") > 500:
-            return resp
         if resp.status_code in (401, 403):
             print(f"    [scrape.do] HTTP {resp.status_code} — token invalid or credits exhausted, disabling for this session")
             _scrapedo_dead = True
+            resp.close()
             return None
-        print(f"    [scrape.do] HTTP {resp.status_code} for {url[:60]}")
-        return None
+        if resp.status_code not in (200, 301, 302):
+            print(f"    [scrape.do] HTTP {resp.status_code} for {url[:60]}")
+            resp.close()
+            return None
+        # Read raw bytes without auto-decompression, then decompress manually
+        raw = resp.raw.read(decode_content=False)
+        resp.close()
+        enc = resp.headers.get("Content-Encoding", "").lower()
+        if "gzip" in enc or raw[:2] == b"\x1f\x8b":
+            try:
+                content = _gz.decompress(raw)
+            except Exception:
+                content = raw
+        elif "deflate" in enc:
+            import zlib as _zlib
+            try:
+                content = _zlib.decompress(raw)
+            except Exception:
+                try:
+                    content = _zlib.decompress(raw, -15)
+                except Exception:
+                    content = raw
+        else:
+            content = raw
+        if len(content) < 500:
+            return None
+        # Patch response so callers can use .content and .text normally
+        resp._content = content
+        resp.encoding = resp.apparent_encoding or "utf-8"
+        return resp
     except Exception as e:
         print(f"    [scrape.do] error: {e}")
         return None
