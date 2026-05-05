@@ -350,11 +350,28 @@ tr:hover td{background:#fafafa;}
   <div class="card">
     <div class="ch">
       <div class="ct">Scraper Status — All Sources / حالة جميع المصادر</div>
-      <button class="btn btn-p btn-sm" onclick="loadMonitor()">Refresh / تحديث</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-sm" style="background:#dc3545;color:#fff;" onclick="setAllSources(false)">⏸ Stop All</button>
+        <button class="btn btn-sm" style="background:#28a745;color:#fff;" onclick="setAllSources(true)">▶ Enable All</button>
+        <button class="btn btn-p btn-sm" onclick="loadMonitor()">Refresh / تحديث</button>
+      </div>
     </div>
     <div class="cb" style="padding:0;">
-      <table><thead><tr><th>Site / الموقع</th><th>URL</th><th>Status / الحالة</th><th>Deals / صفقات</th><th>Last Deal / آخر صفقة</th><th>Fake Check</th></tr></thead>
-      <tbody id="scraper-tb"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody></table>
+      <table><thead><tr><th>Site / الموقع</th><th>URL</th><th>Status / الحالة</th><th>Deals / صفقات</th><th>Last Deal / آخر صفقة</th><th>Fake Check</th><th>Toggle</th></tr></thead>
+      <tbody id="scraper-tb"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <!-- Scraper Source Toggles -->
+  <div class="card" style="margin-top:14px;">
+    <div class="ch">
+      <div class="ct">Enable / Disable Individual Sources / تفعيل أو إيقاف المصادر</div>
+    </div>
+    <div class="cb" style="padding:0;">
+      <table>
+        <thead><tr><th>Source / المصدر</th><th>State / الحالة</th><th>Action / الإجراء</th></tr></thead>
+        <tbody id="scraper-source-toggles"><tr><td colspan="3" class="loading">Loading...</td></tr></tbody>
+      </table>
     </div>
   </div>
 
@@ -1922,6 +1939,60 @@ async function dbp(col,docId,method,body,params){
   return fetch(url,opts);
 }
 
+async function loadScraperSources(){
+  try{
+    const r=await fetch('/api/v1/admin/scraper-sources',apiHdr());
+    if(!r.ok) return;
+    const {sources}=await r.json();
+    const el=document.getElementById('scraper-source-toggles');
+    if(!el) return;
+    el.innerHTML=sources.map(s=>`
+      <tr>
+        <td><strong>${s.flag} ${s.label}</strong></td>
+        <td><span id="src-badge-${s.key}" class="badge ${s.enabled?'bg':'br'}">${s.enabled?'Enabled':'Disabled'}</span></td>
+        <td>
+          <button class="btn btn-sm" id="src-btn-${s.key}"
+            style="background:${s.enabled?'#dc3545':'#28a745'};color:#fff;min-width:72px;"
+            onclick="toggleSource('${s.key}',${!s.enabled})">
+            ${s.enabled?'⏸ Disable':'▶ Enable'}
+          </button>
+        </td>
+      </tr>`).join('');
+  }catch(e){console.error('scraper sources:',e);}
+}
+
+async function toggleSource(key,enable){
+  const btn=document.getElementById('src-btn-'+key);
+  const badge=document.getElementById('src-badge-'+key);
+  if(btn) btn.disabled=true;
+  try{
+    const r=await fetch('/api/v1/admin/scraper-sources/'+key,{
+      method:'PATCH',headers:{'Content-Type':'application/json',...apiHdr().headers},
+      body:JSON.stringify({enabled:enable})
+    });
+    const d=await r.json();
+    if(d.success){
+      if(badge){badge.className='badge '+(enable?'bg':'br');badge.textContent=enable?'Enabled':'Disabled';}
+      if(btn){btn.style.background=enable?'#dc3545':'#28a745';btn.textContent=enable?'⏸ Disable':'▶ Enable';}
+    }else alert('Error: '+d.error);
+  }catch(e){alert('Request failed: '+e);}
+  finally{if(btn) btn.disabled=false;}
+}
+
+async function setAllSources(enable){
+  if(!confirm((enable?'Enable':'Disable')+' ALL scraper sources?')) return;
+  const keys=['amazon_eg','noon_eg','jumia_eg','btech_eg','carrefour_eg','sharaf_dg_eg','hyperone_eg','sahla_eg','amazon_ae','noon_ae','sharaf_dg_ae','amazon_sa','noon_sa'];
+  const body=enable?{enabled:keys,disabled:[]}:{enabled:[],disabled:keys};
+  try{
+    const r=await fetch('/api/v1/admin/scraper-sources',{
+      method:'PUT',headers:{'Content-Type':'application/json',...apiHdr().headers},
+      body:JSON.stringify(body)
+    });
+    const d=await r.json();
+    if(d.success){loadScraperSources();}else alert('Error: '+d.error);
+  }catch(e){alert('Request failed: '+e);}
+}
+
 async function loadMonitor(){
   document.getElementById('ts').textContent='Updated: '+new Date().toLocaleTimeString();
   try{
@@ -1988,6 +2059,9 @@ async function loadMonitor(){
         <td>${fake>0?`<span style="font-size:10px;color:#E24B4A;">${fake} suspicious</span>`:'<span style="font-size:10px;color:#3B6D11;">—</span>'}</td>
       </tr>`;
     }).join('');
+
+    // Load scraper source toggles
+    loadScraperSources();
 
     // Category chart
     const cats=st.cat_counts||{};

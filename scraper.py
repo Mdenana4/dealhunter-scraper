@@ -128,6 +128,26 @@ def check_scraper_control():
         return True
 
 
+# Cache disabled sources for the duration of each cycle (re-read each cycle)
+_disabled_sources: set = set()
+
+def load_disabled_sources():
+    """Read disabled source keys from Firestore scraper_control/disabled_sources."""
+    global _disabled_sources
+    try:
+        doc = db.collection("scraper_control").document("disabled_sources").get()
+        if doc.exists:
+            data = doc.to_dict() or {}
+            _disabled_sources = {k for k, v in data.items() if v is True}
+        else:
+            _disabled_sources = set()
+    except Exception:
+        _disabled_sources = set()
+
+def is_source_enabled(key: str) -> bool:
+    return key not in _disabled_sources
+
+
 # ─────────────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────────────
@@ -2693,45 +2713,42 @@ def run_scraper():
     print(f"{'=' * 62}")
 
     total = 0
+    load_disabled_sources()
+    if _disabled_sources:
+        print(f"  Disabled sources: {', '.join(sorted(_disabled_sources))}")
+
+    def run(key, fn):
+        nonlocal total
+        if not is_source_enabled(key):
+            print(f"\n[{key.upper()}] ⏸ disabled by admin — skipping")
+            _health.record(key, 0)
+            return
+        try:
+            n = fn()
+            _health.record(key, n)
+            total += n
+        except Exception as e:
+            print(f"❌ [{key.upper()}]: {e}")
+            _health.record(key, 0)
 
     # ── Egypt ────────────────────────────────────────────────────────────────
-    n = scrape_amazon();       _health.record("amazon_eg", n); total += n
-    n = scrape_jumia();        _health.record("jumia_eg",  n); total += n
-    n = scrape_btech();        _health.record("btech_eg",  n); total += n
-    n = scrape_carrefour();    _health.record("carrefour_eg", n); total += n
-    n = scrape_sharaf_dg();    _health.record("sharaf_dg_eg", n); total += n
-    n = scrape_hyperone();     _health.record("hyperone_eg", n); total += n
-    n = scrape_sahla();        _health.record("sahla_eg",  n); total += n
-
-    # ── Noon Egypt (wrapped separately for safety) ───────────────────────────
-    try:
-        n = scrape_noon()
-        _health.record("noon_eg", n)
-        total += n
-    except Exception as e:
-        print(f"\n❌ [NOON/EG] CRITICAL ERROR: {e}", flush=True)
-        import traceback; traceback.print_exc()
-        _health.record("noon_eg", 0)
+    run("amazon_eg",     scrape_amazon)
+    run("jumia_eg",      scrape_jumia)
+    run("btech_eg",      scrape_btech)
+    run("carrefour_eg",  scrape_carrefour)
+    run("sharaf_dg_eg",  scrape_sharaf_dg)
+    run("hyperone_eg",   scrape_hyperone)
+    run("sahla_eg",      scrape_sahla)
+    run("noon_eg",       scrape_noon)
 
     # ── UAE ──────────────────────────────────────────────────────────────────
-    try:
-        n = scrape_amazon_ae(); _health.record("amazon_ae", n); total += n
-    except Exception as e:
-        print(f"❌ [AMAZON/AE]: {e}"); _health.record("amazon_ae", 0)
-    try:
-        n = scrape_noon_ae();   _health.record("noon_ae",   n); total += n
-    except Exception as e:
-        print(f"❌ [NOON/AE]: {e}");   _health.record("noon_ae", 0)
+    run("amazon_ae",     scrape_amazon_ae)
+    run("noon_ae",       scrape_noon_ae)
+    run("sharaf_dg_ae",  lambda: 0)   # placeholder — not yet implemented
 
     # ── Saudi Arabia ─────────────────────────────────────────────────────────
-    try:
-        n = scrape_amazon_sa(); _health.record("amazon_sa", n); total += n
-    except Exception as e:
-        print(f"❌ [AMAZON/SA]: {e}"); _health.record("amazon_sa", 0)
-    try:
-        n = scrape_noon_sa();   _health.record("noon_sa",   n); total += n
-    except Exception as e:
-        print(f"❌ [NOON/SA]: {e}");   _health.record("noon_sa", 0)
+    run("amazon_sa",     scrape_amazon_sa)
+    run("noon_sa",       scrape_noon_sa)
 
     # ── Custom & analytics ───────────────────────────────────────────────────
     n = scrape_custom_sources(); total += n

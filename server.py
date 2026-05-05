@@ -2782,6 +2782,74 @@ def serve_admin():
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return resp
 
+# ── Scraper source toggle ─────────────────────────────────────────────────────
+ALL_SOURCES = [
+    {"key": "amazon_eg",    "label": "Amazon Egypt",       "flag": "🇪🇬"},
+    {"key": "noon_eg",      "label": "Noon Egypt",          "flag": "🇪🇬"},
+    {"key": "jumia_eg",     "label": "Jumia Egypt",         "flag": "🇪🇬"},
+    {"key": "btech_eg",     "label": "B.Tech Egypt",        "flag": "🇪🇬"},
+    {"key": "carrefour_eg", "label": "Carrefour Egypt",     "flag": "🇪🇬"},
+    {"key": "sharaf_dg_eg", "label": "Sharaf DG Egypt",     "flag": "🇪🇬"},
+    {"key": "hyperone_eg",  "label": "HyperOne Egypt",      "flag": "🇪🇬"},
+    {"key": "sahla_eg",     "label": "Sahla",               "flag": "🇪🇬"},
+    {"key": "amazon_ae",    "label": "Amazon UAE",          "flag": "🇦🇪"},
+    {"key": "noon_ae",      "label": "Noon UAE",            "flag": "🇦🇪"},
+    {"key": "sharaf_dg_ae", "label": "Sharaf DG UAE",       "flag": "🇦🇪"},
+    {"key": "amazon_sa",    "label": "Amazon Saudi Arabia", "flag": "🇸🇦"},
+    {"key": "noon_sa",      "label": "Noon Saudi Arabia",   "flag": "🇸🇦"},
+]
+
+@app.route('/api/v1/admin/scraper-sources', methods=['GET'])
+@require_admin
+def get_scraper_sources():
+    """Return all sources with their enabled/disabled state."""
+    try:
+        doc = db.collection('scraper_control').document('disabled_sources').get()
+        disabled = (doc.to_dict() or {}) if doc.exists else {}
+        sources = [
+            {**s, "enabled": not disabled.get(s["key"], False)}
+            for s in ALL_SOURCES
+        ]
+        return jsonify({"success": True, "sources": sources})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/v1/admin/scraper-sources/<key>', methods=['PATCH'])
+@require_admin
+def toggle_scraper_source(key):
+    """Enable or disable a single scraper source. Body: {"enabled": true/false}"""
+    valid_keys = {s["key"] for s in ALL_SOURCES}
+    if key not in valid_keys:
+        return jsonify({"success": False, "error": f"Unknown source key: {key}"}), 400
+    data = request.get_json() or {}
+    enabled = bool(data.get("enabled", True))
+    db.collection('scraper_control').document('disabled_sources').set(
+        {key: not enabled}, merge=True
+    )
+    action = "enabled" if enabled else "disabled"
+    print(f"[ADMIN] Scraper source '{key}' {action}")
+    return jsonify({"success": True, "key": key, "enabled": enabled})
+
+
+@app.route('/api/v1/admin/scraper-sources', methods=['PUT'])
+@require_admin
+def set_all_scraper_sources():
+    """Bulk enable/disable. Body: {"enabled": ["amazon_eg"], "disabled": ["btech_eg", ...]}"""
+    data = request.get_json() or {}
+    enabled_keys = set(data.get("enabled", []))
+    disabled_keys = set(data.get("disabled", []))
+    valid_keys = {s["key"] for s in ALL_SOURCES}
+    update = {}
+    for k in enabled_keys & valid_keys:
+        update[k] = False   # False = NOT disabled = enabled
+    for k in disabled_keys & valid_keys:
+        update[k] = True    # True = disabled
+    if update:
+        db.collection('scraper_control').document('disabled_sources').set(update, merge=True)
+    return jsonify({"success": True, "updated": len(update)})
+
+
 @app.errorhandler(404)
 def not_found(e):
     return jsonify({"success": False, "error": "Not found"}), 404
