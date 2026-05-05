@@ -2802,14 +2802,19 @@ ALL_SOURCES = [
 @app.route('/api/v1/admin/scraper-sources', methods=['GET'])
 @require_auth
 def get_scraper_sources():
-    """Return all sources with their enabled/disabled state."""
+    """Return all sources with their enabled/disabled/removed state."""
     try:
         doc = db.collection('scraper_control').document('disabled_sources').get()
-        disabled = (doc.to_dict() or {}) if doc.exists else {}
-        sources = [
-            {**s, "enabled": not disabled.get(s["key"], False)}
-            for s in ALL_SOURCES
-        ]
+        state = (doc.to_dict() or {}) if doc.exists else {}
+        sources = []
+        for s in ALL_SOURCES:
+            v = state.get(s["key"], False)
+            sources.append({
+                **s,
+                "enabled":  v is False or v == False,
+                "removed":  v == "removed",
+                "disabled": v is True,
+            })
         return jsonify({"success": True, "sources": sources})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -2818,18 +2823,27 @@ def get_scraper_sources():
 @app.route('/api/v1/admin/scraper-sources/<key>', methods=['PATCH'])
 @require_auth
 def toggle_scraper_source(key):
-    """Enable or disable a single scraper source. Body: {"enabled": true/false}"""
+    """Enable, disable, or remove a scraper source.
+    Body: {"enabled": true} | {"enabled": false} | {"removed": true}
+    """
     valid_keys = {s["key"] for s in ALL_SOURCES}
     if key not in valid_keys:
         return jsonify({"success": False, "error": f"Unknown source key: {key}"}), 400
     data = request.get_json() or {}
-    enabled = bool(data.get("enabled", True))
+    if data.get("removed") is True:
+        value = "removed"
+        action = "removed"
+    elif data.get("enabled") is True:
+        value = False      # False = not disabled = active
+        action = "enabled"
+    else:
+        value = True       # True = disabled
+        action = "disabled"
     db.collection('scraper_control').document('disabled_sources').set(
-        {key: not enabled}, merge=True
+        {key: value}, merge=True
     )
-    action = "enabled" if enabled else "disabled"
     print(f"[ADMIN] Scraper source '{key}' {action}")
-    return jsonify({"success": True, "key": key, "enabled": enabled})
+    return jsonify({"success": True, "key": key, "action": action})
 
 
 @app.route('/api/v1/admin/scraper-sources', methods=['PUT'])

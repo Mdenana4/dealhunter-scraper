@@ -138,7 +138,7 @@ def load_disabled_sources():
         doc = db.collection("scraper_control").document("disabled_sources").get()
         if doc.exists:
             data = doc.to_dict() or {}
-            _disabled_sources = {k for k, v in data.items() if v is True}
+            _disabled_sources = {k for k, v in data.items() if v is True or v == "removed"}
         else:
             _disabled_sources = set()
     except Exception:

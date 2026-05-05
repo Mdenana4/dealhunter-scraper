@@ -1950,19 +1950,43 @@ async function loadScraperSources(){
     }
     const {sources,error}=await r.json();
     if(error){el.innerHTML=`<tr><td colspan="3" style="color:#E24B4A;padding:12px;">${error}</td></tr>`;return;}
-    el.innerHTML=sources.map(s=>`
-      <tr>
+    const visible=sources.filter(s=>!s.removed);
+    const removed=sources.filter(s=>s.removed);
+    el.innerHTML=visible.map(s=>`
+      <tr id="src-row-${s.key}">
         <td><strong>${s.flag} ${s.label}</strong></td>
         <td><span id="src-badge-${s.key}" class="badge ${s.enabled?'bg':'br'}">${s.enabled?'Enabled':'Disabled'}</span></td>
-        <td>
+        <td style="display:flex;gap:6px;">
           <button class="btn btn-sm" id="src-btn-${s.key}"
             style="background:${s.enabled?'#dc3545':'#28a745'};color:#fff;min-width:72px;"
             onclick="toggleSource('${s.key}',${!s.enabled})">
             ${s.enabled?'⏸ Disable':'▶ Enable'}
           </button>
+          <button class="btn btn-sm" style="background:#6c757d;color:#fff;"
+            onclick="removeSource('${s.key}','${s.label}')">🗑 Remove</button>
         </td>
-      </tr>`).join('');
+      </tr>`).join('')+
+    (removed.length?`<tr><td colspan="3" style="padding:6px 12px;font-size:10px;color:#aaa;background:#f9f9f9;">
+      Removed sources — <a href="#" onclick="loadScraperSources();return false;">refresh to restore</a>:
+      ${removed.map(s=>`<button class="btn btn-sm" style="margin:2px;font-size:10px;" onclick="toggleSource('${s.key}',true)">↩ Restore ${s.flag} ${s.label}</button>`).join('')}
+    </td></tr>`:'');
   }catch(e){console.error('scraper sources:',e);}
+}
+
+async function removeSource(key,label){
+  if(!confirm(`Remove "${label}" from the scraper?\nIt will be hidden and skipped. You can restore it later.`)) return;
+  try{
+    const r=await fetch('/api/v1/admin/scraper-sources/'+key,{
+      method:'PATCH',headers:{'Content-Type':'application/json',...apiHdr().headers},
+      body:JSON.stringify({removed:true})
+    });
+    const d=await r.json();
+    if(d.success){
+      const row=document.getElementById('src-row-'+key);
+      if(row) row.remove();
+      loadScraperSources();
+    }else alert('Error: '+d.error);
+  }catch(e){alert('Request failed: '+e);}
 }
 
 async function toggleSource(key,enable){
