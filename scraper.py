@@ -2173,19 +2173,29 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
     # Noon product URLs always match /<region>/some-product-name/p/<SKU>/
     import re as _re
     noon_product_re = _re.compile(
-        r'^/[a-z-]+-[a-z]+/.+/p/[A-Z0-9]{5,}', _re.IGNORECASE
+        r'^/[a-zA-Z].*?/p/[A-Za-z0-9]{5,}', _re.IGNORECASE
     )
+    all_a_tags = soup.find_all("a", href=True)
+    all_hrefs_sample = [a["href"] for a in all_a_tags[:10]]
+    p_hrefs = [a["href"] for a in all_a_tags if "/p/" in (a.get("href") or "")]
+    print(f"    [noon parse] Method D: total_a={len(all_a_tags)} p_links={len(p_hrefs)} sample={all_hrefs_sample[:5]}")
+    if p_hrefs:
+        print(f"    [noon parse] Method D p_href samples={p_hrefs[:5]}")
+    matched_a_tags = [a for a in all_a_tags if noon_product_re.search(a.get("href", ""))]
+    print(f"    [noon parse] Method D regex_matched={len(matched_a_tags)}")
     seen_urls: set = set()
-    for a_tag in soup.find_all("a", href=noon_product_re):
+    _d_debug_count = 0
+    for a_tag in matched_a_tags:
         try:
             href = a_tag["href"]
             purl = "https://www.noon.com" + href if href.startswith("/") else href
             if purl in seen_urls:
                 continue
             seen_urls.add(purl)
+            _link_saved = False
             # Walk up to find a container with price info
             container = a_tag
-            for _ in range(6):
+            for _lvl in range(6):
                 container = container.parent
                 if not container:
                     break
@@ -2208,6 +2218,8 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                 if op < cp:
                     op = cp
                 disc = calculate_discount(op, cp)
+                if _d_debug_count < 3:
+                    print(f"    [noon parse] D-debug href={href[:60]} lvl={_lvl} prices={price_nums[:3]} title={title[:40]!r} disc={disc}")
                 if disc < MIN_DISCOUNT:
                     continue
                 if not price_in_range(cp):
@@ -2225,8 +2237,12 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                                   kanbkam_result=kb, currency=currency)
                 save_deal(deal)
                 saved += 1
+                _link_saved = True
                 break  # found the container for this link
-        except Exception:
+            if not _link_saved and _d_debug_count < 3:
+                _d_debug_count += 1
+        except Exception as _de:
+            print(f"    [noon parse] Method D exc: {_de}")
             continue
 
     print(f"    [noon parse] Method D (link scan) saved={saved}")
