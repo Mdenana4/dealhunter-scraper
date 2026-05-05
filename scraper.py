@@ -357,8 +357,9 @@ def fetch_with_scrapedo(url, render_js=False, country="eg"):
             params=params,
             timeout=60,
             headers={"Accept-Encoding": "identity"},
+            allow_redirects=True,
         )
-        if resp.status_code == 200 and len(resp.text or "") > 500:
+        if resp.status_code in (200, 301, 302) and len(resp.text or "") > 500:
             return resp
         print(f"    [scrape.do] HTTP {resp.status_code} for {url[:60]}")
         return None
