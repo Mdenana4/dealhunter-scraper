@@ -33,6 +33,11 @@ SCRAPER_API_KEY = (
     os.getenv("SCRAPER_KEY") or
     ""
 )
+SCRAPEDO_TOKEN = (
+    os.getenv("SCRAPEDO_TOKEN") or
+    os.getenv("SCRAPE_DO_TOKEN") or
+    ""
+)
 RAPIDAPI_KEY = (
     os.getenv("RAPIDAPI_KEY") or
     os.getenv("RAPID_API_KEY") or
@@ -95,6 +100,17 @@ except Exception as e:
     print(f"Firebase initialization/connection failed: {e}")
     db = None
 
+
+# ─────────────────────────────────────────────────────
+# PROXY STATUS LOG
+# ─────────────────────────────────────────────────────
+if SCRAPEDO_TOKEN:
+    print(f"[PROXY] scrape.do active (token={SCRAPEDO_TOKEN[:6]}...)")
+elif SCRAPER_API_KEY:
+    print(f"[PROXY] ScraperAPI active (key={SCRAPER_API_KEY[:6]}...)")
+else:
+    print("[PROXY] ⚠️  NO PROXY CONFIGURED — direct requests only (sites will block us!)")
+    print("[PROXY]    Fix: set SCRAPEDO_TOKEN in Railway environment variables")
 
 # ─────────────────────────────────────────────────────
 # SCRAPER CONTROL (kill switch from admin dashboard)
@@ -324,8 +340,35 @@ def is_blocked_response(resp, min_length=2000):
     return False
 
 
+def fetch_with_scrapedo(url, render_js=False, country="eg"):
+    """Fetch via scrape.do proxy. 1 credit (HTML) or 5 credits (JS render)."""
+    if not SCRAPEDO_TOKEN:
+        return None
+    try:
+        params = {
+            "token":   SCRAPEDO_TOKEN,
+            "url":     url,
+            "render":  "true" if render_js else "false",
+            "geoCode": country.upper(),
+        }
+        resp = requests.get("https://api.scrape.do", params=params, timeout=60)
+        if resp.status_code == 200 and len(resp.text or "") > 500:
+            return resp
+        print(f"    [scrape.do] HTTP {resp.status_code} for {url[:60]}")
+        return None
+    except Exception as e:
+        print(f"    [scrape.do] error: {e}")
+        return None
+
+
 def fetch_with_scraperapi(url, render_js=True, country="eg"):
     global _SCRAPERAPI_EXHAUSTED
+    # Prefer scrape.do when token is set
+    if SCRAPEDO_TOKEN:
+        resp = fetch_with_scrapedo(url, render_js=render_js, country=country)
+        if resp:
+            return resp
+        # scrape.do failed — fall through to ScraperAPI or direct
     if not SCRAPER_API_KEY or _SCRAPERAPI_EXHAUSTED:
         return fetch_direct(url)
     try:
