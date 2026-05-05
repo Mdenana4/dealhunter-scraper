@@ -351,7 +351,13 @@ def fetch_with_scrapedo(url, render_js=False, country="eg"):
             "render":  "true" if render_js else "false",
             "geoCode": country.upper(),
         }
-        resp = requests.get("https://api.scrape.do", params=params, timeout=60)
+        # Accept-Encoding: identity prevents gzip decompression mismatches
+        resp = requests.get(
+            "https://api.scrape.do",
+            params=params,
+            timeout=60,
+            headers={"Accept-Encoding": "identity"},
+        )
         if resp.status_code == 200 and len(resp.text or "") > 500:
             return resp
         print(f"    [scrape.do] HTTP {resp.status_code} for {url[:60]}")
@@ -1027,7 +1033,7 @@ def _scrape_amazon_deals_page(
     for page_num in range(1, 4):  # pages 1–3
         try:
             url = deals_url if page_num == 1 else f"{deals_url}&page={page_num}"
-            resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
+            resp = fetch_with_scraperapi(url, render_js=True, country=country_code)
             if is_blocked_response(resp, min_length=5000):
                 print(f"  Deals page {page_num}: blocked/empty (HTTP {resp.status_code if resp else 'no response'}) — skipping")
                 _log_scraper_error(f"amazon_{country_code}", url, "Blocked/CAPTCHA response on deals page")
