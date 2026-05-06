@@ -2300,6 +2300,12 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
             _link_saved = False
             for _lvl, container in enumerate(containers_to_check):
 
+                # Guard: if this container holds more than one product link
+                # we've walked too far up and would bleed prices/titles across
+                # neighbouring cards. Stop immediately.
+                if len(container.find_all("a", href=noon_sku_re)) > 1:
+                    break
+
                 # ── Price extraction (two-stage) ───────────────────────────
                 # Stage 1: data-qa price elements (reliable when JS rendered them)
                 _cp_el = (
@@ -2382,9 +2388,10 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
 
                 disc = calculate_discount(op, cp)
 
-                if _d_debug_count < 5:
-                    print(f"    [noon parse] D-debug lvl={_lvl} href={href[:55]} "
-                          f"op={op} cp={cp} disc={disc}")
+                if _d_debug_count < 8:
+                    _nlinks = len(container.find_all("a", href=noon_sku_re))
+                    print(f"    [noon parse] D-debug lvl={_lvl} links={_nlinks} "
+                          f"href={href[:50]} op={op} cp={cp} disc={disc}")
 
                 if disc < MIN_DISCOUNT:
                     if _d_debug_count < 5:
