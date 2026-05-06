@@ -2127,6 +2127,19 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                 continue
         return count
 
+    # Method 0: JSON-LD structured data probe (log presence for debugging)
+    _ld_probe_soup = BeautifulSoup(content[:50000], "lxml")
+    _ld_scripts = _ld_probe_soup.find_all("script", attrs={"type": "application/ld+json"})
+    if _ld_scripts:
+        try:
+            _ld0 = json.loads(_ld_scripts[0].string or "{}")
+            print(f"    [noon parse] JSON-LD found: {len(_ld_scripts)} scripts, "
+                  f"type={_ld0.get('@type','?')} keys={list(_ld0.keys())[:5]}")
+        except Exception:
+            print(f"    [noon parse] JSON-LD found: {len(_ld_scripts)} scripts (parse failed)")
+    else:
+        print(f"    [noon parse] JSON-LD: none found")
+
     # Method A: __NEXT_DATA__
     nd = extract_next_data(content)
     print(f"    [noon parse] content={len(content)}B nd={'yes' if nd else 'no'}")
@@ -2286,46 +2299,77 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
 
             _link_saved = False
             for _lvl, container in enumerate(containers_to_check):
-                text = container.get_text(" ", strip=True)
 
-                # Ratio-based price pair detection.
-                # Real discount pairs have op/cp in [1.4, 20] (28%–95% off).
-                # Spec numbers (64GB, 128GB, 256GB storage) give ratios > 50 → excluded.
-                all_nums = []
-                for _p in _re.findall(r'[\d,]+(?:\.\d+)?', text):
-                    if not _p:
+                # ── Price extraction (two-stage) ───────────────────────────
+                # Stage 1: data-qa price elements (reliable when JS rendered them)
+                _cp_el = (
+                    container.find(attrs={"data-qa": "product-price"}) or
+                    container.find(attrs={"data-qa": "price-now"}) or
+                    container.find(attrs={"data-qa": "selling-price"}) or
+                    container.find(attrs={"data-qa": "price"})
+                )
+                _op_el = (
+                    container.find(attrs={"data-qa": "product-old-price"}) or
+                    container.find(attrs={"data-qa": "price-was"}) or
+                    container.find(attrs={"data-qa": "old-price"}) or
+                    container.find(attrs={"data-qa": "original-price"})
+                )
+
+                if _cp_el and _op_el:
+                    cp = clean_price(_cp_el.get_text(strip=True))
+                    op = clean_price(_op_el.get_text(strip=True))
+                    if not cp or not op or cp < 50 or op <= cp:
                         continue
-                    try:
-                        _n = float(_p.replace(",", ""))
-                        if _n >= 50:
-                            all_nums.append(_n)
-                    except ValueError:
+                else:
+                    # Stage 2: text scan — exclude title text first so spec numbers
+                    # embedded in model names ("83" in "83JG0095ED", "5600" from
+                    # "DDR5 5600", "512" from "512 SSD", "144" from "144Hz") are
+                    # not in the pool of price candidates.
+                    title_el_excl = (
+                        container.find(attrs={"data-qa": "product-name"}) or
+                        container.find(attrs={"data-qa": "product-title"}) or
+                        container.find("h1") or container.find("h2") or
+                        container.find("h3") or container.find("p")
+                    )
+                    _title_excl = title_el_excl.get_text(" ", strip=True) if title_el_excl else ""
+                    full_text = container.get_text(" ", strip=True)
+                    # Remove title substring (and its spec numbers) from text
+                    price_text = full_text.replace(_title_excl, " ") if _title_excl else full_text
+
+                    # Standalone number regex: requires non-alphanumeric boundary on
+                    # both sides. "83JG0095ED" → "83" adjacent to "J" → excluded.
+                    # "16G" → "16" adjacent to "G" → excluded.
+                    all_nums = []
+                    for _m in _re.finditer(
+                        r'(?<![A-Za-z\d])([\d,]+(?:\.\d+)?)(?![A-Za-z\d])', price_text
+                    ):
+                        try:
+                            _n = float(_m.group(1).replace(",", ""))
+                            if _n >= 200:
+                                all_nums.append(_n)
+                        except ValueError:
+                            continue
+                    all_nums = sorted(set(all_nums), reverse=True)
+
+                    if len(all_nums) < 2:
                         continue
-                all_nums.sort(reverse=True)
 
-                if len(all_nums) < 2:
-                    continue
+                    # op = largest number; find cp where ratio op/cp in [1.4, 8]:
+                    #   < 1.4 → discount below ~28% — below notification threshold
+                    #   > 8   → >87.5% off — almost always a misidentified spec
+                    #           (DDR5 5600 → ratio ~11; RTX 5060 → ratio ~12)
+                    op = all_nums[0]
+                    cp = None
+                    for _candidate in all_nums[1:]:
+                        _ratio = op / _candidate if _candidate > 0 else 0
+                        if 1.4 <= _ratio <= 8.0 and _candidate >= 200:
+                            cp = _candidate
+                            break
 
-                # op MUST be the globally largest number in the card.
-                # Then find the largest candidate cp where ratio op/cp is in [1.4, 20]:
-                #   - ratio < 1.4 → less than 28% discount, not interesting
-                #   - ratio > 20  → 95%+ off; almost always a spec number (64GB, 128GB)
-                op = all_nums[0]
-                cp = None
-                for _candidate in all_nums[1:]:
-                    if _candidate <= 0:
+                    if cp is None:
                         continue
-                    _ratio = op / _candidate
-                    # cp must be >= 200 to exclude supplement spec numbers
-                    # (servings: 30/60/140, grams: 100/130) that fall in ratio range
-                    if 1.4 <= _ratio <= 20.0 and _candidate >= 200:
-                        cp = _candidate
-                        break
 
-                if cp is None:
-                    continue
-
-                # Title: prefer explicit data-qa elements, fall back to first <p>/<h>
+                # ── Title extraction ───────────────────────────────────────
                 title_el = (
                     container.find(attrs={"data-qa": "product-name"}) or
                     container.find(attrs={"data-qa": "product-title"}) or
@@ -2340,7 +2384,7 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
 
                 if _d_debug_count < 5:
                     print(f"    [noon parse] D-debug lvl={_lvl} href={href[:55]} "
-                          f"prices={all_nums[:4]} op={op} cp={cp} disc={disc}")
+                          f"op={op} cp={cp} disc={disc}")
 
                 if disc < MIN_DISCOUNT:
                     if _d_debug_count < 5:
