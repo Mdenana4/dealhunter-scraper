@@ -2,7 +2,7 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import firebase_admin
 from firebase_admin import credentials, firestore, messaging, auth as fb_auth
-import json, os, re, requests, hashlib, hmac, base64, time, traceback
+import json, os, re, requests, hashlib, hmac, base64, time, traceback, math
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -24,6 +24,24 @@ else:
     raise RuntimeError("Firebase credentials not found — set FIREBASE_KEY_JSON env var")
 
 db = firestore.client()
+
+def _sanitize_json(obj):
+    """
+    Recursively replace NaN/Infinity float values with 0 so Flask's jsonify
+    never emits the literal token 'NaN' (invalid JSON).
+
+    Root cause: Firestore can store NaN via Python's float('nan').  When that
+    value is returned through jsonify it produces  "price":NaN  which the
+    browser's JSON.parse rejects with
+    'Unexpected token N … is not valid JSON'.
+    """
+    if isinstance(obj, dict):
+        return {k: _sanitize_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_json(v) for v in obj]
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return 0
+    return obj
 
 # ── In-memory admin cache (loaded once at startup, refreshed hourly) ────────
 # Eliminates Firestore reads on every login — critical to stay under quota.
@@ -1623,64 +1641,183 @@ def scraper_log():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/debug/scrape-now', methods=['POST', 'GET'])
+def scrape_now():
+    """Trigger one scraper cycle immediately in a background thread."""
+    import threading, scraper as _scraper
+    def _run():
+        try:
+            _scraper.run_scraper()
+        except Exception as e:
+            print(f"[scrape-now] error: {e}")
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return jsonify({"success": True, "message": "Scrape cycle started — check /api/debug/scraper-log"})
+
+
 @app.route('/api/debug/amazon-test')
 def debug_amazon_test():
     """
-    Test the RapidAPI Amazon integration without running the full scraper.
-    Returns raw API response for one keyword search on Amazon Egypt.
-    Visit: /api/debug/amazon-test?country=EG&q=laptop
+    Test ALL 5 RapidAPI Amazon integrations with one request.
+    Visit: /api/debug/amazon-test
     """
-    RAPIDAPI_KEY = (
-        os.getenv("RAPIDAPI_KEY") or
-        os.getenv("RAPID_API_KEY") or ""
-    )
-    country = request.args.get("country", "EG").upper()
-    query   = request.args.get("q", "laptop")
+    KEY = (os.getenv("RAPIDAPI_KEY") or os.getenv("RAPID_API_KEY") or "")
+    if not KEY:
+        return jsonify({"error": "RAPIDAPI_KEY not set in Railway Variables"}), 400
 
-    if not RAPIDAPI_KEY:
-        return jsonify({
-            "error": "RAPIDAPI_KEY not set in Railway Variables",
-            "fix":   "Go to Railway → your project → Variables → add RAPIDAPI_KEY"
-        }), 400
+    hdrs = lambda host: {"x-rapidapi-host": host, "x-rapidapi-key": KEY}
+    results = {}
 
+    # 1 — real-time-amazon-data: search EG
     try:
-        resp = requests.get(
-            "https://real-time-amazon-data.p.rapidapi.com/search",
-            headers={
-                "x-rapidapi-host": "real-time-amazon-data.p.rapidapi.com",
-                "x-rapidapi-key":  RAPIDAPI_KEY,
-            },
-            params={
-                "query":         query,
-                "page":          "1",
-                "country":       country,
-                "discount_only": "true",
-                "sort_by":       "RELEVANCE",
-            },
-            timeout=20,
-        )
-        raw = resp.json()
-        products = (raw.get("data") or {}).get("products") or []
-        summary  = []
-        for p in products[:10]:
-            disc = p.get("discount_percent") or p.get("savings_percent") or "?"
-            summary.append({
-                "title":     (p.get("product_title") or "")[:60],
-                "price":     p.get("product_price"),
-                "original":  p.get("product_original_price"),
-                "discount":  disc,
-                "asin":      p.get("asin"),
-            })
-        return jsonify({
-            "api_status":       raw.get("status"),
-            "http_status":      resp.status_code,
-            "total_products":   (raw.get("data") or {}).get("total_products", 0),
-            "products_returned": len(products),
-            "sample_10":        summary,
-            "key_used":         RAPIDAPI_KEY[:8] + "...",
-        })
+        r = requests.get("https://real-time-amazon-data.p.rapidapi.com/search",
+            headers=hdrs("real-time-amazon-data.p.rapidapi.com"),
+            params={"query": "laptop", "page": "1", "country": "EG"}, timeout=15)
+        prods = (r.json().get("data") or {}).get("products") or []
+        results["1_real_time_search_EG"] = {
+            "http": r.status_code, "products": len(prods),
+            "sample": (prods[0].get("product_title","")[:50] if prods else None)}
     except Exception as e:
-        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+        results["1_real_time_search_EG"] = {"error": str(e)}
+
+    # 2 — real-time-amazon-data: search US (free tier baseline)
+    try:
+        r = requests.get("https://real-time-amazon-data.p.rapidapi.com/search",
+            headers=hdrs("real-time-amazon-data.p.rapidapi.com"),
+            params={"query": "laptop", "page": "1", "country": "US"}, timeout=15)
+        prods = (r.json().get("data") or {}).get("products") or []
+        results["2_real_time_search_US"] = {
+            "http": r.status_code, "products": len(prods),
+            "sample": (prods[0].get("product_title","")[:50] if prods else None)}
+    except Exception as e:
+        results["2_real_time_search_US"] = {"error": str(e)}
+
+    # 3 — amazon-product-info2: search via direct Amazon.eg URL
+    try:
+        r = requests.get("https://amazon-product-info2.p.rapidapi.com/Amazon/details",
+            headers=hdrs("amazon-product-info2.p.rapidapi.com"),
+            params={"url": "https://www.amazon.eg/s?k=laptop"}, timeout=15)
+        body = r.json()
+        prods = body.get("products") or body.get("data") or body.get("results") or []
+        if isinstance(prods, dict):
+            prods = list(prods.values())[:5]
+        results["3_product_info2_EG_URL"] = {
+            "http": r.status_code, "top_keys": list(body.keys())[:8],
+            "items": len(prods) if isinstance(prods, list) else "not a list",
+            "raw_snippet": str(body)[:300]}
+    except Exception as e:
+        results["3_product_info2_EG_URL"] = {"error": str(e)}
+
+    # 4 — amazon-pricing-and-product-info: domain=eg with known ASIN
+    try:
+        r = requests.get("https://amazon-pricing-and-product-info.p.rapidapi.com/",
+            headers=hdrs("amazon-pricing-and-product-info.p.rapidapi.com"),
+            params={"asin": "B07GR5MSKD", "domain": "eg"}, timeout=15)
+        body = r.json()
+        results["4_pricing_domain_eg"] = {
+            "http": r.status_code, "top_keys": list(body.keys())[:8],
+            "raw_snippet": str(body)[:300]}
+    except Exception as e:
+        results["4_pricing_domain_eg"] = {"error": str(e)}
+
+    # 5 — realtime-amazon-data: best-sellers
+    try:
+        r = requests.get("https://realtime-amazon-data.p.rapidapi.com/best-sellers",
+            headers=hdrs("realtime-amazon-data.p.rapidapi.com"),
+            params={"category": "electronics", "country": "us", "page": "1"}, timeout=15)
+        body = r.json()
+        prods = body.get("best_sellers") or body.get("products") or body.get("data") or []
+        results["5_realtime_bestsellers"] = {
+            "http": r.status_code, "top_keys": list(body.keys())[:8],
+            "items": len(prods) if isinstance(prods, list) else "not a list",
+            "sample": (prods[0].get("product_title","")[:50] if isinstance(prods,list) and prods else None)}
+    except Exception as e:
+        results["5_realtime_bestsellers"] = {"error": str(e)}
+
+    return jsonify({"key_used": KEY[:8] + "...", "results": results})
+
+
+@app.route('/api/debug/sites')
+def debug_sites():
+    """
+    Test B.Tech and Carrefour directly — shows HTTP status and what HTML/JSON they return.
+    Visit: /api/debug/sites
+    """
+    hdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    result = {}
+
+    # B.Tech
+    try:
+        r = requests.get("https://btech.com/en/sale.html?pageSize=24", headers=hdrs, timeout=15)
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(r.content, "lxml")
+        products = (
+            soup.find_all("li",  class_=lambda c: c and "product-item" in str(c)) or
+            soup.find_all("div", class_=lambda c: c and "product-item" in str(c)) or
+            soup.find_all("div", class_=lambda c: c and "product-card" in str(c))
+        )
+        sample_title = ""
+        if products:
+            el = (products[0].find("a", class_="product-item-link") or
+                  products[0].find("a") or products[0].find("h2") or products[0].find("h3"))
+            sample_title = el.get_text(strip=True)[:60] if el else "(found product but no title)"
+        result["btech"] = {
+            "http": r.status_code,
+            "body_len": len(r.text),
+            "products_found": len(products),
+            "sample_title": sample_title,
+            "body_snippet": r.text[:400],
+        }
+    except Exception as e:
+        result["btech"] = {"error": str(e)}
+
+    # Carrefour — try multiple API versions
+    carrefour_result = {}
+    api_versions = ["v9", "v8", "v7", "v6", "v5", "v4"]
+    for v in api_versions:
+        try:
+            url = f"https://www.carrefouregypt.com/api/{v}/page?url=/mafegy/en/c/electronics&page=0&pageSize=10&sortBy=discountPercentage&sortOrder=desc"
+            r = requests.get(url, headers={
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://www.carrefouregypt.com/",
+                "lang": "en", "country": "EG",
+            }, timeout=12)
+            body_str = r.text[:500]
+            try:
+                body = r.json()
+                has_products = bool(
+                    body.get("data", {}).get("products", {}).get("results") or
+                    body.get("products", {}).get("results") or
+                    body.get("results")
+                )
+                carrefour_result[v] = {"http": r.status_code, "has_products": has_products, "keys": list(body.keys())[:6]}
+            except Exception:
+                carrefour_result[v] = {"http": r.status_code, "raw": body_str}
+            if r.status_code == 200:
+                break
+        except Exception as e:
+            carrefour_result[v] = {"error": str(e)}
+    result["carrefour_api_versions"] = carrefour_result
+
+    # Carrefour HTML fallback test
+    try:
+        r = requests.get(
+            "https://www.carrefouregypt.com/mafegy/en/c/electronics?pageSize=10&sortBy=discountPercentage",
+            headers=hdrs, timeout=15)
+        result["carrefour_html"] = {
+            "http": r.status_code,
+            "body_len": len(r.text),
+            "has_next_data": "__NEXT_DATA__" in r.text,
+        }
+    except Exception as e:
+        result["carrefour_html"] = {"error": str(e)}
+
+    return jsonify(result)
 
 
 @app.route('/api/debug/scraper-status')
@@ -2253,11 +2390,14 @@ def admin_tiers():
         if not docs:
             docs = list(db.collection('tiers').stream())
         if docs:
-            tiers = [{'name': d.id, **d.to_dict()} for d in docs]
+            # _sanitize_json converts any NaN/Infinity floats → 0 so the
+            # browser's JSON.parse never sees the invalid token 'NaN'.
+            tiers = [_sanitize_json({'name': d.id, **d.to_dict()}) for d in docs]
         else:
             tiers = defaults
         return jsonify({'success': True, 'tiers': tiers})
     except Exception as e:
+        print(f"[ERROR] admin_tiers: {e}")
         return jsonify({'success': True, 'tiers': defaults})
 
 
@@ -2655,6 +2795,88 @@ def serve_admin():
     resp = send_from_directory('.', 'admin.html')
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return resp
+
+# ── Scraper source toggle ─────────────────────────────────────────────────────
+ALL_SOURCES = [
+    {"key": "amazon_eg",    "label": "Amazon Egypt",       "flag": "🇪🇬"},
+    {"key": "noon_eg",      "label": "Noon Egypt",          "flag": "🇪🇬"},
+    {"key": "jumia_eg",     "label": "Jumia Egypt",         "flag": "🇪🇬"},
+    {"key": "btech_eg",     "label": "B.Tech Egypt",        "flag": "🇪🇬"},
+    {"key": "carrefour_eg", "label": "Carrefour Egypt",     "flag": "🇪🇬"},
+    {"key": "sharaf_dg_eg", "label": "Sharaf DG Egypt",     "flag": "🇪🇬"},
+    {"key": "hyperone_eg",  "label": "HyperOne Egypt",      "flag": "🇪🇬"},
+    {"key": "sahla_eg",     "label": "Sahla",               "flag": "🇪🇬"},
+    {"key": "amazon_ae",    "label": "Amazon UAE",          "flag": "🇦🇪"},
+    {"key": "noon_ae",      "label": "Noon UAE",            "flag": "🇦🇪"},
+    {"key": "sharaf_dg_ae", "label": "Sharaf DG UAE",       "flag": "🇦🇪"},
+    {"key": "amazon_sa",    "label": "Amazon Saudi Arabia", "flag": "🇸🇦"},
+    {"key": "noon_sa",      "label": "Noon Saudi Arabia",   "flag": "🇸🇦"},
+]
+
+@app.route('/api/v1/admin/scraper-sources', methods=['GET'])
+@require_auth
+def get_scraper_sources():
+    """Return all sources with their enabled/disabled/removed state."""
+    try:
+        doc = db.collection('scraper_control').document('disabled_sources').get()
+        state = (doc.to_dict() or {}) if doc.exists else {}
+        sources = []
+        for s in ALL_SOURCES:
+            v = state.get(s["key"], False)
+            sources.append({
+                **s,
+                "enabled":  v is False or v == False,
+                "removed":  v == "removed",
+                "disabled": v is True,
+            })
+        return jsonify({"success": True, "sources": sources})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/v1/admin/scraper-sources/<key>', methods=['PATCH'])
+@require_auth
+def toggle_scraper_source(key):
+    """Enable, disable, or remove a scraper source.
+    Body: {"enabled": true} | {"enabled": false} | {"removed": true}
+    """
+    valid_keys = {s["key"] for s in ALL_SOURCES}
+    if key not in valid_keys:
+        return jsonify({"success": False, "error": f"Unknown source key: {key}"}), 400
+    data = request.get_json() or {}
+    if data.get("removed") is True:
+        value = "removed"
+        action = "removed"
+    elif data.get("enabled") is True:
+        value = False      # False = not disabled = active
+        action = "enabled"
+    else:
+        value = True       # True = disabled
+        action = "disabled"
+    db.collection('scraper_control').document('disabled_sources').set(
+        {key: value}, merge=True
+    )
+    print(f"[ADMIN] Scraper source '{key}' {action}")
+    return jsonify({"success": True, "key": key, "action": action})
+
+
+@app.route('/api/v1/admin/scraper-sources', methods=['PUT'])
+@require_auth
+def set_all_scraper_sources():
+    """Bulk enable/disable. Body: {"enabled": ["amazon_eg"], "disabled": ["btech_eg", ...]}"""
+    data = request.get_json() or {}
+    enabled_keys = set(data.get("enabled", []))
+    disabled_keys = set(data.get("disabled", []))
+    valid_keys = {s["key"] for s in ALL_SOURCES}
+    update = {}
+    for k in enabled_keys & valid_keys:
+        update[k] = False   # False = NOT disabled = enabled
+    for k in disabled_keys & valid_keys:
+        update[k] = True    # True = disabled
+    if update:
+        db.collection('scraper_control').document('disabled_sources').set(update, merge=True)
+    return jsonify({"success": True, "updated": len(update)})
+
 
 @app.errorhandler(404)
 def not_found(e):

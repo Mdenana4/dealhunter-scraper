@@ -26,6 +26,7 @@ from scraper_health import health as _health
 load_dotenv()
 
 MIN_DISCOUNT    = int(os.getenv("MIN_DISCOUNT", 40))
+AMAZON_KEYWORD_ENABLED = os.getenv("AMAZON_KEYWORD_ENABLED", "false").lower() == "true"
 INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 60))
 SCRAPER_API_KEY = (
     os.getenv("SCRAPER_API_KEY") or
@@ -104,11 +105,17 @@ except Exception as e:
 # ─────────────────────────────────────────────────────
 # PROXY STATUS LOG
 # ─────────────────────────────────────────────────────
+# Set to True when scrape.do returns 401/403 so we stop wasting requests
+_scrapedo_dead = False
+
 if SCRAPEDO_TOKEN:
-    print(f"[PROXY] scrape.do active (token={SCRAPEDO_TOKEN[:6]}...)")
-elif SCRAPER_API_KEY:
-    print(f"[PROXY] ScraperAPI active (key={SCRAPER_API_KEY[:6]}...)")
+    print(f"[PROXY] scrape.do active (token={SCRAPEDO_TOKEN[:6]}... len={len(SCRAPEDO_TOKEN)})")
 else:
+    _sd_env = os.getenv("SCRAPEDO_TOKEN","") or os.getenv("SCRAPE_DO_TOKEN","")
+    print(f"[PROXY] scrape.do NOT set (SCRAPEDO_TOKEN={bool(os.getenv('SCRAPEDO_TOKEN'))} SCRAPE_DO_TOKEN={bool(os.getenv('SCRAPE_DO_TOKEN'))} raw_len={len(_sd_env)})")
+if SCRAPER_API_KEY:
+    print(f"[PROXY] ScraperAPI fallback active (key={SCRAPER_API_KEY[:6]}...)")
+if not SCRAPEDO_TOKEN and not SCRAPER_API_KEY:
     print("[PROXY] ⚠️  NO PROXY CONFIGURED — direct requests only (sites will block us!)")
     print("[PROXY]    Fix: set SCRAPEDO_TOKEN in Railway environment variables")
 
@@ -126,6 +133,26 @@ def check_scraper_control():
         return True
     except Exception:
         return True
+
+
+# Cache disabled sources for the duration of each cycle (re-read each cycle)
+_disabled_sources: set = set()
+
+def load_disabled_sources():
+    """Read disabled source keys from Firestore scraper_control/disabled_sources."""
+    global _disabled_sources
+    try:
+        doc = db.collection("scraper_control").document("disabled_sources").get()
+        if doc.exists:
+            data = doc.to_dict() or {}
+            _disabled_sources = {k for k, v in data.items() if v is True or v == "removed"}
+        else:
+            _disabled_sources = set()
+    except Exception:
+        _disabled_sources = set()
+
+def is_source_enabled(key: str) -> bool:
+    return key not in _disabled_sources
 
 
 # ─────────────────────────────────────────────────────
@@ -340,24 +367,157 @@ def is_blocked_response(resp, min_length=2000):
     return False
 
 
-def fetch_with_scrapedo(url, render_js=False, country="eg"):
-    """Fetch via scrape.do proxy. 1 credit (HTML) or 5 credits (JS render)."""
-    if not SCRAPEDO_TOKEN:
+def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False,
+                        wait_until=None, wait_selector=None, custom_wait=None):
+    """Fetch via scrape.do proxy. 1 credit (HTML), 5 (JS render), 10 (super residential)."""
+    global _scrapedo_dead
+    if not SCRAPEDO_TOKEN or _scrapedo_dead:
         return None
+    import gzip as _gz
     try:
         params = {
             "token":   SCRAPEDO_TOKEN,
             "url":     url,
-            "render":  "true" if render_js else "false",
+            "render":  "true" if (render_js or super_proxy) else "false",
             "geoCode": country.upper(),
         }
-        resp = requests.get("https://api.scrape.do", params=params, timeout=60)
-        if resp.status_code == 200 and len(resp.text or "") > 500:
-            return resp
-        print(f"    [scrape.do] HTTP {resp.status_code} for {url[:60]}")
-        return None
+        if super_proxy:
+            params["super"] = "true"
+        if wait_until:
+            params["waitUntil"] = wait_until
+        if wait_selector:
+            params["waitSelector"] = wait_selector
+        if custom_wait:
+            params["customWait"] = str(custom_wait)
+        # stream=True lets us read raw bytes before decompression
+        resp = requests.get(
+            "https://api.scrape.do",
+            params=params,
+            timeout=60,
+            headers={"Accept-Encoding": "gzip, deflate"},
+            allow_redirects=True,
+            stream=True,
+        )
+        if resp.status_code in (401, 403):
+            print(f"    [scrape.do] HTTP {resp.status_code} — token invalid or credits exhausted, disabling for this session")
+            _scrapedo_dead = True
+            resp.close()
+            return None
+        if resp.status_code not in (200, 301, 302):
+            print(f"    [scrape.do] HTTP {resp.status_code} for {url[:60]}")
+            resp.close()
+            return None
+        # Read raw bytes without auto-decompression, then decompress manually
+        raw = resp.raw.read(decode_content=False)
+        resp.close()
+        enc = resp.headers.get("Content-Encoding", "").lower()
+        if "gzip" in enc or raw[:2] == b"\x1f\x8b":
+            try:
+                content = _gz.decompress(raw)
+            except Exception:
+                content = raw
+        elif "deflate" in enc:
+            import zlib as _zlib
+            try:
+                content = _zlib.decompress(raw)
+            except Exception:
+                try:
+                    content = _zlib.decompress(raw, -15)
+                except Exception:
+                    content = raw
+        else:
+            content = raw
+        if len(content) < 500:
+            return None
+        # Patch response so callers can use .content and .text normally
+        resp._content = content
+        resp.encoding = resp.apparent_encoding or "utf-8"
+        return resp
     except Exception as e:
         print(f"    [scrape.do] error: {e}")
+        return None
+
+
+_AMAZON_API_GEOCODES = {
+    # Egypt, UAE, Saudi Arabia are NOT supported by the scrape.do Amazon
+    # structured API (returns HTTP 400). Only Western markets are supported.
+    # Add a geocode here only after confirming it works.
+    "us": "us", "uk": "uk", "de": "de", "fr": "fr",
+    "it": "it", "es": "es", "ca": "ca", "au": "au",
+    "jp": "jp", "in": "in", "br": "br", "mx": "mx",
+}
+_AMAZON_API_ZIPCODES = {
+    "eg": "11311",  # Cairo
+    "ae": "00000",
+    "sa": "11564",  # Riyadh
+    "us": "10001",
+}
+
+
+def fetch_amazon_structured_search(keyword, country_code):
+    """
+    Call scrape.do's Amazon Search API for clean JSON results.
+    Returns list of product dicts (asin, title, price.amount, rating…) or None.
+    1 credit per call — same cost as a basic scrape.do request.
+    """
+    if not SCRAPEDO_TOKEN or _scrapedo_dead:
+        return None
+    geocode = _AMAZON_API_GEOCODES.get(country_code)
+    if not geocode:
+        return None  # unsupported market — don't waste a credit
+    zipcode = _AMAZON_API_ZIPCODES.get(country_code, "00000")
+    try:
+        resp = requests.get(
+            "https://api.scrape.do/plugin/amazon/search",
+            params={
+                "token":    SCRAPEDO_TOKEN,
+                "keyword":  keyword,
+                "geocode":  geocode,
+                "zipcode":  zipcode,
+                "language": "EN",
+            },
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            products = data.get("products", [])
+            print(f"    [amz-api] '{keyword}' geocode={geocode} → {len(products)} products")
+            return products if products else None
+        print(f"    [amz-api] HTTP {resp.status_code} for '{keyword}' geocode={geocode}")
+        return None
+    except Exception as e:
+        print(f"    [amz-api] error: {e}")
+        return None
+
+
+def fetch_amazon_product_detail(asin, country_code):
+    """
+    Call scrape.do's Amazon PDP API to get price + list_price for one ASIN.
+    Returns dict or None. 1 credit per call.
+    """
+    if not SCRAPEDO_TOKEN or _scrapedo_dead:
+        return None
+    geocode = _AMAZON_API_GEOCODES.get(country_code)
+    if not geocode:
+        return None
+    zipcode = _AMAZON_API_ZIPCODES.get(country_code, "00000")
+    try:
+        resp = requests.get(
+            "https://api.scrape.do/plugin/amazon/pdp",
+            params={
+                "token":    SCRAPEDO_TOKEN,
+                "asin":     asin,
+                "geocode":  geocode,
+                "zipcode":  zipcode,
+                "language": "EN",
+            },
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        return None
+    except Exception as e:
+        print(f"    [amz-pdp] error: {e}")
         return None
 
 
@@ -682,6 +842,8 @@ _RAPIDAPI_HEADERS = {
     "x-rapidapi-key":  RAPIDAPI_KEY,
     "Content-Type":    "application/json",
 }
+# Set to True once we receive a 403; prevents all subsequent API calls this process lifetime
+_rapidapi_plan_blocked = False
 
 _AMAZON_SEARCH_TERMS = [
     ("samsung galaxy",    "electronics"), ("iphone",          "electronics"),
@@ -722,6 +884,8 @@ def _rapidapi_amazon_search(query, country, default_cat,
         },
         f"SEARCH/{country}",
     )
+    if ok == "blocked":
+        return -1  # signal caller to abort all remaining search calls
     if not ok or resp is None:
         return 0
     products = (resp.json().get("data") or {}).get("products") or []
@@ -731,9 +895,13 @@ def _rapidapi_amazon_search(query, country, default_cat,
 
 def _rapidapi_get(endpoint, params, label="RapidAPI"):
     """
-    Make one RapidAPI call with rate-limit handling.
+    Make one RapidAPI call.
     Returns (response, ok) where ok=False means caller should stop/skip.
+    Returns (None, "blocked") specifically on 403 (plan does not cover this endpoint).
     """
+    global _rapidapi_plan_blocked
+    if _rapidapi_plan_blocked:
+        return None, "blocked"
     try:
         resp = requests.get(
             f"https://{_RAPIDAPI_AMAZON_HOST}/{endpoint}",
@@ -742,17 +910,12 @@ def _rapidapi_get(endpoint, params, label="RapidAPI"):
             timeout=30,
         )
         if resp.status_code == 429:
-            print(f"    [{label}] Rate limit (429) — sleeping 60s...")
-            time.sleep(60)
-            resp = requests.get(
-                f"https://{_RAPIDAPI_AMAZON_HOST}/{endpoint}",
-                headers=_RAPIDAPI_HEADERS,
-                params=params,
-                timeout=30,
-            )
-        if resp.status_code == 403:
-            print(f"    [{label}] 403 Forbidden — feature may require paid plan, skipping")
+            print(f"    [{label}] Rate limit (429) — skipping (use HTML scraper)")
             return None, False
+        if resp.status_code == 403:
+            print(f"    [{label}] 403 Forbidden — plan blocked, disabling RapidAPI for this session")
+            _rapidapi_plan_blocked = True
+            return None, "blocked"
         if resp.status_code != 200:
             print(f"    [{label}] HTTP {resp.status_code}")
             return None, False
@@ -837,7 +1000,7 @@ def _parse_and_save_rapidapi_products(products, country, marketplace_country,
 
 
 def _rapidapi_amazon_deals(country, marketplace_country, site_display, currency):
-    """Fetch Amazon deals/offers via RapidAPI. Returns count."""
+    """Fetch Amazon deals/offers via RapidAPI. Returns count, or -1 if plan blocked (403)."""
     total = 0
     all_deals = []
     try:
@@ -847,6 +1010,8 @@ def _rapidapi_amazon_deals(country, marketplace_country, site_display, currency)
                 {"country": country, "offset": offset, "limit": 50},
                 f"DEALS/{country}",
             )
+            if ok == "blocked":
+                return -1  # signal to caller: abort all RapidAPI phases
             if not ok or resp is None:
                 break
             data = resp.json()
@@ -883,6 +1048,8 @@ def _rapidapi_amazon_category(country, category_id, default_cat,
             },
             f"CAT/{country}/{category_id}",
         )
+        if ok == "blocked":
+            return -1
         if not ok or resp is None:
             break
         products = (resp.json().get("data") or {}).get("products") or []
@@ -919,28 +1086,41 @@ def _scrape_amazon_via_api(
 
     # Phase 1: dedicated deals/offers endpoint
     n = _rapidapi_amazon_deals(country, marketplace_country, site_display, currency)
+    if n == -1:
+        print(f"  Deals endpoint: 403 blocked — aborting RapidAPI for {country}, will use HTML scraper")
+        return 0
     print(f"  Deals endpoint: {n} deals")
     total += n
     time.sleep(3)
 
-    # Phase 2: keyword search (discount_only=true, 2 pages each)
+    # Phase 2: keyword search (abort immediately if plan is blocked)
+    _search_blocked = False
     for term, default_cat in _AMAZON_SEARCH_TERMS:
+        if _search_blocked:
+            break
         for page in (1, 2):
             n = _rapidapi_amazon_search(
                 term, country, default_cat,
                 marketplace_country, site_display, currency, page=page,
             )
+            if n == -1:
+                print(f"  Search endpoint: 403 blocked — aborting Phase 2+3 for {country}")
+                _search_blocked = True
+                break
             total += n
             time.sleep(2)
 
     # Phase 3: broad category search with discount filter
-    for cat_id, default_cat in _AMAZON_CATEGORIES:
-        n = _rapidapi_amazon_category(
-            country, cat_id, default_cat,
-            marketplace_country, site_display, currency,
-        )
-        total += n
-        time.sleep(3)
+    if not _search_blocked:
+        for cat_id, default_cat in _AMAZON_CATEGORIES:
+            n = _rapidapi_amazon_category(
+                country, cat_id, default_cat,
+                marketplace_country, site_display, currency,
+            )
+            if n == -1:
+                break
+            total += n
+            time.sleep(3)
 
     print(f"[AMAZON/{country}] RapidAPI done. {total} deals.")
     return total
@@ -1012,13 +1192,12 @@ def _scrape_amazon_deals_page(
     currency="EGP",
     country_code="eg",
 ):
-    """Scrape the Amazon deals page directly (40-80% off filter). Returns deal count."""
-    # URL with 40-80% discount filter — same as the link the user provided
+    """Scrape Amazon discount-sorted search page (SSR, works without JS). Returns deal count."""
+    # Amazon's discount-filtered search is server-side rendered — no React hydration needed.
+    # Filters: 40%+ off, sorted by discount rank. Works on EG, AE, SA.
     deals_url = (
-        f"https://www.{base_domain}/-/en/deals?"
-        "discounts-widget=%22%7B%22state%22%3A%7B%22rangeRefinementFilters%22%3A"
-        "%7B%22percentOff%22%3A%7B%22min%22%3A40%2C%22max%22%3A80%7D%7D%7D%2C"
-        "%22version%22%3A1%7D%22"
+        f"https://www.{base_domain}/s?"
+        f"rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE"
     )
     print(f"\n[AMAZON/{country_code.upper()}] Scraping deals page...")
     total = 0
@@ -1026,20 +1205,29 @@ def _scrape_amazon_deals_page(
     for page_num in range(1, 4):  # pages 1–3
         try:
             url = deals_url if page_num == 1 else f"{deals_url}&page={page_num}"
-            resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
+            resp = fetch_with_scrapedo(url, render_js=False, country=country_code)
+            if not resp or is_blocked_response(resp, min_length=5000):
+                resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
             if is_blocked_response(resp, min_length=5000):
                 print(f"  Deals page {page_num}: blocked/empty (HTTP {resp.status_code if resp else 'no response'}) — skipping")
                 _log_scraper_error(f"amazon_{country_code}", url, "Blocked/CAPTCHA response on deals page")
                 break
 
             soup = BeautifulSoup(resp.content, "lxml")
-            products = [
-                p for p in soup.find_all("div", attrs={"data-asin": True})
-                if p.get("data-asin", "").strip()
-            ]
+            # Amazon deals page uses several different card structures depending on locale/year.
+            # Try each selector in order, use the first that yields results.
+            products = (
+                [p for p in soup.find_all("div", attrs={"data-asin": True}) if p.get("data-asin", "").strip()] or
+                soup.find_all("div", attrs={"data-component-type": "s-search-result"}) or
+                soup.find_all("div", attrs={"data-testid": "deal-card"}) or
+                soup.find_all("li", class_=re.compile(r"GridItem|deal-card|s-result-item", re.I)) or
+                soup.find_all("div", class_=re.compile(r"DealCard|deal-card|dealCard", re.I))
+            )
             if not products:
-                print(f"  Deals page {page_num}: 0 products found — HTML structure may have changed")
-                _log_scraper_error(f"amazon_{country_code}", url, "0 products parsed — selector may be broken")
+                # Log a snippet to help diagnose selector issues
+                body_text = soup.get_text(" ", strip=True)[:200]
+                print(f"  Deals page {page_num}: 0 products — selectors exhausted. Page preview: {body_text!r}")
+                _log_scraper_error(f"amazon_{country_code}", url, "0 products parsed — all selectors failed")
                 break
 
             print(f"  Deals page {page_num}: {len(products)} product divs")
@@ -1060,7 +1248,7 @@ def _scrape_amazon_deals_page(
                     if not title_el:
                         continue
                     title = title_el.get_text(strip=True)
-                    if not title or len(title) < 6:
+                    if not title or len(title.split()) < 3:
                         continue
 
                     price_el = product.find("span", class_="a-price-whole")
@@ -1160,10 +1348,81 @@ def _scrape_amazon_region(
     print(f"\n[AMAZON/{country_code.upper()}] Starting — {site_display}...")
     total = 0
 
+    if not AMAZON_KEYWORD_ENABLED:
+        print(f"  [AMAZON/{country_code.upper()}] keyword scan disabled (AMAZON_KEYWORD_ENABLED=false)")
+        return 0
+
+    seen_asins: set = set()  # deduplicate across all keywords (avoids 20+ adidas variants)
+
     for item in AMAZON_KEYWORDS:
         try:
+            # ── Strategy A: scrape.do structured Amazon Search API ─────────
+            # Returns clean JSON (asin, title, price) — no HTML parsing.
+            # If the geocode isn't supported or the call fails, falls through
+            # to Strategy B (HTML scraping).
+            api_products = fetch_amazon_structured_search(item["k"], country_code)
+            if api_products:
+                saved_this_keyword = 0
+                for p in api_products:
+                    if saved_this_keyword >= 6:
+                        break
+                    asin  = (p.get("asin") or "").strip()
+                    title = (p.get("title") or "").strip()
+                    if not asin or not title or len(title.split()) < 3:
+                        continue
+                    if asin in seen_asins:
+                        continue
+                    if p.get("isSponsored"):
+                        continue
+
+                    # Get price + list_price from PDP (1 extra credit per product)
+                    pdp = fetch_amazon_product_detail(asin, country_code)
+                    if not pdp:
+                        continue
+                    cp = float(pdp.get("price") or 0)
+                    op = float(pdp.get("list_price") or cp)
+                    if cp < 50 or op < cp:
+                        op = cp
+                    discount = calculate_discount(op, cp)
+
+                    # Also accept badge-stated discounts for products with no list_price
+                    if discount < MIN_DISCOUNT:
+                        continue
+                    if currency == "EGP" and not price_in_range(cp):
+                        continue
+
+                    seen_asins.add(asin)
+                    images = pdp.get("images") or []
+                    img    = images[0].get("url", "") if images else ""
+                    rating = float(pdp.get("rating") or 0)
+                    rc     = int(pdp.get("total_ratings") or 0)
+                    cat    = detect_category(title) or item["cat"]
+                    product_url = f"https://www.{base_domain}/dp/{asin}?language=en_AE"
+
+                    print(f"    [amz-api✓] {title[:40]} | {discount}% off")
+                    kb = check_price_history(asin=asin, product_url=product_url,
+                                             current_price=cp, original_price=op,
+                                             title=title, site=marketplace_country)
+                    deal = build_deal(title=title, site=marketplace_country,
+                                      site_display=site_display, category=cat,
+                                      current_price=cp, original_price=op,
+                                      discount=discount, image_url=img,
+                                      product_url=product_url, rating=rating,
+                                      review_count=rc, asin=asin,
+                                      kanbkam_result=kb, currency=currency)
+                    save_deal(deal)
+                    total += 1
+                    saved_this_keyword += 1
+                    time.sleep(1)
+
+                time.sleep(2)
+                continue  # structured API succeeded — skip HTML fallback
+
+            # ── Strategy B: HTML keyword search (fallback) ─────────────────
             url = f"https://www.{base_domain}/s?k={item['k'].replace(' ', '+')}&language=en_AE"
-            resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
+            resp = fetch_with_scrapedo(url, render_js=True, country=country_code)
+            if not resp or is_blocked_response(resp, min_length=5000):
+                resp = fetch_with_scraperapi(url, render_js=True, country=country_code)
             if is_blocked_response(resp, min_length=5000):
                 print(f"  [{item['k']}]: blocked/empty response — skipping")
                 _log_scraper_error(f"amazon_{country_code}", url, f"Blocked response on keyword '{item['k']}'")
@@ -1175,12 +1434,18 @@ def _scrape_amazon_region(
                 p for p in soup.find_all("div", attrs={"data-asin": True})
                 if p.get("data-asin", "").strip()
             ]
+            saved_this_keyword = 0
 
             for product in products:
                 try:
+                    if saved_this_keyword >= 6:
+                        break  # cap at 6 deals per keyword to avoid 20+ adidas variants
                     asin = product.get("data-asin", "").strip()
                     if not asin:
                         continue
+                    if asin in seen_asins:
+                        continue  # skip duplicate (same product from another keyword)
+                    seen_asins.add(asin)  # mark seen immediately to avoid re-checking variants
                     if product.get("data-component-type") == "sp-sponsored-result":
                         continue
 
@@ -1192,7 +1457,10 @@ def _scrape_amazon_region(
                     if not title_el:
                         continue
                     title = title_el.get_text(strip=True)
-                    if not title or len(title) < 6:
+                    # Require at least 3 words: rejects bare brand names like
+                    # "adidas", "Samsung", "Babacom" that Amazon renders in cards
+                    # when the full title span hasn't hydrated.
+                    if not title or len(title.split()) < 3:
                         continue
 
                     price_el = product.find("span", class_="a-price-whole")
@@ -1278,8 +1546,10 @@ def _scrape_amazon_region(
                         kanbkam_result=kb,
                         currency=currency,
                     )
+                    seen_asins.add(asin)
                     save_deal(deal)
                     total += 1
+                    saved_this_keyword += 1
                     time.sleep(0.5)
 
                 except Exception:
@@ -1296,37 +1566,19 @@ def _scrape_amazon_region(
 
 
 def scrape_amazon():
-    """Amazon Egypt — RapidAPI primary, HTML fallback when API returns 0."""
-    if RAPIDAPI_KEY:
-        api_total = _scrape_amazon_via_api("EG", "amazon_eg", "Amazon Egypt", "EGP")
-        if api_total > 0:
-            return api_total
-        print("\n[AMAZON/EG] RapidAPI returned 0 deals (free plan only supports US) — using HTML scraper")
-    total = _scrape_amazon_deals_page()
-    total += _scrape_amazon_region()
-    return total
+    """Amazon Egypt — keyword HTML scraper via scrape.do."""
+    print("\n[AMAZON/EG] Skipping RapidAPI (free plan 403) — going straight to HTML scraper")
+    return _scrape_amazon_region()
 
 def scrape_amazon_ae():
-    """Amazon UAE — RapidAPI primary, HTML fallback when API returns 0."""
-    if RAPIDAPI_KEY:
-        api_total = _scrape_amazon_via_api("AE", "amazon_ae", "Amazon UAE", "AED")
-        if api_total > 0:
-            return api_total
-        print("\n[AMAZON/AE] RapidAPI returned 0 deals — using HTML scraper")
-    total = _scrape_amazon_deals_page("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
-    total += _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
-    return total
+    """Amazon UAE — keyword HTML scraper via scrape.do."""
+    print("\n[AMAZON/AE] Skipping RapidAPI — going straight to HTML scraper")
+    return _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
 
 def scrape_amazon_sa():
-    """Amazon Saudi Arabia — RapidAPI primary, HTML fallback when API returns 0."""
-    if RAPIDAPI_KEY:
-        api_total = _scrape_amazon_via_api("SA", "amazon_sa", "Amazon Saudi Arabia", "SAR")
-        if api_total > 0:
-            return api_total
-        print("\n[AMAZON/SA] RapidAPI returned 0 deals — using HTML scraper")
-    total = _scrape_amazon_deals_page("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
-    total += _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
-    return total
+    """Amazon Saudi Arabia — keyword HTML scraper via scrape.do."""
+    print("\n[AMAZON/SA] Skipping RapidAPI — going straight to HTML scraper")
+    return _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
 
 
 # ─────────────────────────────────────────────────────
@@ -1336,19 +1588,22 @@ def scrape_jumia():
     print("\n[JUMIA] Starting...")
     total = 0
     pages = [
-        ("https://www.jumia.com.eg/mlp-flash-sales/", "general"),
-        ("https://www.jumia.com.eg/phones-tablets/?sort=discountPercent&type=lowest-price#catalog-listing", "electronics"),
-        ("https://www.jumia.com.eg/electronics/?sort=discountPercent&type=lowest-price#catalog-listing", "electronics"),
-        ("https://www.jumia.com.eg/fashion/?sort=discountPercent#catalog-listing", "fashion"),
-        ("https://www.jumia.com.eg/home-office/?sort=discountPercent#catalog-listing", "home"),
-        ("https://www.jumia.com.eg/sporting-goods/?sort=discountPercent#catalog-listing", "sports"),
-        ("https://www.jumia.com.eg/beauty-perfumes/?sort=discountPercent#catalog-listing", "beauty"),
-        ("https://www.jumia.com.eg/baby-products/?sort=discountPercent#catalog-listing", "toys"),
+        ("https://www.jumia.com.eg/flash-sales/", "general"),
+        ("https://www.jumia.com.eg/phones-tablets/?sort=discountPercent&type=lowest-price", "electronics"),
+        ("https://www.jumia.com.eg/electronics/?sort=discountPercent&type=lowest-price", "electronics"),
+        ("https://www.jumia.com.eg/fashion/?sort=discountPercent", "fashion"),
+        ("https://www.jumia.com.eg/home-office/?sort=discountPercent", "home"),
+        ("https://www.jumia.com.eg/sporting-goods/?sort=discountPercent", "sports"),
+        ("https://www.jumia.com.eg/beauty-health/?sort=discountPercent", "beauty"),
+        ("https://www.jumia.com.eg/baby-products/?sort=discountPercent", "toys"),
     ]
 
     for url, default_cat in pages:
         try:
-            resp = fetch_with_scraperapi(url, render_js=False, country="eg")
+            # scrape.do super proxy first (residential IP, JS rendering)
+            resp = fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=True)
+            if not resp or is_blocked_response(resp, min_length=3000):
+                resp = fetch_with_scraperapi(url, render_js=False, country="eg")
             if is_blocked_response(resp, min_length=3000):
                 print(f"  [JUMIA] blocked/empty: {url[:55]}...")
                 _log_scraper_error("jumia_eg", url, "Blocked/empty response")
@@ -1980,7 +2235,7 @@ def _process_noon_item(src, default_cat, region_path="egypt-en", currency="EGP")
 
 
 def _parse_noon_products(content, default_cat, region_path, currency, marketplace_country,
-                         site_display, country_code):
+                         site_display, country_code, seen_skus=None):
     """
     Try every known method to extract Noon products from HTML/JSON content.
     Returns count of deals saved.
@@ -2030,6 +2285,19 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
             except Exception:
                 continue
         return count
+
+    # Method 0: JSON-LD structured data probe (log presence for debugging)
+    _ld_probe_soup = BeautifulSoup(content[:50000], "lxml")
+    _ld_scripts = _ld_probe_soup.find_all("script", attrs={"type": "application/ld+json"})
+    if _ld_scripts:
+        try:
+            _ld0 = json.loads(_ld_scripts[0].string or "{}")
+            print(f"    [noon parse] JSON-LD found: {len(_ld_scripts)} scripts, "
+                  f"type={_ld0.get('@type','?')} keys={list(_ld0.keys())[:5]}")
+        except Exception:
+            print(f"    [noon parse] JSON-LD found: {len(_ld_scripts)} scripts (parse failed)")
+    else:
+        print(f"    [noon parse] JSON-LD: none found")
 
     # Method A: __NEXT_DATA__
     nd = extract_next_data(content)
@@ -2084,14 +2352,17 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
     soup = BeautifulSoup(content, "lxml")
     blocks = (
         soup.find_all("div", attrs={"data-qa": "product-block"}) or
+        soup.find_all("div", attrs={"data-qa": "product-container"}) or
         soup.find_all("div", attrs={"data-testid": "product-block"}) or
+        soup.find_all("div", attrs={"data-testid": "product-card"}) or
         soup.find_all("div", class_=lambda c: c and any(
-            k in str(c) for k in ("productContainer", "ProductCard", "product-card"))) or
+            k in str(c) for k in ("productContainer", "ProductCard", "product-card", "grid_item"))) or
         soup.find_all("article", class_=lambda c: c and "product" in str(c).lower())
     )
     for p in blocks:
         try:
             title_el = (p.find(attrs={"data-qa": "product-name"}) or
+                        p.find(attrs={"data-testid": "product-name"}) or
                         p.find(class_=lambda c: c and "name" in str(c).lower()) or
                         p.find("h2") or p.find("p"))
             if not title_el:
@@ -2100,6 +2371,7 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
             if not title or len(title) < 5:
                 continue
             price_el = (p.find(attrs={"data-qa": "price-now"}) or
+                        p.find(attrs={"data-testid": "price"}) or
                         p.find(class_=lambda c: c and "price" in str(c).lower()))
             if not price_el:
                 continue
@@ -2107,8 +2379,8 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
             if cp < 50:
                 continue
             orig_el = (p.find(attrs={"data-qa": "price-was"}) or
-                       p.find("del") or
-                       p.find(class_=lambda c: c and "was" in str(c).lower()))
+                       p.find("del") or p.find("s") or
+                       p.find(class_=lambda c: c and ("was" in str(c).lower() or "old" in str(c).lower())))
             op = clean_price(orig_el.get_text()) if orig_el else cp
             if op < cp:
                 op = cp
@@ -2117,8 +2389,7 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                 continue
             link_el = p.find("a", href=True)
             href = link_el["href"] if link_el else ""
-            purl = ("https://www.noon.com" + href
-                    if href.startswith("/") else href)
+            purl = ("https://www.noon.com" + href if href.startswith("/") else href)
             img_el = p.find("img")
             img = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
             cat = detect_category(title) or default_cat
@@ -2339,46 +2610,56 @@ def _scrape_noon_region(
     """Scrape any Noon regional store. Called by the three wrappers below."""
     print(f"\n[NOON/{country_code.upper()}] Starting — {site_display}...")
     total = 0
+    _seen_noon_skus: set = set()  # shared across all keyword pages to prevent duplicate SKUs
 
     def _noon_fetch(url):
         """
-        Fetch strategy for Noon pages:
-        1. Direct request — free, fast, but Noon often requires JS rendering.
-        2. ScraperAPI with render_js=True — 5 credits, reliable for Noon's
-           Next.js pages.  Only used when direct fetch returns a short/blocked
-           response (< 5 000 bytes or a known block signal).
-
-        Debug lines printed:
-          [NOON/XX] direct OK (NNNNb)   → direct fetch returned usable HTML
-          [NOON/XX] direct blocked → trying ScraperAPI render_js=True
-          [NOON/XX] ScraperAPI OK (NNNNb)
-          [NOON/XX] ScraperAPI also blocked — 0 products expected for this URL
+        Fetch strategy for Noon pages (tried in order until one works):
+        1. scrape.do super=true (residential proxy + JS render) — most reliable
+        2. scrape.do render=true (datacenter + JS render) — fallback
+        3. ScraperAPI render_js=True — last resort
         """
-        resp = fetch_noon_direct(url, country_code)
-        if resp and resp.status_code == 200 and len(resp.text or "") > 5000:
-            print(f"  [NOON/{country_code.upper()}] direct OK ({len(resp.text)}b) {url[:60]}")
-            return resp
-        # Direct failed or too short — switch to JS rendering
-        print(f"  [NOON/{country_code.upper()}] direct blocked ({resp.status_code if resp else 'no resp'}) → ScraperAPI render_js=True")
+        # Try scrape.do with residential super proxy first.
+        if SCRAPEDO_TOKEN and not _scrapedo_dead:
+            resp = fetch_with_scrapedo(url, render_js=True, country=country_code,
+                                       super_proxy=True)
+            if resp and len(resp.text or "") > 3000:
+                print(f"  [NOON/{country_code.upper()}] scrape.do super OK ({len(resp.text)}b)")
+                return resp
+            # Fall back to regular scrape.do render
+            resp = fetch_with_scrapedo(url, render_js=True, country=country_code,
+                                       super_proxy=False)
+            if resp and len(resp.text or "") > 3000:
+                print(f"  [NOON/{country_code.upper()}] scrape.do render OK ({len(resp.text)}b)")
+                return resp
+            print(f"  [NOON/{country_code.upper()}] scrape.do blocked → trying ScraperAPI")
+        else:
+            # No scrape.do — try direct first
+            resp = fetch_noon_direct(url, country_code)
+            if resp and resp.status_code == 200 and len(resp.text or "") > 5000:
+                print(f"  [NOON/{country_code.upper()}] direct OK ({len(resp.text)}b)")
+                return resp
+            print(f"  [NOON/{country_code.upper()}] direct blocked ({resp.status_code if resp else 'no resp'}) → ScraperAPI")
         resp2 = fetch_with_scraperapi(url, render_js=True, country=country_code)
         if resp2 and resp2.status_code == 200 and len(resp2.text or "") > 3000:
             print(f"  [NOON/{country_code.upper()}] ScraperAPI OK ({len(resp2.text)}b)")
             return resp2
-        print(f"  [NOON/{country_code.upper()}] ScraperAPI also blocked — 0 products expected")
-        return resp2  # caller will handle empty result
+        print(f"  [NOON/{country_code.upper()}] all methods blocked — 0 products expected")
+        return resp2  # caller handles empty result
 
     # ── Phase 1: Deals / sale pages (server-side rendered, most reliable) ──
     deals_pages = [
-        f"https://www.noon.com/{region_path}/deals/?limit=48&sort%5Bby%5D=discount_percent&sort%5Bdir%5D=desc",
-        f"https://www.noon.com/{region_path}/flash-sale/?limit=48",
-        f"https://www.noon.com/{region_path}/sale/?limit=48&sort%5Bby%5D=discount_percent",
+        f"https://www.noon.com/{region_path}/sale/?limit=48&sort%5Bby%5D=discount_percent&sort%5Bdir%5D=desc",
+        f"https://www.noon.com/{region_path}/offers/?limit=48&sort%5Bby%5D=discount_percent",
+        f"https://www.noon.com/{region_path}/category/deals/?limit=48",
     ]
     for dp_url in deals_pages:
         try:
             resp = _noon_fetch(dp_url)
             if resp and resp.status_code == 200:
                 n = _parse_noon_products(resp.text, "general", region_path, currency,
-                                         marketplace_country, site_display, country_code)
+                                         marketplace_country, site_display, country_code,
+                                         seen_skus=_seen_noon_skus)
                 if n == 0:
                     _log_scraper_error(marketplace_country, dp_url,
                                        "0 products on deals page — HTML selector may have changed")
@@ -2412,7 +2693,8 @@ def _scrape_noon_region(
                 time.sleep(2)
                 continue
             n = _parse_noon_products(resp.text, default_cat, region_path, currency,
-                                     marketplace_country, site_display, country_code)
+                                     marketplace_country, site_display, country_code,
+                                     seen_skus=_seen_noon_skus)
             print(f"  [NOON/{country_code.upper()}] '{term}': {n} deals")
             total += n
             time.sleep(2)
@@ -2857,64 +3139,71 @@ def update_analytics():
 # ─────────────────────────────────────────────────────
 # MAIN CYCLE
 # ─────────────────────────────────────────────────────
+import threading as _threading
+_scrape_lock = _threading.Lock()
+
 def run_scraper():
+    if not _scrape_lock.acquire(blocking=False):
+        print("  [run_scraper] cycle already in progress — skipping duplicate trigger")
+        return
+    try:
+        _run_scraper_inner()
+    finally:
+        _scrape_lock.release()
+
+
+def _run_scraper_inner():
     if not check_scraper_control():
         return
 
     print(f"\n{'=' * 62}")
     print(f"  SCRAPE CYCLE: {now_str()}")
-    if RAPIDAPI_KEY:
-        print(f"  RapidAPI Amazon: ACTIVE (zero-block API mode for EG/AE/SA)")
-    else:
-        print(f"  RapidAPI Amazon: NOT SET — add RAPIDAPI_KEY in Railway Variables")
+    print(f"  Amazon: HTML keyword scan via scrape.do (RapidAPI disabled — free plan 403)")
     if SCRAPER_API_KEY:
-        print(f"  ScraperAPI: ACTIVE (JS rendering for Noon/HyperOne/Sahla)")
+        print(f"  ScraperAPI: ACTIVE (fallback for Noon/Jumia)")
     else:
-        print(f"  ScraperAPI: NOT SET — Noon may return 0 deals")
+        print(f"  ScraperAPI: NOT SET")
     if MIN_PRICE > 0 or MAX_PRICE < 9999999:
         print(f"  Price filter: EGP {MIN_PRICE:,.0f} – EGP {MAX_PRICE:,.0f}")
     print(f"{'=' * 62}")
 
     total = 0
+    load_disabled_sources()
+    if _disabled_sources:
+        print(f"  Disabled sources: {', '.join(sorted(_disabled_sources))}")
+
+    def run(key, fn):
+        nonlocal total
+        if not is_source_enabled(key):
+            print(f"\n[{key.upper()}] ⏸ disabled by admin — skipping")
+            _health.record(key, 0)
+            return
+        try:
+            n = fn()
+            _health.record(key, n)
+            total += n
+        except Exception as e:
+            print(f"❌ [{key.upper()}]: {e}")
+            _health.record(key, 0)
 
     # ── Egypt ────────────────────────────────────────────────────────────────
-    n = scrape_amazon();       _health.record("amazon_eg", n); total += n
-    n = scrape_jumia();        _health.record("jumia_eg",  n); total += n
-    n = scrape_btech();        _health.record("btech_eg",  n); total += n
-    n = scrape_carrefour();    _health.record("carrefour_eg", n); total += n
-    n = scrape_sharaf_dg();    _health.record("sharaf_dg_eg", n); total += n
-    n = scrape_hyperone();     _health.record("hyperone_eg", n); total += n
-    n = scrape_sahla();        _health.record("sahla_eg",  n); total += n
-
-    # ── Noon Egypt (wrapped separately for safety) ───────────────────────────
-    try:
-        n = scrape_noon()
-        _health.record("noon_eg", n)
-        total += n
-    except Exception as e:
-        print(f"\n❌ [NOON/EG] CRITICAL ERROR: {e}", flush=True)
-        import traceback; traceback.print_exc()
-        _health.record("noon_eg", 0)
+    run("amazon_eg",     scrape_amazon)
+    run("jumia_eg",      scrape_jumia)
+    run("btech_eg",      scrape_btech)
+    run("carrefour_eg",  scrape_carrefour)
+    run("sharaf_dg_eg",  scrape_sharaf_dg)
+    run("hyperone_eg",   scrape_hyperone)
+    run("sahla_eg",      scrape_sahla)
+    run("noon_eg",       scrape_noon)
 
     # ── UAE ──────────────────────────────────────────────────────────────────
-    try:
-        n = scrape_amazon_ae(); _health.record("amazon_ae", n); total += n
-    except Exception as e:
-        print(f"❌ [AMAZON/AE]: {e}"); _health.record("amazon_ae", 0)
-    try:
-        n = scrape_noon_ae();   _health.record("noon_ae",   n); total += n
-    except Exception as e:
-        print(f"❌ [NOON/AE]: {e}");   _health.record("noon_ae", 0)
+    run("amazon_ae",     scrape_amazon_ae)
+    run("noon_ae",       scrape_noon_ae)
+    run("sharaf_dg_ae",  lambda: 0)   # placeholder — not yet implemented
 
     # ── Saudi Arabia ─────────────────────────────────────────────────────────
-    try:
-        n = scrape_amazon_sa(); _health.record("amazon_sa", n); total += n
-    except Exception as e:
-        print(f"❌ [AMAZON/SA]: {e}"); _health.record("amazon_sa", 0)
-    try:
-        n = scrape_noon_sa();   _health.record("noon_sa",   n); total += n
-    except Exception as e:
-        print(f"❌ [NOON/SA]: {e}");   _health.record("noon_sa", 0)
+    run("amazon_sa",     scrape_amazon_sa)
+    run("noon_sa",       scrape_noon_sa)
 
     # ── Custom & analytics ───────────────────────────────────────────────────
     n = scrape_custom_sources(); total += n
@@ -2928,7 +3217,13 @@ def run_scraper():
     _notify_new_deals(_new_deals_this_run)
     _new_deals_this_run.clear()  # reset for next cycle
 
-    print(f"\n  TOTAL: {total} deals | Next in: {INTERVAL} min")
+    _cycle_end = now_str()
+    print(f"\n{'=' * 62}")
+    print(f"  CYCLE COMPLETE: {_cycle_end}")
+    print(f"  TOTAL DEALS THIS CYCLE: {total}")
+    print(f"  NEW DEALS NOTIFIED:     {len(_new_deals_this_run)}")
+    print(f"  PROXY: scrape.do={'dead' if _scrapedo_dead else ('active' if SCRAPEDO_TOKEN else 'not set')}")
+    print(f"  Next cycle in: {INTERVAL} min")
     print(f"{'=' * 62}\n")
 
 

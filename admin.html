@@ -287,7 +287,7 @@ tr:hover td{background:#fafafa;}
         </select>
       </div>
     </div>
-    <div class="fg"><label>Specific User (optional — leave blank for group)</label>
+    <div class="fg" id="user-input-div" style="display:none;"><label>Specific User (optional — leave blank for group)</label>
       <input type="text" id="nt-user" placeholder="Email or phone number of specific user..."/>
     </div>
     <div class="ma">
@@ -350,11 +350,28 @@ tr:hover td{background:#fafafa;}
   <div class="card">
     <div class="ch">
       <div class="ct">Scraper Status — All Sources / حالة جميع المصادر</div>
-      <button class="btn btn-p btn-sm" onclick="loadMonitor()">Refresh / تحديث</button>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-sm" style="background:#dc3545;color:#fff;" onclick="setAllSources(false)">⏸ Stop All</button>
+        <button class="btn btn-sm" style="background:#28a745;color:#fff;" onclick="setAllSources(true)">▶ Enable All</button>
+        <button class="btn btn-p btn-sm" onclick="loadMonitor()">Refresh / تحديث</button>
+      </div>
     </div>
     <div class="cb" style="padding:0;">
-      <table><thead><tr><th>Site / الموقع</th><th>URL</th><th>Status / الحالة</th><th>Deals / صفقات</th><th>Last Deal / آخر صفقة</th><th>Fake Check</th></tr></thead>
-      <tbody id="scraper-tb"><tr><td colspan="6" class="loading">Loading...</td></tr></tbody></table>
+      <table><thead><tr><th>Site / الموقع</th><th>URL</th><th>Status / الحالة</th><th>Deals / صفقات</th><th>Last Deal / آخر صفقة</th><th>Fake Check</th><th>Toggle</th></tr></thead>
+      <tbody id="scraper-tb"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody></table>
+    </div>
+  </div>
+
+  <!-- Scraper Source Toggles -->
+  <div class="card" style="margin-top:14px;">
+    <div class="ch">
+      <div class="ct">Enable / Disable Individual Sources / تفعيل أو إيقاف المصادر</div>
+    </div>
+    <div class="cb" style="padding:0;">
+      <table>
+        <thead><tr><th>Source / المصدر</th><th>State / الحالة</th><th>Action / الإجراء</th></tr></thead>
+        <tbody id="scraper-source-toggles"><tr><td colspan="3" class="loading">Loading...</td></tr></tbody>
+      </table>
     </div>
   </div>
 
@@ -1922,6 +1939,88 @@ async function dbp(col,docId,method,body,params){
   return fetch(url,opts);
 }
 
+async function loadScraperSources(){
+  try{
+    const r=await fetch('/api/v1/admin/scraper-sources',apiHdr());
+    const el=document.getElementById('scraper-source-toggles');
+    if(!el) return;
+    if(!r.ok){
+      el.innerHTML=`<tr><td colspan="3" style="color:#E24B4A;padding:12px;">API error ${r.status} — ${await r.text()}</td></tr>`;
+      return;
+    }
+    const {sources,error}=await r.json();
+    if(error){el.innerHTML=`<tr><td colspan="3" style="color:#E24B4A;padding:12px;">${error}</td></tr>`;return;}
+    const visible=sources.filter(s=>!s.removed);
+    const removed=sources.filter(s=>s.removed);
+    el.innerHTML=visible.map(s=>`
+      <tr id="src-row-${s.key}">
+        <td><strong>${s.flag} ${s.label}</strong></td>
+        <td><span id="src-badge-${s.key}" class="badge ${s.enabled?'bg':'br'}">${s.enabled?'Enabled':'Disabled'}</span></td>
+        <td style="display:flex;gap:6px;">
+          <button class="btn btn-sm" id="src-btn-${s.key}"
+            style="background:${s.enabled?'#dc3545':'#28a745'};color:#fff;min-width:72px;"
+            onclick="toggleSource('${s.key}',${!s.enabled})">
+            ${s.enabled?'⏸ Disable':'▶ Enable'}
+          </button>
+          <button class="btn btn-sm" style="background:#6c757d;color:#fff;"
+            onclick="removeSource('${s.key}','${s.label}')">🗑 Remove</button>
+        </td>
+      </tr>`).join('')+
+    (removed.length?`<tr><td colspan="3" style="padding:6px 12px;font-size:10px;color:#aaa;background:#f9f9f9;">
+      Removed sources — <a href="#" onclick="loadScraperSources();return false;">refresh to restore</a>:
+      ${removed.map(s=>`<button class="btn btn-sm" style="margin:2px;font-size:10px;" onclick="toggleSource('${s.key}',true)">↩ Restore ${s.flag} ${s.label}</button>`).join('')}
+    </td></tr>`:'');
+  }catch(e){console.error('scraper sources:',e);}
+}
+
+async function removeSource(key,label){
+  if(!confirm(`Remove "${label}" from the scraper?\nIt will be hidden and skipped. You can restore it later.`)) return;
+  try{
+    const r=await fetch('/api/v1/admin/scraper-sources/'+key,{
+      method:'PATCH',headers:{'Content-Type':'application/json',...apiHdr().headers},
+      body:JSON.stringify({removed:true})
+    });
+    const d=await r.json();
+    if(d.success){
+      const row=document.getElementById('src-row-'+key);
+      if(row) row.remove();
+      loadScraperSources();
+    }else alert('Error: '+d.error);
+  }catch(e){alert('Request failed: '+e);}
+}
+
+async function toggleSource(key,enable){
+  const btn=document.getElementById('src-btn-'+key);
+  const badge=document.getElementById('src-badge-'+key);
+  if(btn) btn.disabled=true;
+  try{
+    const r=await fetch('/api/v1/admin/scraper-sources/'+key,{
+      method:'PATCH',headers:{'Content-Type':'application/json',...apiHdr().headers},
+      body:JSON.stringify({enabled:enable})
+    });
+    const d=await r.json();
+    if(d.success){
+      if(badge){badge.className='badge '+(enable?'bg':'br');badge.textContent=enable?'Enabled':'Disabled';}
+      if(btn){btn.style.background=enable?'#dc3545':'#28a745';btn.textContent=enable?'⏸ Disable':'▶ Enable';}
+    }else alert('Error: '+d.error);
+  }catch(e){alert('Request failed: '+e);}
+  finally{if(btn) btn.disabled=false;}
+}
+
+async function setAllSources(enable){
+  if(!confirm((enable?'Enable':'Disable')+' ALL scraper sources?')) return;
+  const keys=['amazon_eg','noon_eg','jumia_eg','btech_eg','carrefour_eg','sharaf_dg_eg','hyperone_eg','sahla_eg','amazon_ae','noon_ae','sharaf_dg_ae','amazon_sa','noon_sa'];
+  const body=enable?{enabled:keys,disabled:[]}:{enabled:[],disabled:keys};
+  try{
+    const r=await fetch('/api/v1/admin/scraper-sources',{
+      method:'PUT',headers:{'Content-Type':'application/json',...apiHdr().headers},
+      body:JSON.stringify(body)
+    });
+    const d=await r.json();
+    if(d.success){loadScraperSources();}else alert('Error: '+d.error);
+  }catch(e){alert('Request failed: '+e);}
+}
+
 async function loadMonitor(){
   document.getElementById('ts').textContent='Updated: '+new Date().toLocaleTimeString();
   try{
@@ -1986,8 +2085,12 @@ async function loadMonitor(){
         <td>${cnt} <span style="font-size:9px;color:#aaa;">deals</span></td>
         <td style="font-size:10px;color:#888;">${last?ft(last):'No deals yet'}</td>
         <td>${fake>0?`<span style="font-size:10px;color:#E24B4A;">${fake} suspicious</span>`:'<span style="font-size:10px;color:#3B6D11;">—</span>'}</td>
+        <td>—</td>
       </tr>`;
     }).join('');
+
+    // Load scraper source toggles
+    loadScraperSources();
 
     // Category chart
     const cats=st.cat_counts||{};
@@ -2483,7 +2586,7 @@ async function loadNotifs(){
 function updateNotifTargetOptions() {
   const target = document.getElementById('nt-target').value;
   const groupDiv = document.getElementById('group-select-div');
-  const userDiv = document.querySelector('div:has(#nt-user)');
+  const userDiv = document.getElementById('user-input-div');
 
   // Show/hide group selector
   groupDiv.style.display = target === 'group' ? 'block' : 'none';
@@ -3663,10 +3766,18 @@ async function loadRevenue(){
 
 const COUNTRY_NAMES={eg:'🇪🇬 Egypt',sa:'🇸🇦 Saudi Arabia',ae:'🇦🇪 UAE',kw:'🇰🇼 Kuwait',qa:'🇶🇦 Qatar'};
 
+// Root cause of previous error: inlining JSON.stringify() inside an onclick
+// attribute breaks when the JSON contains double-quotes — the HTML parser
+// truncates the attribute and pricing arrives as undefined.
+// Fix: store the full pricing object in a module-level variable and look it
+// up by country code inside openCountryModal().
+let _currentCountryPricing = {};
+
 function renderCountryPricing(pricing){
+  _currentCountryPricing = pricing || {};  // safe global store
   const countries=['eg','sa','ae','kw','qa'];
   document.getElementById('country-pricing-tb').innerHTML=countries.map(cc=>{
-    const p=pricing[cc]||{};
+    const p=_currentCountryPricing[cc]||{};
     const name=COUNTRY_NAMES[cc]||cc.toUpperCase();
     return`<tr>
       <td style="font-weight:500;">${name}</td>
@@ -3675,16 +3786,18 @@ function renderCountryPricing(pricing){
       <td style="font-size:11px;">${p.trial??0} ${p.symbol||''}</td>
       <td style="font-size:11px;font-weight:500;color:#7F77DD;">${p.premium??'—'} ${p.symbol||''}</td>
       <td style="font-size:11px;font-weight:500;color:#E24B4A;">${p.vip??'—'} ${p.symbol||''}</td>
-      <td><button class="btn btn-sm" onclick="openCountryModal('${cc}',${JSON.stringify(p).replace(/'/g,"\\'")})">Edit</button></td>
+      <td><button class="btn btn-sm" onclick="openCountryModal('${cc}')">Edit</button></td>
     </tr>`;
   }).join('');
 }
 
 let editingCountryCode=null;
 
-function openCountryModal(code, pricing){
+function openCountryModal(code){
+  // Look up from global store — no JSON-in-onclick, no parse errors
+  const pricing = _currentCountryPricing[code] || {};
   editingCountryCode=code;
-  document.getElementById('country-modal-title').textContent='Edit Pricing — '+COUNTRY_NAMES[code];
+  document.getElementById('country-modal-title').textContent='Edit Pricing — '+(COUNTRY_NAMES[code]||code);
   document.getElementById('cp-code').value=code;
   document.getElementById('cp-currency').value=pricing.currency||'';
   document.getElementById('cp-symbol').value=pricing.symbol||'';
