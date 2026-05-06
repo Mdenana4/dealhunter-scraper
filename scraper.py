@@ -26,6 +26,7 @@ from scraper_health import health as _health
 load_dotenv()
 
 MIN_DISCOUNT    = int(os.getenv("MIN_DISCOUNT", 40))
+AMAZON_KEYWORD_ENABLED = os.getenv("AMAZON_KEYWORD_ENABLED", "false").lower() == "true"
 INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 60))
 SCRAPER_API_KEY = (
     os.getenv("SCRAPER_API_KEY") or
@@ -461,8 +462,10 @@ def fetch_amazon_structured_search(keyword, country_code):
     """
     if not SCRAPEDO_TOKEN or _scrapedo_dead:
         return None
-    geocode  = _AMAZON_API_GEOCODES.get(country_code, country_code)
-    zipcode  = _AMAZON_API_ZIPCODES.get(country_code, "00000")
+    geocode = _AMAZON_API_GEOCODES.get(country_code)
+    if not geocode:
+        return None  # unsupported market — don't waste a credit
+    zipcode = _AMAZON_API_ZIPCODES.get(country_code, "00000")
     try:
         resp = requests.get(
             "https://api.scrape.do/plugin/amazon/search",
@@ -494,7 +497,9 @@ def fetch_amazon_product_detail(asin, country_code):
     """
     if not SCRAPEDO_TOKEN or _scrapedo_dead:
         return None
-    geocode = _AMAZON_API_GEOCODES.get(country_code, country_code)
+    geocode = _AMAZON_API_GEOCODES.get(country_code)
+    if not geocode:
+        return None
     zipcode = _AMAZON_API_ZIPCODES.get(country_code, "00000")
     try:
         resp = requests.get(
@@ -1342,6 +1347,11 @@ def _scrape_amazon_region(
     """Scrape any Amazon regional store. Called by the three wrappers below."""
     print(f"\n[AMAZON/{country_code.upper()}] Starting — {site_display}...")
     total = 0
+
+    if not AMAZON_KEYWORD_ENABLED:
+        print(f"  [AMAZON/{country_code.upper()}] keyword scan disabled (AMAZON_KEYWORD_ENABLED=false)")
+        return 0
+
     seen_asins: set = set()  # deduplicate across all keywords (avoids 20+ adidas variants)
 
     for item in AMAZON_KEYWORDS:
