@@ -2360,19 +2360,28 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                     if len(all_nums) < 2:
                         continue
 
-                    # op = largest number; find cp where ratio op/cp in [1.4, 8]:
-                    #   < 1.4 → discount below ~28% — below notification threshold
-                    #   > 8   → >87.5% off — almost always a misidentified spec
-                    #           (DDR5 5600 → ratio ~11; RTX 5060 → ratio ~12)
+                    # op = largest number; find cp where ratio op/cp in [1.15, 8]:
+                    #   < 1.15 → discount below ~13% — not worth notifying
+                    #   > 8    → >87.5% off — almost always a misidentified spec
+                    #            (DDR5 5600 → ratio ~11; RTX 5060 → ratio ~12)
+                    # Lower bound at 1.15 (was 1.4) captures electronics at 15-25% off —
+                    # a 15% off 60,000 EGP laptop saves 9,000 EGP, which is significant.
                     op = all_nums[0]
                     cp = None
                     for _candidate in all_nums[1:]:
                         _ratio = op / _candidate if _candidate > 0 else 0
-                        if 1.4 <= _ratio <= 8.0 and _candidate >= 200:
+                        if 1.15 <= _ratio <= 8.0 and _candidate >= 200:
                             cp = _candidate
                             break
 
                     if cp is None:
+                        # Log why we failed on the first few products so electronics
+                        # failure reason is visible (empty = no prices in card,
+                        # low ratio = product is only slightly discounted)
+                        if _d_debug_count < 3:
+                            _d_debug_count += 1
+                            print(f"    [noon parse] D-miss href={href[:50]} "
+                                  f"nums={all_nums[:5]}")
                         continue
 
                 # ── Title extraction ───────────────────────────────────────
@@ -2387,13 +2396,19 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                     continue
 
                 disc = calculate_discount(op, cp)
+                # Detect category early so electronics can use a lower threshold
+                cat = detect_category(title) or default_cat
+                # Electronics (phones, laptops, TVs) are high-value — notify at 15%+
+                # even though general threshold is 40%. A 15% off a 60,000 EGP laptop
+                # saves 9,000 EGP which is highly relevant.
+                _eff_min_discount = 15 if cat == "electronics" else MIN_DISCOUNT
 
                 if _d_debug_count < 8:
                     _nlinks = len(container.find_all("a", href=noon_sku_re))
-                    print(f"    [noon parse] D-debug lvl={_lvl} links={_nlinks} "
-                          f"href={href[:50]} op={op} cp={cp} disc={disc}")
+                    print(f"    [noon parse] D-debug lvl={_lvl} links={_nlinks} cat={cat} "
+                          f"href={href[:45]} op={op} cp={cp} disc={disc}")
 
-                if disc < MIN_DISCOUNT:
+                if disc < _eff_min_discount:
                     if _d_debug_count < 5:
                         _d_debug_count += 1
                     break
@@ -2402,7 +2417,6 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
 
                 img_el = container.find("img")
                 img = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
-                cat = detect_category(title) or default_cat
                 kb = check_price_history(product_url=purl, current_price=cp,
                                          original_price=op, title=title,
                                          site=marketplace_country)
