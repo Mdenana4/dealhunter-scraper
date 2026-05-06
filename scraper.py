@@ -2610,17 +2610,15 @@ def _scrape_noon_region(
         3. ScraperAPI render_js=True — last resort
         """
         # Try scrape.do with residential super proxy first.
-        # waitUntil=networkidle2 ensures Noon's React prices finish loading —
-        # domcontentloaded (default) returns before price spans are hydrated.
         if SCRAPEDO_TOKEN and not _scrapedo_dead:
             resp = fetch_with_scrapedo(url, render_js=True, country=country_code,
-                                       super_proxy=True, wait_until="networkidle2")
+                                       super_proxy=True)
             if resp and len(resp.text or "") > 3000:
                 print(f"  [NOON/{country_code.upper()}] scrape.do super OK ({len(resp.text)}b)")
                 return resp
             # Fall back to regular scrape.do render
             resp = fetch_with_scrapedo(url, render_js=True, country=country_code,
-                                       super_proxy=False, wait_until="networkidle2")
+                                       super_proxy=False)
             if resp and len(resp.text or "") > 3000:
                 print(f"  [NOON/{country_code.upper()}] scrape.do render OK ({len(resp.text)}b)")
                 return resp
