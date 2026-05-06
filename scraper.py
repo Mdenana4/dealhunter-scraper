@@ -2480,16 +2480,29 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                     container.find(attrs={"data-qa": "original-price"})
                 )
 
+                # ── Stage 1: data-qa price elements ───────────────────────
+                # Validate ratio [1.15, 8.0] so spec numbers that end up in
+                # price elements (e.g. "1400 RPM" in product-price, "59%"
+                # discount badge) are rejected rather than saved as prices.
+                # If Stage 1 finds elements but values fail validation,
+                # fall through to Stage 2 text scan instead of hard-skipping.
+                cp = op = None
                 if _cp_el and _op_el:
-                    cp = clean_price(_cp_el.get_text(strip=True))
-                    op = clean_price(_op_el.get_text(strip=True))
-                    if not cp or not op or cp < 200 or op <= cp:
-                        continue
-                else:
-                    # Stage 2: text scan — exclude title text first so spec numbers
-                    # embedded in model names ("83" in "83JG0095ED", "5600" from
-                    # "DDR5 5600", "512" from "512 SSD", "144" from "144Hz") are
-                    # not in the pool of price candidates.
+                    _cp_v = clean_price(_cp_el.get_text(strip=True))
+                    _op_v = clean_price(_op_el.get_text(strip=True))
+                    if (_cp_v and _op_v and _cp_v >= 200 and _op_v > _cp_v
+                            and 1.15 <= _op_v / _cp_v <= 8.0):
+                        cp, op = _cp_v, _op_v
+                    else:
+                        print(f"    [noon parse] S1-reject href={href[:45]} "
+                              f"cp={_cp_v} op={_op_v}")
+
+                # ── Stage 2: title-excluded text scan (fallback) ───────────
+                if cp is None:
+                    # Strip title text so spec numbers embedded in model names
+                    # ("83" in "83JG0095ED", "5600" from "DDR5 5600",
+                    # "1400" from "1400 RPM", "128" from "128GB") are removed
+                    # before we scan for price candidates.
                     title_el_excl = (
                         container.find(attrs={"data-qa": "product-name"}) or
                         container.find(attrs={"data-qa": "product-title"}) or
@@ -2498,19 +2511,17 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                     )
                     _title_excl = title_el_excl.get_text(" ", strip=True) if title_el_excl else ""
                     full_text = container.get_text(" ", strip=True)
-                    # Remove title substring (and its spec numbers) from text
                     price_text = full_text.replace(_title_excl, " ") if _title_excl else full_text
 
-                    # Standalone number regex: requires non-alphanumeric boundary on
-                    # both sides. "83JG0095ED" → "83" adjacent to "J" → excluded.
-                    # "16G" → "16" adjacent to "G" → excluded.
+                    # Standalone number regex: non-alphanumeric boundary on both
+                    # sides excludes "83J" (model code), "16G" (RAM), "144Hz".
                     all_nums = []
                     for _m in _re.finditer(
                         r'(?<![A-Za-z\d])([\d,]+(?:\.\d+)?)(?![A-Za-z\d])', price_text
                     ):
                         try:
                             _n = float(_m.group(1).replace(",", ""))
-                            if _n >= 200:
+                            if 200 <= _n <= 500_000:
                                 all_nums.append(_n)
                         except ValueError:
                             continue
@@ -2519,24 +2530,17 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                     if len(all_nums) < 2:
                         continue
 
-                    # op = largest number; find cp where ratio op/cp in [1.15, 8]:
-                    #   < 1.15 → discount below ~13% — not worth notifying
-                    #   > 8    → >87.5% off — almost always a misidentified spec
-                    #            (DDR5 5600 → ratio ~11; RTX 5060 → ratio ~12)
-                    # Lower bound at 1.15 (was 1.4) captures electronics at 15-25% off —
-                    # a 15% off 60,000 EGP laptop saves 9,000 EGP, which is significant.
+                    # op = largest number; find cp where ratio in [1.15, 8.0]:
+                    #   < 1.15 → < ~13% off — not worth alerting
+                    #   > 8.0  → > 87.5% off — almost always a misidentified spec
                     op = all_nums[0]
-                    cp = None
                     for _candidate in all_nums[1:]:
                         _ratio = op / _candidate if _candidate > 0 else 0
-                        if 1.15 <= _ratio <= 8.0 and _candidate >= 200:
+                        if 1.15 <= _ratio <= 8.0:
                             cp = _candidate
                             break
 
                     if cp is None:
-                        # Log why we failed on the first few products so electronics
-                        # failure reason is visible (empty = no prices in card,
-                        # low ratio = product is only slightly discounted)
                         if _d_debug_count < 3:
                             _d_debug_count += 1
                             print(f"    [noon parse] D-miss href={href[:50]} "
