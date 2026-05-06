@@ -438,8 +438,12 @@ def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False,
 
 
 _AMAZON_API_GEOCODES = {
-    "eg": "eg", "ae": "ae", "sa": "sa",
-    "us": "us", "uk": "uk", "de": "de",
+    # Egypt, UAE, Saudi Arabia are NOT supported by the scrape.do Amazon
+    # structured API (returns HTTP 400). Only Western markets are supported.
+    # Add a geocode here only after confirming it works.
+    "us": "us", "uk": "uk", "de": "de", "fr": "fr",
+    "it": "it", "es": "es", "ca": "ca", "au": "au",
+    "jp": "jp", "in": "in", "br": "br", "mx": "mx",
 }
 _AMAZON_API_ZIPCODES = {
     "eg": "11311",  # Cairo
