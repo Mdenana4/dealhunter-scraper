@@ -1276,10 +1276,10 @@ tr:hover td{background:#fafafa;}
   </div>
 </div>
 
-<!-- Firebase SDK -->
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+<!-- Firebase SDK (unpkg fallback — gstatic.com blocked in some regions) -->
+<script src="https://unpkg.com/firebase@9.22.0/compat/app.js"></script>
+<script src="https://unpkg.com/firebase@9.22.0/compat/firestore.js"></script>
+<script src="https://unpkg.com/firebase@9.22.0/compat/auth.js"></script>
 
 <script>
 // ════════════════════════════════════════════════════════════
