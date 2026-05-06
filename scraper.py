@@ -2073,7 +2073,7 @@ def _process_noon_item(src, default_cat, region_path="egypt-en", currency="EGP")
 
 
 def _parse_noon_products(content, default_cat, region_path, currency, marketplace_country,
-                         site_display, country_code):
+                         site_display, country_code, seen_skus=None):
     """
     Try every known method to extract Noon products from HTML/JSON content.
     Returns count of deals saved.
@@ -2260,6 +2260,16 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                 continue
             seen_urls.add(purl)
 
+            # Cross-keyword SKU dedup: extract SKU (segment before /p/) and skip
+            # if already processed in a previous keyword page this cycle.
+            _sku_m = noon_sku_re.search(href)
+            if _sku_m:
+                _sku = _sku_m.group(0).split("/p/")[0].strip("/")
+                if seen_skus is not None:
+                    if _sku in seen_skus:
+                        continue
+                    seen_skus.add(_sku)
+
             # Check the <a> tag itself first, then walk up 6 levels.
             # Noon cards wrap all content (title + prices) inside the <a>.
             containers_to_check = []
@@ -2303,7 +2313,9 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                     if _candidate <= 0:
                         continue
                     _ratio = op / _candidate
-                    if 1.4 <= _ratio <= 20.0:
+                    # cp must be >= 200 to exclude supplement spec numbers
+                    # (servings: 30/60/140, grams: 100/130) that fall in ratio range
+                    if 1.4 <= _ratio <= 20.0 and _candidate >= 200:
                         cp = _candidate
                         break
 
@@ -2371,6 +2383,7 @@ def _scrape_noon_region(
     """Scrape any Noon regional store. Called by the three wrappers below."""
     print(f"\n[NOON/{country_code.upper()}] Starting — {site_display}...")
     total = 0
+    _seen_noon_skus: set = set()  # shared across all keyword pages to prevent duplicate SKUs
 
     def _noon_fetch(url):
         """
@@ -2416,7 +2429,8 @@ def _scrape_noon_region(
             resp = _noon_fetch(dp_url)
             if resp and resp.status_code == 200:
                 n = _parse_noon_products(resp.text, "general", region_path, currency,
-                                         marketplace_country, site_display, country_code)
+                                         marketplace_country, site_display, country_code,
+                                         seen_skus=_seen_noon_skus)
                 if n == 0:
                     _log_scraper_error(marketplace_country, dp_url,
                                        "0 products on deals page — HTML selector may have changed")
@@ -2450,7 +2464,8 @@ def _scrape_noon_region(
                 time.sleep(2)
                 continue
             n = _parse_noon_products(resp.text, default_cat, region_path, currency,
-                                     marketplace_country, site_display, country_code)
+                                     marketplace_country, site_display, country_code,
+                                     seen_skus=_seen_noon_skus)
             print(f"  [NOON/{country_code.upper()}] '{term}': {n} deals")
             total += n
             time.sleep(2)
