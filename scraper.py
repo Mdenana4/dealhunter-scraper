@@ -1275,9 +1275,12 @@ def _scrape_amazon_region(
                 p for p in soup.find_all("div", attrs={"data-asin": True})
                 if p.get("data-asin", "").strip()
             ]
+            saved_this_keyword = 0
 
             for product in products:
                 try:
+                    if saved_this_keyword >= 6:
+                        break  # cap at 6 deals per keyword to avoid 20+ adidas variants
                     asin = product.get("data-asin", "").strip()
                     if not asin:
                         continue
@@ -1384,6 +1387,7 @@ def _scrape_amazon_region(
                     seen_asins.add(asin)
                     save_deal(deal)
                     total += 1
+                    saved_this_keyword += 1
                     time.sleep(0.5)
 
                 except Exception:
@@ -1400,37 +1404,19 @@ def _scrape_amazon_region(
 
 
 def scrape_amazon():
-    """Amazon Egypt — RapidAPI primary, HTML fallback when API returns 0."""
-    if RAPIDAPI_KEY:
-        api_total = _scrape_amazon_via_api("EG", "amazon_eg", "Amazon Egypt", "EGP")
-        if api_total > 0:
-            return api_total
-        print("\n[AMAZON/EG] RapidAPI returned 0 deals (free plan only supports US) — using HTML scraper")
-    total = _scrape_amazon_deals_page()
-    total += _scrape_amazon_region()
-    return total
+    """Amazon Egypt — keyword HTML scraper via scrape.do."""
+    print("\n[AMAZON/EG] Skipping RapidAPI (free plan 403) — going straight to HTML scraper")
+    return _scrape_amazon_region()
 
 def scrape_amazon_ae():
-    """Amazon UAE — RapidAPI primary, HTML fallback when API returns 0."""
-    if RAPIDAPI_KEY:
-        api_total = _scrape_amazon_via_api("AE", "amazon_ae", "Amazon UAE", "AED")
-        if api_total > 0:
-            return api_total
-        print("\n[AMAZON/AE] RapidAPI returned 0 deals — using HTML scraper")
-    total = _scrape_amazon_deals_page("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
-    total += _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
-    return total
+    """Amazon UAE — keyword HTML scraper via scrape.do."""
+    print("\n[AMAZON/AE] Skipping RapidAPI — going straight to HTML scraper")
+    return _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
 
 def scrape_amazon_sa():
-    """Amazon Saudi Arabia — RapidAPI primary, HTML fallback when API returns 0."""
-    if RAPIDAPI_KEY:
-        api_total = _scrape_amazon_via_api("SA", "amazon_sa", "Amazon Saudi Arabia", "SAR")
-        if api_total > 0:
-            return api_total
-        print("\n[AMAZON/SA] RapidAPI returned 0 deals — using HTML scraper")
-    total = _scrape_amazon_deals_page("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
-    total += _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
-    return total
+    """Amazon Saudi Arabia — keyword HTML scraper via scrape.do."""
+    print("\n[AMAZON/SA] Skipping RapidAPI — going straight to HTML scraper")
+    return _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
 
 
 # ─────────────────────────────────────────────────────
@@ -2928,14 +2914,11 @@ def _run_scraper_inner():
 
     print(f"\n{'=' * 62}")
     print(f"  SCRAPE CYCLE: {now_str()}")
-    if RAPIDAPI_KEY:
-        print(f"  RapidAPI Amazon: ACTIVE (zero-block API mode for EG/AE/SA)")
-    else:
-        print(f"  RapidAPI Amazon: NOT SET — add RAPIDAPI_KEY in Railway Variables")
+    print(f"  Amazon: HTML keyword scan via scrape.do (RapidAPI disabled — free plan 403)")
     if SCRAPER_API_KEY:
-        print(f"  ScraperAPI: ACTIVE (JS rendering for Noon/HyperOne/Sahla)")
+        print(f"  ScraperAPI: ACTIVE (fallback for Noon/Jumia)")
     else:
-        print(f"  ScraperAPI: NOT SET — Noon may return 0 deals")
+        print(f"  ScraperAPI: NOT SET")
     if MIN_PRICE > 0 or MAX_PRICE < 9999999:
         print(f"  Price filter: EGP {MIN_PRICE:,.0f} – EGP {MAX_PRICE:,.0f}")
     print(f"{'=' * 62}")
