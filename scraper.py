@@ -1101,13 +1101,12 @@ def _scrape_amazon_deals_page(
     currency="EGP",
     country_code="eg",
 ):
-    """Scrape the Amazon deals page directly (40-80% off filter). Returns deal count."""
-    # URL with 40-80% discount filter — same as the link the user provided
+    """Scrape Amazon discount-sorted search page (SSR, works without JS). Returns deal count."""
+    # Amazon's discount-filtered search is server-side rendered — no React hydration needed.
+    # Filters: 40%+ off, sorted by discount rank. Works on EG, AE, SA.
     deals_url = (
-        f"https://www.{base_domain}/-/en/deals?"
-        "discounts-widget=%22%7B%22state%22%3A%7B%22rangeRefinementFilters%22%3A"
-        "%7B%22percentOff%22%3A%7B%22min%22%3A40%2C%22max%22%3A80%7D%7D%7D%2C"
-        "%22version%22%3A1%7D%22"
+        f"https://www.{base_domain}/s?"
+        f"rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE"
     )
     print(f"\n[AMAZON/{country_code.upper()}] Scraping deals page...")
     total = 0
@@ -1115,10 +1114,9 @@ def _scrape_amazon_deals_page(
     for page_num in range(1, 4):  # pages 1–3
         try:
             url = deals_url if page_num == 1 else f"{deals_url}&page={page_num}"
-            # Try scrape.do first (JS rendering needed for React deals page)
-            resp = fetch_with_scrapedo(url, render_js=True, country=country_code)
+            resp = fetch_with_scrapedo(url, render_js=False, country=country_code)
             if not resp or is_blocked_response(resp, min_length=5000):
-                resp = fetch_with_scraperapi(url, render_js=True, country=country_code)
+                resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
             if is_blocked_response(resp, min_length=5000):
                 print(f"  Deals page {page_num}: blocked/empty (HTTP {resp.status_code if resp else 'no response'}) — skipping")
                 _log_scraper_error(f"amazon_{country_code}", url, "Blocked/CAPTCHA response on deals page")
@@ -1258,6 +1256,7 @@ def _scrape_amazon_region(
     """Scrape any Amazon regional store. Called by the three wrappers below."""
     print(f"\n[AMAZON/{country_code.upper()}] Starting — {site_display}...")
     total = 0
+    seen_asins: set = set()  # deduplicate across all keywords (avoids 20+ adidas variants)
 
     for item in AMAZON_KEYWORDS:
         try:
@@ -1282,6 +1281,9 @@ def _scrape_amazon_region(
                     asin = product.get("data-asin", "").strip()
                     if not asin:
                         continue
+                    if asin in seen_asins:
+                        continue  # skip duplicate (same product from another keyword)
+                    seen_asins.add(asin)  # mark seen immediately to avoid re-checking variants
                     if product.get("data-component-type") == "sp-sponsored-result":
                         continue
 
@@ -1379,6 +1381,7 @@ def _scrape_amazon_region(
                         kanbkam_result=kb,
                         currency=currency,
                     )
+                    seen_asins.add(asin)
                     save_deal(deal)
                     total += 1
                     time.sleep(0.5)
