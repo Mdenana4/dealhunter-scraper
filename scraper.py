@@ -108,10 +108,13 @@ except Exception as e:
 _scrapedo_dead = False
 
 if SCRAPEDO_TOKEN:
-    print(f"[PROXY] scrape.do active (token={SCRAPEDO_TOKEN[:6]}...)")
-elif SCRAPER_API_KEY:
-    print(f"[PROXY] ScraperAPI active (key={SCRAPER_API_KEY[:6]}...)")
+    print(f"[PROXY] scrape.do active (token={SCRAPEDO_TOKEN[:6]}... len={len(SCRAPEDO_TOKEN)})")
 else:
+    _sd_env = os.getenv("SCRAPEDO_TOKEN","") or os.getenv("SCRAPE_DO_TOKEN","")
+    print(f"[PROXY] scrape.do NOT set (SCRAPEDO_TOKEN={bool(os.getenv('SCRAPEDO_TOKEN'))} SCRAPE_DO_TOKEN={bool(os.getenv('SCRAPE_DO_TOKEN'))} raw_len={len(_sd_env)})")
+if SCRAPER_API_KEY:
+    print(f"[PROXY] ScraperAPI fallback active (key={SCRAPER_API_KEY[:6]}...)")
+if not SCRAPEDO_TOKEN and not SCRAPER_API_KEY:
     print("[PROXY] ⚠️  NO PROXY CONFIGURED — direct requests only (sites will block us!)")
     print("[PROXY]    Fix: set SCRAPEDO_TOKEN in Railway environment variables")
 
@@ -363,8 +366,8 @@ def is_blocked_response(resp, min_length=2000):
     return False
 
 
-def fetch_with_scrapedo(url, render_js=False, country="eg"):
-    """Fetch via scrape.do proxy. 1 credit (HTML) or 5 credits (JS render)."""
+def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False):
+    """Fetch via scrape.do proxy. 1 credit (HTML), 5 (JS render), 10 (super residential)."""
     global _scrapedo_dead
     if not SCRAPEDO_TOKEN or _scrapedo_dead:
         return None
@@ -373,9 +376,11 @@ def fetch_with_scrapedo(url, render_js=False, country="eg"):
         params = {
             "token":   SCRAPEDO_TOKEN,
             "url":     url,
-            "render":  "true" if render_js else "false",
+            "render":  "true" if (render_js or super_proxy) else "false",
             "geoCode": country.upper(),
         }
+        if super_proxy:
+            params["super"] = "true"
         # stream=True lets us read raw bytes before decompression
         resp = requests.get(
             "https://api.scrape.do",
@@ -1110,7 +1115,10 @@ def _scrape_amazon_deals_page(
     for page_num in range(1, 4):  # pages 1–3
         try:
             url = deals_url if page_num == 1 else f"{deals_url}&page={page_num}"
-            resp = fetch_with_scraperapi(url, render_js=True, country=country_code)
+            # Try scrape.do first (JS rendering needed for React deals page)
+            resp = fetch_with_scrapedo(url, render_js=True, country=country_code)
+            if not resp or is_blocked_response(resp, min_length=5000):
+                resp = fetch_with_scraperapi(url, render_js=True, country=country_code)
             if is_blocked_response(resp, min_length=5000):
                 print(f"  Deals page {page_num}: blocked/empty (HTTP {resp.status_code if resp else 'no response'}) — skipping")
                 _log_scraper_error(f"amazon_{country_code}", url, "Blocked/CAPTCHA response on deals page")
@@ -1247,7 +1255,9 @@ def _scrape_amazon_region(
     for item in AMAZON_KEYWORDS:
         try:
             url = f"https://www.{base_domain}/s?k={item['k'].replace(' ', '+')}&language=en_AE"
-            resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
+            resp = fetch_with_scrapedo(url, render_js=False, country=country_code)
+            if not resp or is_blocked_response(resp, min_length=5000):
+                resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
             if is_blocked_response(resp, min_length=5000):
                 print(f"  [{item['k']}]: blocked/empty response — skipping")
                 _log_scraper_error(f"amazon_{country_code}", url, f"Blocked response on keyword '{item['k']}'")
@@ -1432,7 +1442,10 @@ def scrape_jumia():
 
     for url, default_cat in pages:
         try:
-            resp = fetch_with_scraperapi(url, render_js=False, country="eg")
+            # scrape.do super proxy first (residential IP, JS rendering)
+            resp = fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=True)
+            if not resp or is_blocked_response(resp, min_length=3000):
+                resp = fetch_with_scraperapi(url, render_js=False, country="eg")
             if is_blocked_response(resp, min_length=3000):
                 print(f"  [JUMIA] blocked/empty: {url[:55]}...")
                 _log_scraper_error("jumia_eg", url, "Blocked/empty response")
@@ -2318,30 +2331,36 @@ def _scrape_noon_region(
 
     def _noon_fetch(url):
         """
-        Fetch strategy for Noon pages:
-        1. Direct request — free, fast, but Noon often requires JS rendering.
-        2. ScraperAPI with render_js=True — 5 credits, reliable for Noon's
-           Next.js pages.  Only used when direct fetch returns a short/blocked
-           response (< 5 000 bytes or a known block signal).
-
-        Debug lines printed:
-          [NOON/XX] direct OK (NNNNb)   → direct fetch returned usable HTML
-          [NOON/XX] direct blocked → trying ScraperAPI render_js=True
-          [NOON/XX] ScraperAPI OK (NNNNb)
-          [NOON/XX] ScraperAPI also blocked — 0 products expected for this URL
+        Fetch strategy for Noon pages (tried in order until one works):
+        1. scrape.do super=true (residential proxy + JS render) — most reliable
+        2. scrape.do render=true (datacenter + JS render) — fallback
+        3. ScraperAPI render_js=True — last resort
         """
-        resp = fetch_noon_direct(url, country_code)
-        if resp and resp.status_code == 200 and len(resp.text or "") > 5000:
-            print(f"  [NOON/{country_code.upper()}] direct OK ({len(resp.text)}b) {url[:60]}")
-            return resp
-        # Direct failed or too short — switch to JS rendering
-        print(f"  [NOON/{country_code.upper()}] direct blocked ({resp.status_code if resp else 'no resp'}) → ScraperAPI render_js=True")
+        # Try scrape.do with residential super proxy first
+        if SCRAPEDO_TOKEN and not _scrapedo_dead:
+            resp = fetch_with_scrapedo(url, render_js=True, country=country_code, super_proxy=True)
+            if resp and len(resp.text or "") > 3000:
+                print(f"  [NOON/{country_code.upper()}] scrape.do super OK ({len(resp.text)}b)")
+                return resp
+            # Fall back to regular scrape.do render
+            resp = fetch_with_scrapedo(url, render_js=True, country=country_code, super_proxy=False)
+            if resp and len(resp.text or "") > 3000:
+                print(f"  [NOON/{country_code.upper()}] scrape.do render OK ({len(resp.text)}b)")
+                return resp
+            print(f"  [NOON/{country_code.upper()}] scrape.do blocked → trying ScraperAPI")
+        else:
+            # No scrape.do — try direct first
+            resp = fetch_noon_direct(url, country_code)
+            if resp and resp.status_code == 200 and len(resp.text or "") > 5000:
+                print(f"  [NOON/{country_code.upper()}] direct OK ({len(resp.text)}b)")
+                return resp
+            print(f"  [NOON/{country_code.upper()}] direct blocked ({resp.status_code if resp else 'no resp'}) → ScraperAPI")
         resp2 = fetch_with_scraperapi(url, render_js=True, country=country_code)
         if resp2 and resp2.status_code == 200 and len(resp2.text or "") > 3000:
             print(f"  [NOON/{country_code.upper()}] ScraperAPI OK ({len(resp2.text)}b)")
             return resp2
-        print(f"  [NOON/{country_code.upper()}] ScraperAPI also blocked — 0 products expected")
-        return resp2  # caller will handle empty result
+        print(f"  [NOON/{country_code.upper()}] all methods blocked — 0 products expected")
+        return resp2  # caller handles empty result
 
     # ── Phase 1: Deals / sale pages (server-side rendered, most reliable) ──
     deals_pages = [
