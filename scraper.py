@@ -366,7 +366,8 @@ def is_blocked_response(resp, min_length=2000):
     return False
 
 
-def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False):
+def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False,
+                        wait_until=None, wait_selector=None, custom_wait=None):
     """Fetch via scrape.do proxy. 1 credit (HTML), 5 (JS render), 10 (super residential)."""
     global _scrapedo_dead
     if not SCRAPEDO_TOKEN or _scrapedo_dead:
@@ -381,6 +382,12 @@ def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False):
         }
         if super_proxy:
             params["super"] = "true"
+        if wait_until:
+            params["waitUntil"] = wait_until
+        if wait_selector:
+            params["waitSelector"] = wait_selector
+        if custom_wait:
+            params["customWait"] = str(custom_wait)
         # stream=True lets us read raw bytes before decompression
         resp = requests.get(
             "https://api.scrape.do",
@@ -427,6 +434,81 @@ def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False):
         return resp
     except Exception as e:
         print(f"    [scrape.do] error: {e}")
+        return None
+
+
+_AMAZON_API_GEOCODES = {
+    "eg": "eg", "ae": "ae", "sa": "sa",
+    "us": "us", "uk": "uk", "de": "de",
+}
+_AMAZON_API_ZIPCODES = {
+    "eg": "11311",  # Cairo
+    "ae": "00000",
+    "sa": "11564",  # Riyadh
+    "us": "10001",
+}
+
+
+def fetch_amazon_structured_search(keyword, country_code):
+    """
+    Call scrape.do's Amazon Search API for clean JSON results.
+    Returns list of product dicts (asin, title, price.amount, rating…) or None.
+    1 credit per call — same cost as a basic scrape.do request.
+    """
+    if not SCRAPEDO_TOKEN or _scrapedo_dead:
+        return None
+    geocode  = _AMAZON_API_GEOCODES.get(country_code, country_code)
+    zipcode  = _AMAZON_API_ZIPCODES.get(country_code, "00000")
+    try:
+        resp = requests.get(
+            "https://api.scrape.do/plugin/amazon/search",
+            params={
+                "token":    SCRAPEDO_TOKEN,
+                "keyword":  keyword,
+                "geocode":  geocode,
+                "zipcode":  zipcode,
+                "language": "EN",
+            },
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            products = data.get("products", [])
+            print(f"    [amz-api] '{keyword}' geocode={geocode} → {len(products)} products")
+            return products if products else None
+        print(f"    [amz-api] HTTP {resp.status_code} for '{keyword}' geocode={geocode}")
+        return None
+    except Exception as e:
+        print(f"    [amz-api] error: {e}")
+        return None
+
+
+def fetch_amazon_product_detail(asin, country_code):
+    """
+    Call scrape.do's Amazon PDP API to get price + list_price for one ASIN.
+    Returns dict or None. 1 credit per call.
+    """
+    if not SCRAPEDO_TOKEN or _scrapedo_dead:
+        return None
+    geocode = _AMAZON_API_GEOCODES.get(country_code, country_code)
+    zipcode = _AMAZON_API_ZIPCODES.get(country_code, "00000")
+    try:
+        resp = requests.get(
+            "https://api.scrape.do/plugin/amazon/pdp",
+            params={
+                "token":    SCRAPEDO_TOKEN,
+                "asin":     asin,
+                "geocode":  geocode,
+                "zipcode":  zipcode,
+                "language": "EN",
+            },
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+        return None
+    except Exception as e:
+        print(f"    [amz-pdp] error: {e}")
         return None
 
 
@@ -1260,6 +1342,69 @@ def _scrape_amazon_region(
 
     for item in AMAZON_KEYWORDS:
         try:
+            # ── Strategy A: scrape.do structured Amazon Search API ─────────
+            # Returns clean JSON (asin, title, price) — no HTML parsing.
+            # If the geocode isn't supported or the call fails, falls through
+            # to Strategy B (HTML scraping).
+            api_products = fetch_amazon_structured_search(item["k"], country_code)
+            if api_products:
+                saved_this_keyword = 0
+                for p in api_products:
+                    if saved_this_keyword >= 6:
+                        break
+                    asin  = (p.get("asin") or "").strip()
+                    title = (p.get("title") or "").strip()
+                    if not asin or not title or len(title.split()) < 3:
+                        continue
+                    if asin in seen_asins:
+                        continue
+                    if p.get("isSponsored"):
+                        continue
+
+                    # Get price + list_price from PDP (1 extra credit per product)
+                    pdp = fetch_amazon_product_detail(asin, country_code)
+                    if not pdp:
+                        continue
+                    cp = float(pdp.get("price") or 0)
+                    op = float(pdp.get("list_price") or cp)
+                    if cp < 50 or op < cp:
+                        op = cp
+                    discount = calculate_discount(op, cp)
+
+                    # Also accept badge-stated discounts for products with no list_price
+                    if discount < MIN_DISCOUNT:
+                        continue
+                    if currency == "EGP" and not price_in_range(cp):
+                        continue
+
+                    seen_asins.add(asin)
+                    images = pdp.get("images") or []
+                    img    = images[0].get("url", "") if images else ""
+                    rating = float(pdp.get("rating") or 0)
+                    rc     = int(pdp.get("total_ratings") or 0)
+                    cat    = detect_category(title) or item["cat"]
+                    product_url = f"https://www.{base_domain}/dp/{asin}?language=en_AE"
+
+                    print(f"    [amz-api✓] {title[:40]} | {discount}% off")
+                    kb = check_price_history(asin=asin, product_url=product_url,
+                                             current_price=cp, original_price=op,
+                                             title=title, site=marketplace_country)
+                    deal = build_deal(title=title, site=marketplace_country,
+                                      site_display=site_display, category=cat,
+                                      current_price=cp, original_price=op,
+                                      discount=discount, image_url=img,
+                                      product_url=product_url, rating=rating,
+                                      review_count=rc, asin=asin,
+                                      kanbkam_result=kb, currency=currency)
+                    save_deal(deal)
+                    total += 1
+                    saved_this_keyword += 1
+                    time.sleep(1)
+
+                time.sleep(2)
+                continue  # structured API succeeded — skip HTML fallback
+
+            # ── Strategy B: HTML keyword search (fallback) ─────────────────
             url = f"https://www.{base_domain}/s?k={item['k'].replace(' ', '+')}&language=en_AE"
             resp = fetch_with_scrapedo(url, render_js=True, country=country_code)
             if not resp or is_blocked_response(resp, min_length=5000):
@@ -2460,14 +2605,18 @@ def _scrape_noon_region(
         2. scrape.do render=true (datacenter + JS render) — fallback
         3. ScraperAPI render_js=True — last resort
         """
-        # Try scrape.do with residential super proxy first
+        # Try scrape.do with residential super proxy first.
+        # waitUntil=networkidle2 ensures Noon's React prices finish loading —
+        # domcontentloaded (default) returns before price spans are hydrated.
         if SCRAPEDO_TOKEN and not _scrapedo_dead:
-            resp = fetch_with_scrapedo(url, render_js=True, country=country_code, super_proxy=True)
+            resp = fetch_with_scrapedo(url, render_js=True, country=country_code,
+                                       super_proxy=True, wait_until="networkidle2")
             if resp and len(resp.text or "") > 3000:
                 print(f"  [NOON/{country_code.upper()}] scrape.do super OK ({len(resp.text)}b)")
                 return resp
             # Fall back to regular scrape.do render
-            resp = fetch_with_scrapedo(url, render_js=True, country=country_code, super_proxy=False)
+            resp = fetch_with_scrapedo(url, render_js=True, country=country_code,
+                                       super_proxy=False, wait_until="networkidle2")
             if resp and len(resp.text or "") > 3000:
                 print(f"  [NOON/{country_code.upper()}] scrape.do render OK ({len(resp.text)}b)")
                 return resp
