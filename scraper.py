@@ -3272,13 +3272,14 @@ def _purge_bad_deals():
         print(f"  [PURGE] Error: {e}")
 
 
-
+if __name__ == "__main__":
     print("DealHunter Egypt Scraper v7 FIXED")
     print(f"Stores: Amazon EG/AE/SA + Noon EG/AE/SA + Jumia + B.Tech + Carrefour + Sharaf DG + HyperOne + Sahla")
     print(f"Fake check: Kanbkam (fixed URL) + Safqa (rebuilt)")
     print(f"Min discount: {MIN_DISCOUNT}% | Interval: {INTERVAL} min")
     if MIN_PRICE > 0 or MAX_PRICE < 9999999:
         print(f"Price filter: EGP {MIN_PRICE:,.0f} – EGP {MAX_PRICE:,.0f}")
+    print("Scraper started, waiting for first cycle...")
     print()
     run_scraper()
     schedule.every(INTERVAL).minutes.do(run_scraper)
