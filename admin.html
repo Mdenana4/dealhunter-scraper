@@ -287,7 +287,7 @@ tr:hover td{background:#fafafa;}
         </select>
       </div>
     </div>
-    <div class="fg"><label>Specific User (optional — leave blank for group)</label>
+    <div class="fg" id="user-input-div" style="display:none;"><label>Specific User (optional — leave blank for group)</label>
       <input type="text" id="nt-user" placeholder="Email or phone number of specific user..."/>
     </div>
     <div class="ma">
@@ -2586,7 +2586,7 @@ async function loadNotifs(){
 function updateNotifTargetOptions() {
   const target = document.getElementById('nt-target').value;
   const groupDiv = document.getElementById('group-select-div');
-  const userDiv = document.querySelector('div:has(#nt-user)');
+  const userDiv = document.getElementById('user-input-div');
 
   // Show/hide group selector
   groupDiv.style.display = target === 'group' ? 'block' : 'none';
