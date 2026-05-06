@@ -267,11 +267,11 @@ def detect_category(title):
     t = title.lower()
     if re.search(r'phone|mobile|iphone|samsung|xiaomi|oppo|vivo|realme|laptop|notebook|tablet|ipad|computer|monitor|keyboard|mouse|headphone|earphone|earbuds|airpods|speaker|camera|\btv\b|television|gaming|playstation|xbox|console|router|charger|cable|power.?bank|smartwatch|flash.?drive|usb|ssd|hard.?disk|printer|drone|ram|processor', t):
         return "electronics"
-    if re.search(r'dress|shirt|shoes|bag|perfume|jeans|jacket|sneaker|sandal|handbag|wallet|belt|hat|cap|suit|blouse|skirt|coat|boots|polo|t-shirt|tshirt|underwear|socks|scarf|glasses|sunglasses|leggings|hoodie|sweatshirt|bra|swimsuit', t):
+    if re.search(r'dress|shirt|shoes|bag|perfume|parfum|fragrance|eau.?de|attar|oud|jeans|jacket|sneaker|sandal|handbag|wallet|belt|hat|cap|suit|blouse|skirt|coat|boots|polo|t-shirt|tshirt|underwear|socks|scarf|glasses|sunglasses|leggings|hoodie|sweatshirt|bra|swimsuit', t):
         return "fashion"
     if re.search(r'sofa|chair|bed|table|lamp|kitchen|blender|cookware|vacuum|air.?condition|refrigerator|washing.?machine|oven|microwave|curtain|pillow|mattress|shelf|cabinet|wardrobe|fan|heater|iron|kettle|toaster|coffee.?maker|air.?fryer|pressure.?cooker|dishwasher|water.?filter', t):
         return "home"
-    if re.search(r'cream|serum|shampoo|makeup|skincare|moisturizer|lotion|vitamin|supplement|face.?wash|nail|lipstick|foundation|mascara|toner|sunscreen|body.?wash|deodorant|cologne|hair.?dryer|straightener|razor|trimmer', t):
+    if re.search(r'cream|serum|shampoo|makeup|skincare|moisturizer|lotion|vitamin|supplement|omega|collagen|fish.?oil|probiotic|face.?wash|nail|lipstick|foundation|mascara|toner|sunscreen|body.?wash|deodorant|cologne|hair.?dryer|straightener|razor|trimmer', t):
         return "beauty"
     if re.search(r'gym|sport|fitness|yoga|bicycle|bike|football|tennis|treadmill|dumbbell|resistance.?band|protein|swimming|basketball|volleyball|badminton|weights|barbell|boxing', t):
         return "sports"
@@ -283,7 +283,7 @@ def detect_category(title):
         return "grocery"
     if re.search(r'book|novel|textbook|stationery|pen|notebook|pencil|magazine|dictionary|academic|study', t):
         return "books"
-    return "general"
+    return None
 
 
 # ─────────────────────────────────────────────────────
@@ -2135,6 +2135,197 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
         except Exception:
             continue
 
+    if saved:
+        return saved
+
+    # Method D: product link scan
+    # Noon URL pattern: /region-lang/product-slug/SKU/p/?o=...
+    # The SKU sits BEFORE /p/, not after — fix the regex accordingly.
+    import re as _re
+    noon_sku_re = _re.compile(r'/[A-Za-z0-9]{5,}/p/', _re.IGNORECASE)
+    all_a_tags = soup.find_all("a", href=True)
+    p_hrefs = [a["href"] for a in all_a_tags if "/p/" in (a.get("href") or "")]
+    matched_a_tags = [a for a in all_a_tags if noon_sku_re.search(a.get("href", ""))]
+    print(f"    [noon parse] Method D: total_a={len(all_a_tags)} p_links={len(p_hrefs)} regex_matched={len(matched_a_tags)}")
+    if p_hrefs:
+        print(f"    [noon parse] Method D p_href samples={p_hrefs[:3]}")
+
+    seen_urls: set = set()
+    _d_debug_count = 0
+
+    for a_tag in matched_a_tags:
+        try:
+            # Canonical URL: strip ?o= query param
+            href = a_tag["href"].split("?")[0]
+            if not href.endswith("/"):
+                href += "/"
+            purl = "https://www.noon.com" + href if href.startswith("/") else href
+            if purl in seen_urls:
+                continue
+            seen_urls.add(purl)
+
+            # Cross-keyword SKU dedup: extract SKU (segment before /p/) and skip
+            # if already processed in a previous keyword page this cycle.
+            _sku_m = noon_sku_re.search(href)
+            if _sku_m:
+                _sku = _sku_m.group(0).split("/p/")[0].strip("/")
+                if seen_skus is not None:
+                    if _sku in seen_skus:
+                        continue
+                    seen_skus.add(_sku)
+
+            # Check the <a> tag itself first, then walk up 6 levels.
+            # Noon cards wrap all content (title + prices) inside the <a>.
+            containers_to_check = []
+            node = a_tag
+            for _ in range(7):
+                if node and getattr(node, "name", None):
+                    containers_to_check.append(node)
+                    node = node.parent
+                else:
+                    break
+
+            _link_saved = False
+            for _lvl, container in enumerate(containers_to_check):
+
+                # Guard: if this container holds more than one product link
+                # we've walked too far up and would bleed prices/titles across
+                # neighbouring cards. Stop immediately.
+                if len(container.find_all("a", href=noon_sku_re)) > 1:
+                    break
+
+                # ── Price extraction (two-stage) ───────────────────────────
+                # Stage 1: data-qa price elements (reliable when JS rendered them)
+                _cp_el = (
+                    container.find(attrs={"data-qa": "product-price"}) or
+                    container.find(attrs={"data-qa": "price-now"}) or
+                    container.find(attrs={"data-qa": "selling-price"}) or
+                    container.find(attrs={"data-qa": "price"})
+                )
+                _op_el = (
+                    container.find(attrs={"data-qa": "product-old-price"}) or
+                    container.find(attrs={"data-qa": "price-was"}) or
+                    container.find(attrs={"data-qa": "old-price"}) or
+                    container.find(attrs={"data-qa": "original-price"})
+                )
+
+                if _cp_el and _op_el:
+                    cp = clean_price(_cp_el.get_text(strip=True))
+                    op = clean_price(_op_el.get_text(strip=True))
+                    if not cp or not op or cp < 200 or op <= cp:
+                        continue
+                else:
+                    # Stage 2: text scan — exclude title text first so spec numbers
+                    # embedded in model names ("83" in "83JG0095ED", "5600" from
+                    # "DDR5 5600", "512" from "512 SSD", "144" from "144Hz") are
+                    # not in the pool of price candidates.
+                    title_el_excl = (
+                        container.find(attrs={"data-qa": "product-name"}) or
+                        container.find(attrs={"data-qa": "product-title"}) or
+                        container.find("h1") or container.find("h2") or
+                        container.find("h3") or container.find("p")
+                    )
+                    _title_excl = title_el_excl.get_text(" ", strip=True) if title_el_excl else ""
+                    full_text = container.get_text(" ", strip=True)
+                    # Remove title substring (and its spec numbers) from text
+                    price_text = full_text.replace(_title_excl, " ") if _title_excl else full_text
+
+                    # Standalone number regex: requires non-alphanumeric boundary on
+                    # both sides. "83JG0095ED" → "83" adjacent to "J" → excluded.
+                    # "16G" → "16" adjacent to "G" → excluded.
+                    all_nums = []
+                    for _m in _re.finditer(
+                        r'(?<![A-Za-z\d])([\d,]+(?:\.\d+)?)(?![A-Za-z\d])', price_text
+                    ):
+                        try:
+                            _n = float(_m.group(1).replace(",", ""))
+                            if _n >= 200:
+                                all_nums.append(_n)
+                        except ValueError:
+                            continue
+                    all_nums = sorted(set(all_nums), reverse=True)
+
+                    if len(all_nums) < 2:
+                        continue
+
+                    # op = largest number; find cp where ratio op/cp in [1.15, 8]:
+                    #   < 1.15 → discount below ~13% — not worth notifying
+                    #   > 8    → >87.5% off — almost always a misidentified spec
+                    #            (DDR5 5600 → ratio ~11; RTX 5060 → ratio ~12)
+                    # Lower bound at 1.15 (was 1.4) captures electronics at 15-25% off —
+                    # a 15% off 60,000 EGP laptop saves 9,000 EGP, which is significant.
+                    op = all_nums[0]
+                    cp = None
+                    for _candidate in all_nums[1:]:
+                        _ratio = op / _candidate if _candidate > 0 else 0
+                        if 1.15 <= _ratio <= 8.0 and _candidate >= 200:
+                            cp = _candidate
+                            break
+
+                    if cp is None:
+                        # Log why we failed on the first few products so electronics
+                        # failure reason is visible (empty = no prices in card,
+                        # low ratio = product is only slightly discounted)
+                        if _d_debug_count < 3:
+                            _d_debug_count += 1
+                            print(f"    [noon parse] D-miss href={href[:50]} "
+                                  f"nums={all_nums[:5]}")
+                        continue
+
+                # ── Title extraction ───────────────────────────────────────
+                title_el = (
+                    container.find(attrs={"data-qa": "product-name"}) or
+                    container.find(attrs={"data-qa": "product-title"}) or
+                    container.find("h1") or container.find("h2") or container.find("h3") or
+                    container.find("p")
+                )
+                title = title_el.get_text(strip=True) if title_el else ""
+                if not title or len(title) < 5 or len(title) > 300:
+                    continue
+
+                disc = calculate_discount(op, cp)
+                # Detect category early so electronics can use a lower threshold
+                cat = detect_category(title) or default_cat
+                # Electronics (phones, laptops, TVs) are high-value — notify at 15%+
+                # even though general threshold is 40%. A 15% off a 60,000 EGP laptop
+                # saves 9,000 EGP which is highly relevant.
+                _eff_min_discount = 15 if cat == "electronics" else MIN_DISCOUNT
+
+                if _d_debug_count < 8:
+                    _nlinks = len(container.find_all("a", href=noon_sku_re))
+                    print(f"    [noon parse] D-debug lvl={_lvl} links={_nlinks} cat={cat} "
+                          f"href={href[:45]} op={op} cp={cp} disc={disc}")
+
+                if disc < _eff_min_discount:
+                    if _d_debug_count < 5:
+                        _d_debug_count += 1
+                    break
+                if not price_in_range(cp):
+                    break
+
+                img_el = container.find("img")
+                img = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+                kb = check_price_history(product_url=purl, current_price=cp,
+                                         original_price=op, title=title,
+                                         site=marketplace_country)
+                deal = build_deal(title=title, site=marketplace_country,
+                                  site_display=site_display, category=cat,
+                                  current_price=cp, original_price=op,
+                                  discount=disc, image_url=img, product_url=purl,
+                                  kanbkam_result=kb, currency=currency)
+                save_deal(deal)
+                saved += 1
+                _link_saved = True
+                break
+
+            if not _link_saved and _d_debug_count < 5:
+                _d_debug_count += 1
+
+        except Exception as _de:
+            print(f"    [noon parse] Method D exc: {_de}")
+            continue
+
+    print(f"    [noon parse] Method D (link scan) saved={saved}")
     return saved
 
 
