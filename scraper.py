@@ -3215,6 +3215,9 @@ def _run_scraper_inner():
     update_analytics()
     _health.flush()   # write health summary + send FCM alert if anything broke
 
+    # ── Purge deals that slipped through with wrong prices ────────────────────
+    _purge_bad_deals()
+
     # ── Send deal notifications to users ─────────────────────────────────────
     # _new_deals_this_run was populated by save_deal() for every brand-new deal.
     print(f"\n  [FCM-DEALS] New deals this cycle: {len(_new_deals_this_run)}")
@@ -3231,7 +3234,45 @@ def _run_scraper_inner():
     print(f"{'=' * 62}\n")
 
 
-if __name__ == "__main__":
+def _purge_bad_deals():
+    """
+    Delete Firestore deals where the stored prices are clearly wrong:
+    - current_price < 200 (spec number like "59" or "128" saved as price)
+    - original_price / current_price > 8 (ratio above 8× — e.g. 1400 RPM case)
+    - current_price > original_price (inverted prices)
+    Runs at end of each scraper cycle to clean up any garbage that slipped through.
+    """
+    try:
+        docs = list(db.collection("deals").stream())
+        removed = 0
+        for d in docs:
+            data = d.to_dict() or {}
+            cp = float(data.get("current_price") or 0)
+            op = float(data.get("original_price") or 0)
+            bad = False
+            reason = ""
+            if cp < 200:
+                bad = True
+                reason = f"cp={cp} below 200 floor"
+            elif op > 0 and cp > 0 and op / cp > 8.0:
+                bad = True
+                reason = f"ratio={op/cp:.1f} (op={op} cp={cp}) exceeds 8×"
+            elif cp > 0 and op > 0 and cp > op:
+                bad = True
+                reason = f"cp={cp} > op={op} (inverted)"
+            if bad:
+                print(f"  [PURGE] Deleting bad deal {d.id[:16]}… {reason}")
+                db.collection("deals").document(d.id).delete()
+                removed += 1
+        if removed:
+            print(f"  [PURGE] Removed {removed} bad deal(s)")
+        else:
+            print(f"  [PURGE] All {len(docs)} deals look clean")
+    except Exception as e:
+        print(f"  [PURGE] Error: {e}")
+
+
+
     print("DealHunter Egypt Scraper v7 FIXED")
     print(f"Stores: Amazon EG/AE/SA + Noon EG/AE/SA + Jumia + B.Tech + Carrefour + Sharaf DG + HyperOne + Sahla")
     print(f"Fake check: Kanbkam (fixed URL) + Safqa (rebuilt)")
