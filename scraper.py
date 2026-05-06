@@ -1125,13 +1125,20 @@ def _scrape_amazon_deals_page(
                 break
 
             soup = BeautifulSoup(resp.content, "lxml")
-            products = [
-                p for p in soup.find_all("div", attrs={"data-asin": True})
-                if p.get("data-asin", "").strip()
-            ]
+            # Amazon deals page uses several different card structures depending on locale/year.
+            # Try each selector in order, use the first that yields results.
+            products = (
+                [p for p in soup.find_all("div", attrs={"data-asin": True}) if p.get("data-asin", "").strip()] or
+                soup.find_all("div", attrs={"data-component-type": "s-search-result"}) or
+                soup.find_all("div", attrs={"data-testid": "deal-card"}) or
+                soup.find_all("li", class_=re.compile(r"GridItem|deal-card|s-result-item", re.I)) or
+                soup.find_all("div", class_=re.compile(r"DealCard|deal-card|dealCard", re.I))
+            )
             if not products:
-                print(f"  Deals page {page_num}: 0 products found — HTML structure may have changed")
-                _log_scraper_error(f"amazon_{country_code}", url, "0 products parsed — selector may be broken")
+                # Log a snippet to help diagnose selector issues
+                body_text = soup.get_text(" ", strip=True)[:200]
+                print(f"  Deals page {page_num}: 0 products — selectors exhausted. Page preview: {body_text!r}")
+                _log_scraper_error(f"amazon_{country_code}", url, "0 products parsed — all selectors failed")
                 break
 
             print(f"  Deals page {page_num}: {len(products)} product divs")
@@ -1255,9 +1262,9 @@ def _scrape_amazon_region(
     for item in AMAZON_KEYWORDS:
         try:
             url = f"https://www.{base_domain}/s?k={item['k'].replace(' ', '+')}&language=en_AE"
-            resp = fetch_with_scrapedo(url, render_js=False, country=country_code)
+            resp = fetch_with_scrapedo(url, render_js=True, country=country_code)
             if not resp or is_blocked_response(resp, min_length=5000):
-                resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
+                resp = fetch_with_scraperapi(url, render_js=True, country=country_code)
             if is_blocked_response(resp, min_length=5000):
                 print(f"  [{item['k']}]: blocked/empty response — skipping")
                 _log_scraper_error(f"amazon_{country_code}", url, f"Blocked response on keyword '{item['k']}'")
