@@ -2796,6 +2796,21 @@ def serve_admin():
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return resp
 
+_FIREBASE_SDK_FILES = {
+    'firebase-app-compat.js',
+    'firebase-firestore-compat.js',
+    'firebase-auth-compat.js',
+}
+
+@app.route('/sdk/<filename>')
+def serve_sdk(filename):
+    """Self-host Firebase SDK so browser never needs gstatic.com or any CDN."""
+    if filename not in _FIREBASE_SDK_FILES:
+        return '', 404
+    resp = send_from_directory('.', filename, mimetype='application/javascript')
+    resp.headers['Cache-Control'] = 'public, max-age=86400'
+    return resp
+
 # ── Scraper source toggle ─────────────────────────────────────────────────────
 ALL_SOURCES = [
     {"key": "amazon_eg",    "label": "Amazon Egypt",       "flag": "🇪🇬"},
