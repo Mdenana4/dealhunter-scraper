@@ -1157,7 +1157,7 @@ def _scrape_amazon_deals_page(
                     if not title_el:
                         continue
                     title = title_el.get_text(strip=True)
-                    if not title or len(title) < 6:
+                    if not title or len(title.split()) < 3:
                         continue
 
                     price_el = product.find("span", class_="a-price-whole")
@@ -1298,7 +1298,10 @@ def _scrape_amazon_region(
                     if not title_el:
                         continue
                     title = title_el.get_text(strip=True)
-                    if not title or len(title) < 6:
+                    # Require at least 3 words: rejects bare brand names like
+                    # "adidas", "Samsung", "Babacom" that Amazon renders in cards
+                    # when the full title span hasn't hydrated.
+                    if not title or len(title.split()) < 3:
                         continue
 
                     price_el = product.find("span", class_="a-price-whole")
