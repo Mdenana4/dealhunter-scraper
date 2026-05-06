@@ -1430,14 +1430,14 @@ def scrape_jumia():
     print("\n[JUMIA] Starting...")
     total = 0
     pages = [
-        ("https://www.jumia.com.eg/mlp-flash-sales/", "general"),
-        ("https://www.jumia.com.eg/phones-tablets/?sort=discountPercent&type=lowest-price#catalog-listing", "electronics"),
-        ("https://www.jumia.com.eg/electronics/?sort=discountPercent&type=lowest-price#catalog-listing", "electronics"),
-        ("https://www.jumia.com.eg/fashion/?sort=discountPercent#catalog-listing", "fashion"),
-        ("https://www.jumia.com.eg/home-office/?sort=discountPercent#catalog-listing", "home"),
-        ("https://www.jumia.com.eg/sporting-goods/?sort=discountPercent#catalog-listing", "sports"),
-        ("https://www.jumia.com.eg/beauty-perfumes/?sort=discountPercent#catalog-listing", "beauty"),
-        ("https://www.jumia.com.eg/baby-products/?sort=discountPercent#catalog-listing", "toys"),
+        ("https://www.jumia.com.eg/flash-sales/", "general"),
+        ("https://www.jumia.com.eg/phones-tablets/?sort=discountPercent&type=lowest-price", "electronics"),
+        ("https://www.jumia.com.eg/electronics/?sort=discountPercent&type=lowest-price", "electronics"),
+        ("https://www.jumia.com.eg/fashion/?sort=discountPercent", "fashion"),
+        ("https://www.jumia.com.eg/home-office/?sort=discountPercent", "home"),
+        ("https://www.jumia.com.eg/sporting-goods/?sort=discountPercent", "sports"),
+        ("https://www.jumia.com.eg/beauty-health/?sort=discountPercent", "beauty"),
+        ("https://www.jumia.com.eg/baby-products/?sort=discountPercent", "toys"),
     ]
 
     for url, default_cat in pages:
@@ -2278,13 +2278,40 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
             _link_saved = False
             for _lvl, container in enumerate(containers_to_check):
                 text = container.get_text(" ", strip=True)
-                # Only look at numbers that are plausible EGP prices (>= 50)
-                prices = _re.findall(r'[\d,]+(?:\.\d+)?', text)
-                price_nums = sorted(
-                    [float(p.replace(",", "")) for p in prices if float(p.replace(",", "")) >= 50],
-                    reverse=True
-                )
-                if not price_nums:
+
+                # Ratio-based price pair detection.
+                # Real discount pairs have op/cp in [1.4, 20] (28%–95% off).
+                # Spec numbers (64GB, 128GB, 256GB storage) give ratios > 50 → excluded.
+                all_nums = []
+                for _p in _re.findall(r'[\d,]+(?:\.\d+)?', text):
+                    if not _p:
+                        continue
+                    try:
+                        _n = float(_p.replace(",", ""))
+                        if _n >= 50:
+                            all_nums.append(_n)
+                    except ValueError:
+                        continue
+                all_nums.sort(reverse=True)
+
+                if len(all_nums) < 2:
+                    continue
+
+                # op MUST be the globally largest number in the card.
+                # Then find the largest candidate cp where ratio op/cp is in [1.4, 20]:
+                #   - ratio < 1.4 → less than 28% discount, not interesting
+                #   - ratio > 20  → 95%+ off; almost always a spec number (64GB, 128GB)
+                op = all_nums[0]
+                cp = None
+                for _candidate in all_nums[1:]:
+                    if _candidate <= 0:
+                        continue
+                    _ratio = op / _candidate
+                    if 1.4 <= _ratio <= 20.0:
+                        cp = _candidate
+                        break
+
+                if cp is None:
                     continue
 
                 # Title: prefer explicit data-qa elements, fall back to first <p>/<h>
@@ -2298,21 +2325,15 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                 if not title or len(title) < 5 or len(title) > 300:
                     continue
 
-                # Largest number = original price, smallest = sale price
-                op = price_nums[0]
-                cp = price_nums[-1]
-                if cp > op:
-                    cp, op = op, cp
                 disc = calculate_discount(op, cp)
 
                 if _d_debug_count < 5:
                     print(f"    [noon parse] D-debug lvl={_lvl} href={href[:55]} "
-                          f"prices={price_nums[:4]} title={title[:35]!r} disc={disc}")
+                          f"prices={all_nums[:4]} op={op} cp={cp} disc={disc}")
 
                 if disc < MIN_DISCOUNT:
                     if _d_debug_count < 5:
                         _d_debug_count += 1
-                    # Larger parent containers accumulate more numbers (noise) — stop here
                     break
                 if not price_in_range(cp):
                     break
@@ -2959,7 +2980,13 @@ def _run_scraper_inner():
     _notify_new_deals(_new_deals_this_run)
     _new_deals_this_run.clear()  # reset for next cycle
 
-    print(f"\n  TOTAL: {total} deals | Next in: {INTERVAL} min")
+    _cycle_end = now_str()
+    print(f"\n{'=' * 62}")
+    print(f"  CYCLE COMPLETE: {_cycle_end}")
+    print(f"  TOTAL DEALS THIS CYCLE: {total}")
+    print(f"  NEW DEALS NOTIFIED:     {len(_new_deals_this_run)}")
+    print(f"  PROXY: scrape.do={'dead' if _scrapedo_dead else ('active' if SCRAPEDO_TOKEN else 'not set')}")
+    print(f"  Next cycle in: {INTERVAL} min")
     print(f"{'=' * 62}\n")
 
 
