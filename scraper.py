@@ -2238,61 +2238,85 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
     if saved:
         return saved
 
-    # Method D: product link scan — works regardless of class names.
-    # Noon product URLs always match /<region>/some-product-name/p/<SKU>/
+    # Method D: product link scan
+    # Noon URL pattern: /region-lang/product-slug/SKU/p/?o=...
+    # The SKU sits BEFORE /p/, not after — fix the regex accordingly.
     import re as _re
-    noon_product_re = _re.compile(
-        r'^/[a-zA-Z].*?/p/[A-Za-z0-9]{5,}', _re.IGNORECASE
-    )
+    noon_sku_re = _re.compile(r'/[A-Za-z0-9]{5,}/p/', _re.IGNORECASE)
     all_a_tags = soup.find_all("a", href=True)
-    all_hrefs_sample = [a["href"] for a in all_a_tags[:10]]
     p_hrefs = [a["href"] for a in all_a_tags if "/p/" in (a.get("href") or "")]
-    print(f"    [noon parse] Method D: total_a={len(all_a_tags)} p_links={len(p_hrefs)} sample={all_hrefs_sample[:5]}")
+    matched_a_tags = [a for a in all_a_tags if noon_sku_re.search(a.get("href", ""))]
+    print(f"    [noon parse] Method D: total_a={len(all_a_tags)} p_links={len(p_hrefs)} regex_matched={len(matched_a_tags)}")
     if p_hrefs:
-        print(f"    [noon parse] Method D p_href samples={p_hrefs[:5]}")
-    matched_a_tags = [a for a in all_a_tags if noon_product_re.search(a.get("href", ""))]
-    print(f"    [noon parse] Method D regex_matched={len(matched_a_tags)}")
+        print(f"    [noon parse] Method D p_href samples={p_hrefs[:3]}")
+
     seen_urls: set = set()
     _d_debug_count = 0
+
     for a_tag in matched_a_tags:
         try:
-            href = a_tag["href"]
+            # Canonical URL: strip ?o= query param
+            href = a_tag["href"].split("?")[0]
+            if not href.endswith("/"):
+                href += "/"
             purl = "https://www.noon.com" + href if href.startswith("/") else href
             if purl in seen_urls:
                 continue
             seen_urls.add(purl)
-            _link_saved = False
-            # Walk up to find a container with price info
-            container = a_tag
-            for _lvl in range(6):
-                container = container.parent
-                if not container:
+
+            # Check the <a> tag itself first, then walk up 6 levels.
+            # Noon cards wrap all content (title + prices) inside the <a>.
+            containers_to_check = []
+            node = a_tag
+            for _ in range(7):
+                if node and getattr(node, "name", None):
+                    containers_to_check.append(node)
+                    node = node.parent
+                else:
                     break
+
+            _link_saved = False
+            for _lvl, container in enumerate(containers_to_check):
                 text = container.get_text(" ", strip=True)
-                # Need both a price number and a reasonable title
+                # Only look at numbers that are plausible EGP prices (>= 50)
                 prices = _re.findall(r'[\d,]+(?:\.\d+)?', text)
-                price_nums = sorted([float(p.replace(",","")) for p in prices
-                                     if float(p.replace(",","")) > 10], reverse=True)
-                if len(price_nums) < 1:
+                price_nums = sorted(
+                    [float(p.replace(",", "")) for p in prices if float(p.replace(",", "")) >= 50],
+                    reverse=True
+                )
+                if not price_nums:
                     continue
-                # Title: longest text node or heading in container
-                title_el = (container.find(attrs={"data-qa": "product-name"}) or
-                            container.find("h2") or container.find("h3") or
-                            container.find("p"))
+
+                # Title: prefer explicit data-qa elements, fall back to first <p>/<h>
+                title_el = (
+                    container.find(attrs={"data-qa": "product-name"}) or
+                    container.find(attrs={"data-qa": "product-title"}) or
+                    container.find("h1") or container.find("h2") or container.find("h3") or
+                    container.find("p")
+                )
                 title = title_el.get_text(strip=True) if title_el else ""
                 if not title or len(title) < 5 or len(title) > 300:
                     continue
-                cp = price_nums[-1]   # smallest = sale price
-                op = price_nums[0] if len(price_nums) > 1 else cp
-                if op < cp:
-                    op = cp
+
+                # Largest number = original price, smallest = sale price
+                op = price_nums[0]
+                cp = price_nums[-1]
+                if cp > op:
+                    cp, op = op, cp
                 disc = calculate_discount(op, cp)
-                if _d_debug_count < 3:
-                    print(f"    [noon parse] D-debug href={href[:60]} lvl={_lvl} prices={price_nums[:3]} title={title[:40]!r} disc={disc}")
+
+                if _d_debug_count < 5:
+                    print(f"    [noon parse] D-debug lvl={_lvl} href={href[:55]} "
+                          f"prices={price_nums[:4]} title={title[:35]!r} disc={disc}")
+
                 if disc < MIN_DISCOUNT:
-                    continue
+                    if _d_debug_count < 5:
+                        _d_debug_count += 1
+                    # Larger parent containers accumulate more numbers (noise) — stop here
+                    break
                 if not price_in_range(cp):
-                    continue
+                    break
+
                 img_el = container.find("img")
                 img = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
                 cat = detect_category(title) or default_cat
@@ -2307,9 +2331,11 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                 save_deal(deal)
                 saved += 1
                 _link_saved = True
-                break  # found the container for this link
-            if not _link_saved and _d_debug_count < 3:
+                break
+
+            if not _link_saved and _d_debug_count < 5:
                 _d_debug_count += 1
+
         except Exception as _de:
             print(f"    [noon parse] Method D exc: {_de}")
             continue
