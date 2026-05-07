@@ -2797,10 +2797,29 @@ def serve_admin():
     return resp
 
 _FIREBASE_SDK_FILES = {
-    'firebase-app-compat.js',
-    'firebase-firestore-compat.js',
-    'firebase-auth-compat.js',
+    'firebase-app-compat.js':      'https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js',
+    'firebase-firestore-compat.js':'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js',
+    'firebase-auth-compat.js':     'https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js',
 }
+
+def _ensure_firebase_sdk():
+    """Download Firebase SDK files if missing or empty.
+    Dockerfile tries to curl them at build time; this is the runtime fallback
+    for cases where the build-time download failed or the image is cached."""
+    for filename, url in _FIREBASE_SDK_FILES.items():
+        path = os.path.join('.', filename)
+        if not os.path.exists(path) or os.path.getsize(path) < 10_000:
+            try:
+                print(f"[SDK] Downloading {filename} from gstatic.com...")
+                r = requests.get(url, timeout=30)
+                r.raise_for_status()
+                with open(path, 'wb') as f:
+                    f.write(r.content)
+                print(f"[SDK] {filename} saved ({len(r.content):,} bytes)")
+            except Exception as e:
+                print(f"[SDK] WARNING: could not download {filename}: {e}")
+
+_ensure_firebase_sdk()
 
 @app.route('/sdk/<filename>')
 def serve_sdk(filename):
