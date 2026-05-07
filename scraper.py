@@ -521,7 +521,7 @@ def fetch_amazon_product_detail(asin, country_code):
         return None
 
 
-def fetch_with_scraperapi(url, render_js=True, country="eg", _skip_scrapedo=False):
+def fetch_with_scraperapi(url, render_js=True, country="eg", _skip_scrapedo=False, premium=False):
     global _SCRAPERAPI_EXHAUSTED
     # Prefer scrape.do when token is set — UNLESS caller explicitly skips it
     # (e.g. Jumia already tried scrape.do and got 502; don't retry it here)
@@ -538,7 +538,7 @@ def fetch_with_scraperapi(url, render_js=True, country="eg", _skip_scrapedo=Fals
             "url": url,
             "render": "true" if render_js else "false",
             "country_code": country,
-            "premium": "false",
+            "premium": "true" if premium else "false",
         }
         resp = requests.get("http://api.scraperapi.com", params=params, timeout=60)
         if resp.status_code == 200:
@@ -1211,20 +1211,26 @@ def _scrape_amazon_deals_page(
     for page_num in range(1, 4):  # pages 1–3
         try:
             url = deals_url if page_num == 1 else f"{deals_url}&page={page_num}"
-            resp = fetch_with_scrapedo(url, render_js=False, country=country_code)
-            if not resp or is_blocked_response(resp, min_length=5000):
-                resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
-            if is_blocked_response(resp, min_length=5000):
+            resp = fetch_with_scrapedo(url, render_js=True, country=country_code)
+            if not resp or is_blocked_response(resp, min_length=3000):
+                resp = fetch_with_scraperapi(url, render_js=True, country=country_code,
+                                             _skip_scrapedo=True)
+            if is_blocked_response(resp, min_length=3000):
                 print(f"  Deals page {page_num}: blocked/empty (HTTP {resp.status_code if resp else 'no response'}) — skipping")
                 _log_scraper_error(f"amazon_{country_code}", url, "Blocked/CAPTCHA response on deals page")
                 break
 
             soup = BeautifulSoup(resp.content, "lxml")
-            # Amazon deals page uses several different card structures depending on locale/year.
-            # Try each selector in order, use the first that yields results.
+            # Amazon search/deals pages use several card structures.
+            # data-asin divs that also have data-component-type="s-search-result" are the
+            # top-level product cards. Filter to only those with an ASIN and a child h2
+            # (title) to skip wrapper/container divs that also carry data-asin.
+            _all_asin = [p for p in soup.find_all("div", attrs={"data-asin": True})
+                         if p.get("data-asin", "").strip()]
             products = (
-                [p for p in soup.find_all("div", attrs={"data-asin": True}) if p.get("data-asin", "").strip()] or
-                soup.find_all("div", attrs={"data-component-type": "s-search-result"}) or
+                [p for p in _all_asin if p.get("data-component-type") == "s-search-result"] or
+                [p for p in _all_asin if p.find("h2")] or
+                _all_asin or
                 soup.find_all("div", attrs={"data-testid": "deal-card"}) or
                 soup.find_all("li", class_=re.compile(r"GridItem|deal-card|s-result-item", re.I)) or
                 soup.find_all("div", class_=re.compile(r"DealCard|deal-card|dealCard", re.I))
@@ -1620,8 +1626,9 @@ def scrape_jumia():
                 # scrape.do failed (502 or blocked) — go directly to ScraperAPI
                 # with render=true. _skip_scrapedo=True prevents double-calling
                 # scrape.do since fetch_with_scraperapi normally tries it first.
-                print(f"  [JUMIA] scrape.do {'502' if not resp else 'blocked'} → ScraperAPI fallback")
-                resp = fetch_with_scraperapi(url, render_js=True, country="eg", _skip_scrapedo=True)
+                print(f"  [JUMIA] scrape.do {'502' if not resp else 'blocked'} → ScraperAPI residential fallback")
+                resp = fetch_with_scraperapi(url, render_js=True, country="eg",
+                                             _skip_scrapedo=True, premium=True)
                 _sa_ok = resp and not is_blocked_response(resp, min_length=3000)
                 print(f"  [JUMIA] ScraperAPI {'OK' if _sa_ok else 'FAILED'} for {url[:55]}")
             if is_blocked_response(resp, min_length=3000):
