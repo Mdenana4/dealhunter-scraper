@@ -2791,6 +2791,32 @@ def set_country_pricing(country_code):
     return jsonify({'success': True})
 
 
+_SDK_CACHE: dict = {}
+_FIREBASE_VERSION = "9.22.0"
+_SDK_FILES = {
+    "firebase-app-compat.js":       f"https://www.gstatic.com/firebasejs/{_FIREBASE_VERSION}/firebase-app-compat.js",
+    "firebase-firestore-compat.js": f"https://www.gstatic.com/firebasejs/{_FIREBASE_VERSION}/firebase-firestore-compat.js",
+    "firebase-auth-compat.js":      f"https://www.gstatic.com/firebasejs/{_FIREBASE_VERSION}/firebase-auth-compat.js",
+}
+
+@app.route('/sdk/<path:filename>')
+def serve_sdk(filename):
+    """Proxy Firebase SDK files through the server so Egyptian clients can load them
+    even when gstatic.com is unreachable from the browser's network."""
+    if filename not in _SDK_FILES:
+        return "Not found", 404
+    if filename not in _SDK_CACHE:
+        try:
+            r = requests.get(_SDK_FILES[filename], timeout=20)
+            r.raise_for_status()
+            _SDK_CACHE[filename] = r.text
+        except Exception as e:
+            return f"// SDK proxy error: {e}", 502
+    from flask import Response
+    return Response(_SDK_CACHE[filename], mimetype="application/javascript",
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
 @app.route('/admin')
 @app.route('/admin.html')
 def serve_admin():
