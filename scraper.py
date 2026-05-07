@@ -296,15 +296,15 @@ def detect_category(title):
         return "electronics"
     if re.search(r'dress|shirt|shoes|bag|perfume|parfum|fragrance|eau.?de|attar|oud|jeans|jacket|sneaker|sandal|handbag|wallet|belt|hat|cap|suit|blouse|skirt|coat|boots|polo|t-shirt|tshirt|underwear|socks|scarf|glasses|sunglasses|leggings|hoodie|sweatshirt|bra|swimsuit', t):
         return "fashion"
-    if re.search(r'sofa|chair|bed|table|lamp|kitchen|blender|cookware|vacuum|air.?condition|refrigerator|washing.?machine|oven|microwave|curtain|pillow|mattress|shelf|cabinet|wardrobe|fan|heater|iron|kettle|toaster|coffee.?maker|air.?fryer|pressure.?cooker|dishwasher|water.?filter', t):
+    if re.search(r'sofa|chair|bed|table|lamp|kitchen|blender|cookware|vacuum|air.?condition|refrigerator|washing.?machine|oven|microwave|curtain|pillow|mattress|shelf|cabinet|wardrobe|fan|heater|iron|kettle|toaster|coffee.?maker|air.?fryer|pressure.?cooker|dishwasher|water.?filter|steamer|garment.?steamer', t):
         return "home"
-    if re.search(r'cream|serum|shampoo|makeup|skincare|moisturizer|lotion|vitamin|supplement|omega|collagen|fish.?oil|probiotic|face.?wash|nail|lipstick|foundation|mascara|toner|sunscreen|body.?wash|deodorant|cologne|hair.?dryer|straightener|razor|trimmer', t):
+    if re.search(r'cream|serum|shampoo|makeup|skincare|moisturizer|lotion|vitamin|supplement|omega|collagen|fish.?oil|probiotic|face.?wash|nail|lipstick|foundation|mascara|toner|sunscreen|body.?wash|deodorant|cologne|hair.?dryer|straightener|razor|trimmer|toothpaste|toothbrush|oral.?care|diaper|nappy|baby.?wipe|baby.?lotion|baby.?shampoo', t):
         return "beauty"
     if re.search(r'gym|sport|fitness|yoga|bicycle|bike|football|tennis|treadmill|dumbbell|resistance.?band|protein|swimming|basketball|volleyball|badminton|weights|barbell|boxing', t):
         return "sports"
-    if re.search(r'toy|baby|kids|children|doll|lego|puzzle|infant|toddler|stroller|diaper|feeding|educational|board.?game|action.?figure', t):
+    if re.search(r'toy|baby|kids|children|doll|lego|puzzle|infant|toddler|stroller|feeding|educational|board.?game|action.?figure', t):
         return "toys"
-    if re.search(r'car|auto|vehicle|tire|wheel|motor.?oil|engine|spare.?part|seat.?cover|dashboard|steering|wiper|exhaust', t):
+    if re.search(r'car|\bauto\b|vehicle|tire|wheel|motor.?oil|engine|spare.?part|seat.?cover|dashboard|steering|wiper|exhaust', t):
         return "automotive"
     if re.search(r'food|grocery|snack|drink|juice|rice|pasta|oil|sugar|coffee|tea|chocolate|biscuit|chips|sauce|spice|flour|bread|milk|cheese|yogurt|honey|jam|cereal|protein.?bar', t):
         return "grocery"
@@ -1686,9 +1686,19 @@ def scrape_jumia():
                     if discount < MIN_DISCOUNT:
                         continue
 
-                    link_el = p.find("a", href=True)
+                    # Bug 3 fix: prefer <a class="core"> which wraps the whole
+                    # card on Jumia, rather than the first <a> (may be an image link).
+                    link_el = (
+                        p.find("a", class_="core") or
+                        p.find("a", href=lambda h: h and h.endswith(".html")) or
+                        p.find("a", href=True)
+                    )
                     href = link_el["href"] if link_el else ""
+                    if not href or href in ("/", "#"):
+                        continue
                     product_url = href if href.startswith("http") else "https://www.jumia.com.eg" + href
+                    if not product_url.startswith("https://www.jumia.com.eg/"):
+                        continue
 
                     img_el    = p.find("img")
                     image_url = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
@@ -1713,9 +1723,10 @@ def scrape_jumia():
                         except Exception:
                             pass
 
-                    cat = detect_category(title)
-                    if cat == "general":
-                        cat = default_cat
+                    cat = detect_category(title) or default_cat
+
+                    print(f"  [JUMIA-D] {title[:40]!r} cp={current_price} "
+                          f"op={original_price} disc={discount}% cat={cat}")
 
                     kb = check_price_history(
                         product_url=product_url,
