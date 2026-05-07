@@ -1211,10 +1211,15 @@ def _scrape_amazon_deals_page(
     for page_num in range(1, 4):  # pages 1–3
         try:
             url = deals_url if page_num == 1 else f"{deals_url}&page={page_num}"
-            resp = fetch_with_scrapedo(url, render_js=True, country=country_code)
+            # Use super_proxy (residential IP) + render_js to avoid bot detection
+            resp = fetch_with_scrapedo(url, render_js=True, country=country_code, super_proxy=True)
             if not resp or is_blocked_response(resp, min_length=3000):
+                print(f"  Deals page {page_num}: scrape.do blocked → ScraperAPI residential fallback")
                 resp = fetch_with_scraperapi(url, render_js=True, country=country_code,
-                                             _skip_scrapedo=True)
+                                             _skip_scrapedo=True, premium=True)
+            if is_blocked_response(resp, min_length=3000):
+                print(f"  Deals page {page_num}: all proxies blocked — trying direct fetch")
+                resp = fetch_direct(url)
             if is_blocked_response(resp, min_length=3000):
                 print(f"  Deals page {page_num}: blocked/empty (HTTP {resp.status_code if resp else 'no response'}) — skipping")
                 _log_scraper_error(f"amazon_{country_code}", url, "Blocked/CAPTCHA response on deals page")
@@ -1631,8 +1636,13 @@ def scrape_jumia():
                                              _skip_scrapedo=True, premium=True)
                 _sa_ok = resp and not is_blocked_response(resp, min_length=3000)
                 print(f"  [JUMIA] ScraperAPI {'OK' if _sa_ok else 'FAILED'} for {url[:55]}")
+                if not _sa_ok:
+                    print(f"  [JUMIA] ScraperAPI also blocked → direct fetch (server IP)")
+                    resp = fetch_direct(url)
+                    _direct_ok = resp and not is_blocked_response(resp, min_length=3000)
+                    print(f"  [JUMIA] Direct fetch {'OK' if _direct_ok else 'FAILED'} for {url[:55]}")
             if is_blocked_response(resp, min_length=3000):
-                print(f"  [JUMIA] blocked/empty: {url[:55]}...")
+                print(f"  [JUMIA] all methods blocked: {url[:55]}...")
                 _log_scraper_error("jumia_eg", url, "Blocked/empty response")
                 time.sleep(5)
                 continue
