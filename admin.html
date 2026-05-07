@@ -1276,6 +1276,19 @@ tr:hover td{background:#fafafa;}
   </div>
 </div>
 
+<!-- Re-Check Deal modal -->
+<div class="mo" id="recheck-modal">
+  <div class="md" style="max-width:480px;">
+    <h3 id="recheck-title" style="font-size:13px;margin-bottom:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Checking deal…</h3>
+    <div id="recheck-body" style="min-height:80px;display:flex;align-items:center;justify-content:center;">
+      <span class="spin"></span>&nbsp;Running Kanbkam + Safqa check…
+    </div>
+    <div class="ma" style="margin-top:14px;">
+      <button class="btn" onclick="document.getElementById('recheck-modal').classList.remove('show')">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Firebase SDK — self-hosted from Railway so no external CDN is needed -->
 <script src="/sdk/firebase-app-compat.js"></script>
 <script src="/sdk/firebase-firestore-compat.js"></script>
@@ -2195,7 +2208,7 @@ function renderDeals(deals){
       <td>
         <div style="display:flex;gap:3px;flex-wrap:wrap;">
           <button class="btn btn-sm" onclick="window.open('${d.product_url}','_blank')">View</button>
-          <button class="btn btn-sm" onclick="launchCheckerForDeal(${JSON.stringify(d).replace(/"/g,'&quot;')})">🔍 Check</button>
+          <button class="btn btn-sm" onclick="recheckDeal(${JSON.stringify(d).replace(/"/g,'&quot;')})">🔍 Check</button>
           <button class="btn btn-sm ${d.featured?'btn-p':''}" onclick="toggleFeat('${d.id}',${!!d.featured})">${d.featured?'Unpin':'Pin'}</button>
           <button class="btn btn-sm btn-d" onclick="toggleHide('${d.id}',${!!d.hidden})">${d.hidden?'Show':'Hide'}</button>
           <button class="btn btn-sm btn-d" onclick="delDeal('${d.id}')">Del</button>
@@ -2854,6 +2867,70 @@ function renderCheckerResult(res,title,price,orig,platform,kanbkamData){
   document.getElementById('checker-result').style.display='block';
   document.getElementById('checker-result').scrollIntoView({behavior:'smooth'});
 }
+async function recheckDeal(d) {
+  const modal = document.getElementById('recheck-modal');
+  const body  = document.getElementById('recheck-body');
+  const titleEl = document.getElementById('recheck-title');
+  titleEl.textContent = (d.title || 'Deal').substring(0, 60);
+  body.innerHTML = '<span class="spin"></span>&nbsp;Running Kanbkam + Safqa check…';
+  modal.classList.add('show');
+
+  // Extract ASIN from Amazon product URL if available
+  let asin = d.asin || '';
+  if (!asin && d.product_url) {
+    const m = d.product_url.match(/\/dp\/([A-Z0-9]{10})/);
+    if (m) asin = m[1];
+  }
+
+  try {
+    const token = await firebase.auth().currentUser?.getIdToken();
+    const resp = await fetch('/api/v1/admin/re-check-deal', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json', ...(token?{'Authorization':'Bearer '+token}:{})},
+      body: JSON.stringify({
+        asin,
+        product_url: d.product_url || '',
+        current_price:  d.current_price  || 0,
+        original_price: d.original_price || 0,
+        title: d.title || '',
+        site:  d.site  || 'amazon_eg',
+      })
+    });
+    const json = await resp.json();
+    if (!json.success) throw new Error(json.error || 'Server error');
+    const r = json.result;
+    const emojiColor = r.verdict==='GENUINE'?'#3B6D11':r.verdict==='FAKE'?'#A32D2D':'#854F0B';
+    body.innerHTML = `
+      <div style="width:100%;">
+        <div style="font-size:22px;font-weight:700;color:${emojiColor};margin-bottom:6px;">${r.emoji||''} ${r.verdict||'—'}</div>
+        <div style="font-size:11px;color:#444;margin-bottom:10px;line-height:1.5;">${(r.reason||'').replace(/\n/g,'<br>')}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;">
+          <div style="background:#f8f8f8;border-radius:7px;padding:8px;">
+            <div style="color:#999;font-size:9px;text-transform:uppercase;">Lowest Ever</div>
+            <div style="font-weight:600;">${r.lowest_price?'EGP '+r.lowest_price.toLocaleString():'—'}</div>
+          </div>
+          <div style="background:#f8f8f8;border-radius:7px;padding:8px;">
+            <div style="color:#999;font-size:9px;text-transform:uppercase;">Highest Ever</div>
+            <div style="font-weight:600;">${r.highest_price?'EGP '+r.highest_price.toLocaleString():'—'}</div>
+          </div>
+          <div style="background:#f8f8f8;border-radius:7px;padding:8px;">
+            <div style="color:#999;font-size:9px;text-transform:uppercase;">Source</div>
+            <div style="font-weight:600;">${r.source_used||'—'}</div>
+          </div>
+          <div style="background:#f8f8f8;border-radius:7px;padding:8px;">
+            <div style="color:#999;font-size:9px;text-transform:uppercase;">Fake Score</div>
+            <div style="font-weight:600;">${r.fake_score||0}%</div>
+          </div>
+        </div>
+        ${r.rule_a_triggered||r.rule_b_triggered?`<div style="margin-top:8px;font-size:10px;color:#888;">${r.rule_a_triggered?'⚑ Rule A: was-price inflated':''} ${r.rule_b_triggered?'⚑ Rule B: price never changed':''}</div>`:''}
+        ${r.kanbkam_url?`<a href="${r.kanbkam_url}" target="_blank" style="font-size:10px;color:#185FA5;display:inline-block;margin-top:6px;">Kanbkam ↗</a>`:''}
+        ${r.safqa_url?`<a href="${r.safqa_url}" target="_blank" style="font-size:10px;color:#185FA5;display:inline-block;margin-top:6px;margin-left:8px;">Safqa ↗</a>`:''}
+      </div>`;
+  } catch(e) {
+    body.innerHTML = `<div style="color:#A32D2D;">Error: ${e.message}</div>`;
+  }
+}
+
 function launchCheckerForDeal(d) {
   // Pre-fill the fake checker with deal data and switch to checker page
   showPage('checker', document.querySelector('[onclick*="checker"]'));

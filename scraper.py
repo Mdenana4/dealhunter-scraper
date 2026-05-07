@@ -2264,6 +2264,7 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
     Returns count of deals saved.
     """
     saved = 0
+    import re as _re
     _SOCIAL_RE = _re.compile(
         r'sold|bought|orders|purchases|reviews?|ratings?|customers?',
         _re.IGNORECASE
@@ -2439,7 +2440,6 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
     # Method D: product link scan
     # Noon URL pattern: /region-lang/product-slug/SKU/p/?o=...
     # The SKU sits BEFORE /p/, not after — fix the regex accordingly.
-    import re as _re
     noon_sku_re = _re.compile(r'/[A-Za-z0-9]{5,}/p/', _re.IGNORECASE)
     all_a_tags = soup.find_all("a", href=True)
     p_hrefs = [a["href"] for a in all_a_tags if "/p/" in (a.get("href") or "")]

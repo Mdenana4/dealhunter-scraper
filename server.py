@@ -2445,6 +2445,33 @@ def admin_tier_history():
         return jsonify({'success': True, 'history': []})
 
 
+@app.route('/api/v1/admin/re-check-deal', methods=['POST'])
+def admin_re_check_deal():
+    """Run server-side Kanbkam+Safqa fake check on a deal and return the verdict."""
+    try:
+        from fake_checker import check_price_history
+        payload      = request.get_json(silent=True) or {}
+        asin         = payload.get('asin') or None
+        product_url  = payload.get('product_url') or None
+        current_price  = float(payload.get('current_price') or 0)
+        original_price = float(payload.get('original_price') or 0)
+        title        = payload.get('title') or ''
+        site         = payload.get('site') or 'amazon_eg'
+        if not current_price:
+            return jsonify({'success': False, 'error': 'current_price required'}), 400
+        result = check_price_history(
+            asin=asin,
+            product_url=product_url,
+            current_price=current_price,
+            original_price=original_price,
+            title=title,
+            site=site,
+        )
+        return jsonify({'success': True, 'result': result})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/v1/admin/deals/<deal_id>', methods=['PATCH', 'DELETE'])
 def admin_deal(deal_id):
     """Admin: update or delete a deal."""
