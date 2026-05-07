@@ -2121,7 +2121,7 @@ def admin_stats():
                 site_last[s] = ts
             if d.get('fake_verdict') in ('SUSPICIOUS', 'FAKE'):
                 site_fake[s] = site_fake.get(s, 0) + 1
-            c = d.get('category', 'general')
+            c = d.get('category') or 'general'
             cat_counts[c] = cat_counts.get(c, 0) + 1
 
         user_docs = list(db.collection('users').stream())

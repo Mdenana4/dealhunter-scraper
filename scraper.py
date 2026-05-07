@@ -3317,11 +3317,6 @@ def _purge_bad_deals():
             elif "noon" in site and disc > 90:
                 bad = True
                 reason = f"Noon deal at {disc:.0f}% off — sales badge likely used as price"
-            elif "noon" in site and disc > 40 and op > 0 and op == int(op) and op <= 2000:
-                # op is a whole number ≤ 2000 — classic rating-count shape (e.g. 999 Ratings).
-                # Real Noon prices are rarely exact integers at this range.
-                bad = True
-                reason = f"Noon op={op} is a whole number ≤2000 — likely rating count, not price"
             if bad:
                 print(f"  [PURGE] Deleting bad deal {d.id[:16]}… {reason}")
                 db.collection("deals").document(d.id).delete()
