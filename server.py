@@ -2154,6 +2154,90 @@ def admin_stats():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/v1/admin/noon-audit')
+def noon_audit():
+    """
+    Audit all Noon deals in Firestore.
+    Reports: discount distribution, category breakdown, suspicious deals
+    (wrong category → wrong threshold), and price sanity checks.
+    Call: GET /api/v1/admin/noon-audit
+    """
+    try:
+        docs = list(db.collection('deals')
+                    .order_by('timestamp', direction=firestore.Query.DESCENDING)
+                    .limit(500).stream())
+
+        noon_deals = []
+        for d in docs:
+            data = d.to_dict() or {}
+            if 'noon' not in (data.get('site') or ''):
+                continue
+            noon_deals.append({
+                'id':       d.id[:20],
+                'title':    (data.get('title') or '')[:60],
+                'category': data.get('category', '?'),
+                'site':     data.get('site', '?'),
+                'cp':       float(data.get('current_price') or 0),
+                'op':       float(data.get('original_price') or 0),
+                'disc':     float(data.get('discount_percent') or 0),
+                'ts':       str(data.get('timestamp', ''))[:19],
+            })
+
+        # ── Discount distribution ──────────────────────────────────────────
+        buckets = {'<15': [], '15-29': [], '30-39': [], '40-59': [], '60-79': [], '80+': []}
+        for d in noon_deals:
+            disc = d['disc']
+            if disc < 15:       buckets['<15'].append(d)
+            elif disc < 30:     buckets['15-29'].append(d)
+            elif disc < 40:     buckets['30-39'].append(d)
+            elif disc < 60:     buckets['40-59'].append(d)
+            elif disc < 80:     buckets['60-79'].append(d)
+            else:               buckets['80+'].append(d)
+
+        # ── Category breakdown ────────────────────────────────────────────
+        by_cat = {}
+        for d in noon_deals:
+            cat = d['category']
+            by_cat.setdefault(cat, []).append(d)
+
+        # ── Suspicious: non-electronics below 40% ─────────────────────────
+        suspicious = [
+            d for d in noon_deals
+            if d['disc'] < 40 and d['category'] not in ('electronics',)
+        ]
+
+        # ── Price sanity: ratio > 5× or cp < 200 ──────────────────────────
+        bad_price = [
+            {**d, 'ratio': round(d['op'] / d['cp'], 1) if d['cp'] > 0 else 0}
+            for d in noon_deals
+            if d['cp'] > 0 and (d['cp'] < 200 or (d['op'] > 0 and d['op'] / d['cp'] > 5))
+        ]
+
+        return jsonify({
+            'success': True,
+            'total_noon_deals': len(noon_deals),
+            'discount_buckets': {k: len(v) for k, v in buckets.items()},
+            'by_category': {k: len(v) for k, v in by_cat.items()},
+            'suspicious_sub40_non_electronics': [
+                {'title': d['title'], 'cat': d['category'], 'disc': d['disc'],
+                 'cp': d['cp'], 'op': d['op'], 'ts': d['ts']}
+                for d in sorted(suspicious, key=lambda x: x['disc'])[:50]
+            ],
+            'bad_price_ratio': [
+                {'title': d['title'], 'cat': d['category'],
+                 'cp': d['cp'], 'op': d['op'], 'ratio': d['ratio']}
+                for d in sorted(bad_price, key=lambda x: -x['ratio'])[:30]
+            ],
+            'electronics_sub30': [
+                {'title': d['title'], 'disc': d['disc'], 'cp': d['cp'], 'op': d['op']}
+                for d in noon_deals
+                if d['category'] == 'electronics' and d['disc'] < 30
+            ][:30],
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.route('/api/v1/admin/users')
 def admin_users():
     """Admin: list all app users."""
