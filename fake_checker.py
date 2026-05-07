@@ -381,10 +381,14 @@ def check_price_history(asin=None, product_url=None, current_price=0,
     source_used   = "none"
 
     if kanbkam_data["found"] and safqa_data["found"]:
+        # lowest: take the smallest (most conservative historical floor)
+        # highest: take the largest (widest historical ceiling — needed for Rule A and Rule B range)
+        # Old code used min() for both, which made Rule B fire when Kanbkam had limited history
+        # (e.g. highest=1,949) and Safqa had full range (highest=3,300), collapsing the range to 0.
         lowest_price  = min(kanbkam_data["lowest_price"],  safqa_data["lowest_price"])
-        highest_price = min(kanbkam_data["highest_price"], safqa_data["highest_price"])
+        highest_price = max(kanbkam_data["highest_price"], safqa_data["highest_price"])
         source_used   = "kanbkam+safqa"
-        print(f"    Combined: Kanbkam={kanbkam_data['lowest_price']:,.0f} Safqa={safqa_data['lowest_price']:,.0f} → Using={lowest_price:,.0f}")
+        print(f"    Combined: Kanbkam={kanbkam_data['highest_price']:,.0f} Safqa={safqa_data['highest_price']:,.0f} → High={highest_price:,.0f} Low={lowest_price:,.0f}")
     elif kanbkam_data["found"]:
         lowest_price  = kanbkam_data["lowest_price"]
         highest_price = kanbkam_data["highest_price"]

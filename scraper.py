@@ -3330,6 +3330,38 @@ def _purge_bad_deals():
             print(f"  [PURGE] Removed {removed} bad deal(s)")
         else:
             print(f"  [PURGE] All {len(docs)} deals look clean")
+
+        # ── Stale duplicate purge: same URL at different prices ───────────────
+        # deal_id = MD5(site+url+price) so price changes create a new document;
+        # the old-price document is never deleted automatically.
+        # Group all deals by (site, product_url); for any URL with multiple docs
+        # keep only the one with the newest timestamp, delete the rest.
+        try:
+            url_map: dict = {}  # (site, product_url) → [(timestamp_str, doc_id), ...]
+            for d in docs:
+                data = d.to_dict() or {}
+                key = (data.get("site", ""), data.get("product_url", ""))
+                if not key[1]:
+                    continue
+                ts = data.get("timestamp", "")
+                url_map.setdefault(key, []).append((ts, d.id))
+
+            dup_removed = 0
+            for key, entries in url_map.items():
+                if len(entries) <= 1:
+                    continue
+                # Sort by timestamp desc; newest first
+                entries.sort(key=lambda x: x[0], reverse=True)
+                for _, old_id in entries[1:]:  # keep [0], delete rest
+                    print(f"  [PURGE-DUP] Stale price doc {old_id[:16]}… url={key[1][:50]}")
+                    db.collection("deals").document(old_id).delete()
+                    dup_removed += 1
+
+            if dup_removed:
+                print(f"  [PURGE-DUP] Removed {dup_removed} stale price duplicate(s)")
+        except Exception as e:
+            print(f"  [PURGE-DUP] Error: {e}")
+
     except Exception as e:
         print(f"  [PURGE] Error: {e}")
 
