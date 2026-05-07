@@ -2513,6 +2513,16 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                     full_text = container.get_text(" ", strip=True)
                     price_text = full_text.replace(_title_excl, " ") if _title_excl else full_text
 
+                    # Strip sales-count badges BEFORE extracting numbers.
+                    # "380+ sold recently" → "380" would otherwise pass the floor
+                    # and be mistaken for a price.  Patterns: "380+ sold recently",
+                    # "1.2k bought", "500 orders", "250 people bought", etc.
+                    price_text = _re.sub(
+                        r'[\d][\d,\.]*[\+k]?\s*(?:sold\s*recently|sold|bought|orders|'
+                        r'purchases|people\s*bought|items?\s*sold|reviews?)',
+                        ' ', price_text, flags=_re.IGNORECASE
+                    )
+
                     # Standalone number regex: non-alphanumeric boundary on both
                     # sides excludes "83J" (model code), "16G" (RAM), "144Hz".
                     all_nums = []
@@ -3239,6 +3249,8 @@ def _purge_bad_deals():
     Delete Firestore deals where the stored prices are clearly wrong:
     - current_price < 200 (spec number like "59" or "128" saved as price)
     - original_price / current_price > 8 (ratio above 8× — e.g. 1400 RPM case)
+    - discount_percent > 90% on a Noon deal (almost always a mis-extracted number
+      like a sales badge "380+ sold recently" used as current_price)
     - current_price > original_price (inverted prices)
     Runs at end of each scraper cycle to clean up any garbage that slipped through.
     """
@@ -3247,8 +3259,10 @@ def _purge_bad_deals():
         removed = 0
         for d in docs:
             data = d.to_dict() or {}
-            cp = float(data.get("current_price") or 0)
-            op = float(data.get("original_price") or 0)
+            cp   = float(data.get("current_price") or 0)
+            op   = float(data.get("original_price") or 0)
+            disc = float(data.get("discount_percent") or 0)
+            site = data.get("site", "")
             bad = False
             reason = ""
             if cp < 200:
@@ -3260,6 +3274,9 @@ def _purge_bad_deals():
             elif cp > 0 and op > 0 and cp > op:
                 bad = True
                 reason = f"cp={cp} > op={op} (inverted)"
+            elif "noon" in site and disc > 90:
+                bad = True
+                reason = f"Noon deal at {disc:.0f}% off — sales badge likely used as price"
             if bad:
                 print(f"  [PURGE] Deleting bad deal {d.id[:16]}… {reason}")
                 db.collection("deals").document(d.id).delete()
