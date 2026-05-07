@@ -27,7 +27,7 @@ load_dotenv()
 
 MIN_DISCOUNT    = int(os.getenv("MIN_DISCOUNT", 40))
 AMAZON_KEYWORD_ENABLED = os.getenv("AMAZON_KEYWORD_ENABLED", "false").lower() == "true"
-INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 60))
+INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 90))
 SCRAPER_API_KEY = (
     os.getenv("SCRAPER_API_KEY") or
     os.getenv("SCRAPERAPI_KEY") or
@@ -345,6 +345,9 @@ _SCRAPERAPI_EXHAUSTED = False  # set True when monthly quota gone
 # Cleared at the end of each run_scraper() call.
 _new_deals_this_run: list = []
 
+# Credit counter for the current cycle. Reset at cycle start, printed in summary.
+_cycle_credits: int = 0
+
 
 def is_blocked_response(resp, min_length=2000):
     """Return True when the response looks like a CAPTCHA or bot-block page."""
@@ -369,8 +372,8 @@ def is_blocked_response(resp, min_length=2000):
 
 def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False,
                         wait_until=None, wait_selector=None, custom_wait=None):
-    """Fetch via scrape.do proxy. 1 credit (HTML), 5 (JS render), 10 (super residential)."""
-    global _scrapedo_dead
+    """Fetch via scrape.do proxy. 1 credit (HTML), 5 (JS render), 10 (super residential), 25 (super+render)."""
+    global _scrapedo_dead, _cycle_credits
     if not SCRAPEDO_TOKEN or _scrapedo_dead:
         return None
     import gzip as _gz
@@ -378,11 +381,20 @@ def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False,
         params = {
             "token":   SCRAPEDO_TOKEN,
             "url":     url,
-            "render":  "true" if (render_js or super_proxy) else "false",
+            "render":  "true" if render_js else "false",
             "geoCode": country.upper(),
         }
         if super_proxy:
             params["super"] = "true"
+        # Credit accounting: super+render=25, super=10, render=5, plain=1
+        if super_proxy and render_js:
+            _cycle_credits += 25
+        elif super_proxy:
+            _cycle_credits += 10
+        elif render_js:
+            _cycle_credits += 5
+        else:
+            _cycle_credits += 1
         if wait_until:
             params["waitUntil"] = wait_until
         if wait_selector:
@@ -1600,8 +1612,8 @@ def scrape_jumia():
 
     for url, default_cat in pages:
         try:
-            # scrape.do super proxy first (residential IP, JS rendering)
-            resp = fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=True)
+            # scrape.do plain HTML first (1 credit), fallback to ScraperAPI
+            resp = fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False)
             if not resp or is_blocked_response(resp, min_length=3000):
                 resp = fetch_with_scraperapi(url, render_js=False, country="eg")
             if is_blocked_response(resp, min_length=3000):
@@ -2692,16 +2704,11 @@ def _scrape_noon_region(
 
     # ── Phase 2: Category search terms ─────────────────────────────────────
     search_terms = [
-        ("samsung galaxy",  "electronics"), ("iphone",     "electronics"),
-        ("laptop",          "electronics"), ("headphones", "electronics"),
-        ("tv",              "electronics"), ("tablet",     "electronics"),
-        ("nike shoes",      "fashion"),     ("dress",      "fashion"),
-        ("perfume",         "fashion"),     ("handbag",    "fashion"),
-        ("refrigerator",    "home"),        ("washing machine", "home"),
-        ("air conditioner", "home"),        ("microwave",  "home"),
-        ("skincare",        "beauty"),      ("makeup",     "beauty"),
-        ("hair dryer",      "beauty"),      ("vitamins",   "beauty"),
-        ("gym equipment",   "sports"),      ("protein",    "sports"),
+        ("iphone",          "electronics"), ("samsung galaxy",  "electronics"),
+        ("laptop",          "electronics"), ("tv",              "electronics"),
+        ("perfume",         "fashion"),     ("refrigerator",    "home"),
+        ("washing machine", "home"),        ("skincare",        "beauty"),
+        ("makeup",          "beauty"),      ("headphones",      "electronics"),
     ]
 
     for term, default_cat in search_terms:
@@ -3173,6 +3180,9 @@ def run_scraper():
 
 
 def _run_scraper_inner():
+    global _cycle_credits
+    _cycle_credits = 0
+
     if not check_scraper_control():
         return
 
@@ -3245,6 +3255,7 @@ def _run_scraper_inner():
     print(f"  CYCLE COMPLETE: {_cycle_end}")
     print(f"  TOTAL DEALS THIS CYCLE: {total}")
     print(f"  NEW DEALS NOTIFIED:     {len(_new_deals_this_run)}")
+    print(f"  CREDITS USED THIS CYCLE: {_cycle_credits:,}  (≈{_cycle_credits/250000*100:.2f}% of 250k plan)")
     print(f"  PROXY: scrape.do={'dead' if _scrapedo_dead else ('active' if SCRAPEDO_TOKEN else 'not set')}")
     print(f"  Next cycle in: {INTERVAL} min")
     print(f"{'=' * 62}\n")
