@@ -3219,6 +3219,7 @@ def _run_scraper_inner():
     print(f"{'=' * 62}")
 
     total = 0
+    source_counts: dict = {}
     load_disabled_sources()
     if _disabled_sources:
         print(f"  Disabled sources: {', '.join(sorted(_disabled_sources))}")
@@ -3228,14 +3229,17 @@ def _run_scraper_inner():
         if not is_source_enabled(key):
             print(f"\n[{key.upper()}] ⏸ disabled by admin — skipping")
             _health.record(key, 0)
+            source_counts[key] = 0
             return
         try:
             n = fn()
             _health.record(key, n)
             total += n
+            source_counts[key] = n
         except Exception as e:
             print(f"❌ [{key.upper()}]: {e}")
             _health.record(key, 0)
+            source_counts[key] = 0
 
     # ── Egypt ────────────────────────────────────────────────────────────────
     run("amazon_eg",     scrape_amazon)
@@ -3277,7 +3281,23 @@ def _run_scraper_inner():
     _cycle_end = now_str()
     print(f"\n{'=' * 62}")
     print(f"  CYCLE COMPLETE: {_cycle_end}")
-    print(f"  TOTAL DEALS THIS CYCLE: {total}")
+    # Per-source breakdown
+    _region_groups = [
+        ("Egypt",        ["amazon_eg", "jumia_eg", "btech_eg", "carrefour_eg",
+                          "sharaf_dg_eg", "hyperone_eg", "sahla_eg", "noon_eg"]),
+        ("UAE",          ["amazon_ae", "noon_ae", "sharaf_dg_ae"]),
+        ("Saudi Arabia", ["amazon_sa", "noon_sa"]),
+    ]
+    for region_label, keys in _region_groups:
+        region_lines = [(k, source_counts[k]) for k in keys if k in source_counts]
+        if not any(v > 0 for _, v in region_lines):
+            continue
+        print(f"  ── {region_label} ──")
+        for k, v in region_lines:
+            label = k.replace("_", " ").title()
+            print(f"    {label:<22} {v:>4} deals")
+    print(f"  {'─' * 32}")
+    print(f"  {'TOTAL':<22} {total:>4} deals")
     print(f"  NEW DEALS NOTIFIED:     {len(_new_deals_this_run)}")
     print(f"  PROXY: scrape.do={'dead' if _scrapedo_dead else ('active' if SCRAPEDO_TOKEN else 'not set')}")
     print(f"  Next cycle in: {INTERVAL} min")
