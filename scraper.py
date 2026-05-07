@@ -2253,6 +2253,10 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
     Returns count of deals saved.
     """
     saved = 0
+    _SOCIAL_RE = _re.compile(
+        r'sold|bought|orders|purchases|reviews?|ratings?|customers?',
+        _re.IGNORECASE
+    )
 
     # ── Helper: walk any JSON tree for product-shaped objects ─────────────
     def _walk(obj, depth=0):
@@ -2500,14 +2504,22 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                 # fall through to Stage 2 text scan instead of hard-skipping.
                 cp = op = None
                 if _cp_el and _op_el:
-                    _cp_v = clean_price(_cp_el.get_text(strip=True))
-                    _op_v = clean_price(_op_el.get_text(strip=True))
-                    if (_cp_v and _op_v and _cp_v >= 200 and _op_v > _cp_v
-                            and 1.15 <= _op_v / _cp_v <= 8.0):
-                        cp, op = _cp_v, _op_v
+                    _cp_raw = _cp_el.get_text(strip=True)
+                    _op_raw = _op_el.get_text(strip=True)
+                    # Reject if either element contains social-proof text:
+                    # clean_price("592 Ratings") → 592, which fools the ratio check.
+                    if _SOCIAL_RE.search(_cp_raw) or _SOCIAL_RE.search(_op_raw):
+                        print(f"    [noon parse] S1-social href={href[:45]} "
+                              f"cp_raw={_cp_raw[:30]!r} op_raw={_op_raw[:30]!r}")
                     else:
-                        print(f"    [noon parse] S1-reject href={href[:45]} "
-                              f"cp={_cp_v} op={_op_v}")
+                        _cp_v = clean_price(_cp_raw)
+                        _op_v = clean_price(_op_raw)
+                        if (_cp_v and _op_v and _cp_v >= 200 and _op_v > _cp_v
+                                and 1.15 <= _op_v / _cp_v <= 8.0):
+                            cp, op = _cp_v, _op_v
+                        else:
+                            print(f"    [noon parse] S1-reject href={href[:45]} "
+                                  f"cp={_cp_v} op={_op_v}")
 
                 # ── Stage 2: title-excluded text scan (fallback) ───────────
                 if cp is None:
