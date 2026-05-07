@@ -521,10 +521,11 @@ def fetch_amazon_product_detail(asin, country_code):
         return None
 
 
-def fetch_with_scraperapi(url, render_js=True, country="eg"):
+def fetch_with_scraperapi(url, render_js=True, country="eg", _skip_scrapedo=False):
     global _SCRAPERAPI_EXHAUSTED
-    # Prefer scrape.do when token is set
-    if SCRAPEDO_TOKEN:
+    # Prefer scrape.do when token is set — UNLESS caller explicitly skips it
+    # (e.g. Jumia already tried scrape.do and got 502; don't retry it here)
+    if not _skip_scrapedo and SCRAPEDO_TOKEN:
         resp = fetch_with_scrapedo(url, render_js=render_js, country=country)
         if resp:
             return resp
@@ -618,9 +619,11 @@ def save_deal(deal):
             new_price  = deal["current_price"]
 
             update = {
-                "current_price":   new_price,
+                "current_price":    new_price,
                 "discount_percent": deal["discount_percent"],
-                "timestamp":       deal["timestamp"],
+                "timestamp":        deal["timestamp"],
+                "last_scraped":     deal["timestamp"],
+                "status":           "active",
             }
             if deal.get("image_url"):
                 update["image_url"] = deal["image_url"]
@@ -657,6 +660,8 @@ def save_deal(deal):
             else:
                 print(f"  REFRESH: {deal['title'][:45]} | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
         else:
+            deal["last_scraped"] = deal["timestamp"]
+            deal["status"] = "active"
             ref.set(deal)
             ref.collection("price_history").document().set({
                 "price": deal["current_price"], "timestamp": deal["timestamp"]
@@ -1201,6 +1206,7 @@ def _scrape_amazon_deals_page(
     )
     print(f"\n[AMAZON/{country_code.upper()}] Scraping deals page...")
     total = 0
+    seen_asins_deals: set = set()
 
     for page_num in range(1, 4):  # pages 1–3
         try:
@@ -1236,6 +1242,8 @@ def _scrape_amazon_deals_page(
                 try:
                     asin = product.get("data-asin", "").strip()
                     if not asin:
+                        continue
+                    if asin in seen_asins_deals:
                         continue
                     if product.get("data-component-type") == "sp-sponsored-result":
                         continue
@@ -1321,6 +1329,7 @@ def _scrape_amazon_deals_page(
                         currency=currency,
                     )
                     save_deal(deal)
+                    seen_asins_deals.add(asin)
                     total += 1
                     time.sleep(0.5)
 
@@ -1334,7 +1343,7 @@ def _scrape_amazon_deals_page(
             break
 
     print(f"[AMAZON/{country_code.upper()}] Deals page done. {total} deals.")
-    return total
+    return total, seen_asins_deals
 
 
 def _scrape_amazon_region(
@@ -1343,6 +1352,7 @@ def _scrape_amazon_region(
     site_display="Amazon Egypt",
     currency="EGP",
     country_code="eg",
+    skip_asins: set = None,
 ):
     """Scrape any Amazon regional store. Called by the three wrappers below."""
     print(f"\n[AMAZON/{country_code.upper()}] Starting — {site_display}...")
@@ -1352,7 +1362,7 @@ def _scrape_amazon_region(
         print(f"  [AMAZON/{country_code.upper()}] keyword scan disabled (AMAZON_KEYWORD_ENABLED=false)")
         return 0
 
-    seen_asins: set = set()  # deduplicate across all keywords (avoids 20+ adidas variants)
+    seen_asins: set = set(skip_asins or [])  # pre-seed with deals-page ASINs to skip duplicates
 
     for item in AMAZON_KEYWORDS:
         try:
@@ -1566,19 +1576,22 @@ def _scrape_amazon_region(
 
 
 def scrape_amazon():
-    """Amazon Egypt — keyword HTML scraper via scrape.do."""
-    print("\n[AMAZON/EG] Skipping RapidAPI (free plan 403) — going straight to HTML scraper")
-    return _scrape_amazon_region()
+    """Amazon Egypt — deals page (always) + keyword scan (if enabled)."""
+    deals_total, seen = _scrape_amazon_deals_page()
+    kw_total = _scrape_amazon_region(skip_asins=seen)
+    return deals_total + kw_total
 
 def scrape_amazon_ae():
-    """Amazon UAE — keyword HTML scraper via scrape.do."""
-    print("\n[AMAZON/AE] Skipping RapidAPI — going straight to HTML scraper")
-    return _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
+    """Amazon UAE — deals page (always) + keyword scan (if enabled)."""
+    deals_total, seen = _scrape_amazon_deals_page("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
+    kw_total = _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae", skip_asins=seen)
+    return deals_total + kw_total
 
 def scrape_amazon_sa():
-    """Amazon Saudi Arabia — keyword HTML scraper via scrape.do."""
-    print("\n[AMAZON/SA] Skipping RapidAPI — going straight to HTML scraper")
-    return _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
+    """Amazon Saudi Arabia — deals page (always) + keyword scan (if enabled)."""
+    deals_total, seen = _scrape_amazon_deals_page("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
+    kw_total = _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa", skip_asins=seen)
+    return deals_total + kw_total
 
 
 # ─────────────────────────────────────────────────────
@@ -1600,10 +1613,17 @@ def scrape_jumia():
 
     for url, default_cat in pages:
         try:
-            # scrape.do super proxy first (residential IP, JS rendering)
-            resp = fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=True)
-            if not resp or is_blocked_response(resp, min_length=3000):
-                resp = fetch_with_scraperapi(url, render_js=False, country="eg")
+            # scrape.do plain HTML first (1 credit)
+            resp = fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False)
+            _scrapedo_ok = resp and not is_blocked_response(resp, min_length=3000)
+            if not _scrapedo_ok:
+                # scrape.do failed (502 or blocked) — go directly to ScraperAPI
+                # with render=true. _skip_scrapedo=True prevents double-calling
+                # scrape.do since fetch_with_scraperapi normally tries it first.
+                print(f"  [JUMIA] scrape.do {'502' if not resp else 'blocked'} → ScraperAPI fallback")
+                resp = fetch_with_scraperapi(url, render_js=True, country="eg", _skip_scrapedo=True)
+                _sa_ok = resp and not is_blocked_response(resp, min_length=3000)
+                print(f"  [JUMIA] ScraperAPI {'OK' if _sa_ok else 'FAILED'} for {url[:55]}")
             if is_blocked_response(resp, min_length=3000):
                 print(f"  [JUMIA] blocked/empty: {url[:55]}...")
                 _log_scraper_error("jumia_eg", url, "Blocked/empty response")
@@ -3215,6 +3235,12 @@ def _run_scraper_inner():
     update_analytics()
     _health.flush()   # write health summary + send FCM alert if anything broke
 
+    # ── Re-check stale deals and mark expired ones ───────────────────────────
+    _recheck_expired_deals()
+
+    # ── Purge deals that slipped through with wrong prices ────────────────────
+    _purge_bad_deals()
+
     # ── Send deal notifications to users ─────────────────────────────────────
     # _new_deals_this_run was populated by save_deal() for every brand-new deal.
     print(f"\n  [FCM-DEALS] New deals this cycle: {len(_new_deals_this_run)}")
@@ -3229,6 +3255,216 @@ def _run_scraper_inner():
     print(f"  PROXY: scrape.do={'dead' if _scrapedo_dead else ('active' if SCRAPEDO_TOKEN else 'not set')}")
     print(f"  Next cycle in: {INTERVAL} min")
     print(f"{'=' * 62}\n")
+
+
+def _recheck_expired_deals():
+    """
+    Re-fetch product pages for deals not seen in the last 90 minutes.
+    If the discount is still ≥ MIN_DISCOUNT, update last_scraped + keep active.
+    Otherwise mark status='expired'. Expired deals older than 7 days are deleted.
+    Capped at 50 re-checks per source per cycle to avoid credit burn.
+    """
+    try:
+        from datetime import timedelta
+        now_dt = datetime.now(timezone.utc)
+        stale_cutoff   = now_dt - timedelta(minutes=90)
+        expired_cutoff = now_dt - timedelta(days=7)
+
+        docs = list(db.collection("deals").stream())
+        checked = {}   # source → count
+        expired_count = 0
+        deleted_count = 0
+
+        for d in docs:
+            data = d.to_dict() or {}
+            status = data.get("status", "active")
+
+            # Delete expired deals older than 7 days
+            if status == "expired":
+                ts = data.get("last_scraped") or data.get("timestamp")
+                ts_dt = None
+                if ts:
+                    if hasattr(ts, "tzinfo"):
+                        ts_dt = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+                    elif isinstance(ts, str):
+                        try:
+                            ts_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        except Exception:
+                            pass
+                if ts_dt and ts_dt < expired_cutoff:
+                    db.collection("deals").document(d.id).delete()
+                    deleted_count += 1
+                continue
+
+            # Check if last_scraped is stale
+            ls = data.get("last_scraped")
+            if not ls:
+                continue
+            if hasattr(ls, "tzinfo"):
+                ls_dt = ls if ls.tzinfo else ls.replace(tzinfo=timezone.utc)
+            elif isinstance(ls, str):
+                try:
+                    ls_dt = datetime.fromisoformat(ls.replace("Z", "+00:00"))
+                except Exception:
+                    continue
+            else:
+                continue
+
+            if ls_dt >= stale_cutoff:
+                continue  # recently seen, skip
+
+            site = data.get("site", "")
+            checked.setdefault(site, 0)
+            if checked[site] >= 50:
+                continue
+            checked[site] += 1
+
+            product_url = data.get("product_url", "")
+            if not product_url:
+                continue
+
+            try:
+                # Re-fetch the product page
+                resp = fetch_with_scrapedo(product_url, render_js=False, country="eg")
+                if not resp or is_blocked_response(resp, min_length=2000):
+                    resp = fetch_with_scraperapi(product_url, render_js=False, country="eg",
+                                                 _skip_scrapedo=True)
+
+                still_live = False
+                if resp and not is_blocked_response(resp, min_length=2000):
+                    soup = BeautifulSoup(resp.content, "lxml")
+                    cp_raw = ""
+                    op_raw = ""
+                    if "amazon" in site:
+                        cp_el = soup.find("span", class_="a-price-whole")
+                        if cp_el:
+                            cp_raw = cp_el.get_text(strip=True)
+                        op_block = soup.find("span", class_="a-price a-text-price")
+                        if op_block:
+                            op_el = op_block.find("span", class_="a-offscreen")
+                            if op_el:
+                                op_raw = op_el.get_text(strip=True)
+                    elif "jumia" in site:
+                        cp_el = soup.find("span", class_="prc") or soup.find("div", class_="prc")
+                        if cp_el:
+                            cp_raw = cp_el.get_text(strip=True)
+                        op_el = soup.find("span", class_="old") or soup.find("div", class_="old")
+                        if op_el:
+                            op_raw = op_el.get_text(strip=True)
+                    elif "noon" in site:
+                        cp_el = soup.find("span", attrs={"data-qa": "price"})
+                        if cp_el:
+                            cp_raw = cp_el.get_text(strip=True)
+
+                    cp = clean_price(cp_raw)
+                    op = clean_price(op_raw) or cp
+                    if cp and cp >= 200 and op >= cp:
+                        disc = calculate_discount(op, cp)
+                        if disc >= MIN_DISCOUNT:
+                            still_live = True
+                            db.collection("deals").document(d.id).update({
+                                "last_scraped": now_iso(),
+                                "status": "active",
+                                "current_price": cp,
+                                "original_price": op,
+                                "discount_percent": disc,
+                            })
+                            print(f"  [RECHECK] Still live: {data.get('title','')[:40]} | {disc}% off")
+
+                if not still_live:
+                    db.collection("deals").document(d.id).update({
+                        "status": "expired",
+                        "last_scraped": now_iso(),
+                    })
+                    expired_count += 1
+                    print(f"  [RECHECK] Expired: {data.get('title','')[:40]}")
+
+            except Exception as re_err:
+                print(f"  [RECHECK] Error for {d.id[:16]}: {re_err}")
+
+            time.sleep(1)
+
+        print(f"  [RECHECK] Expired: {expired_count} | Deleted (>7d): {deleted_count} | Rechecked per source: {dict(checked)}")
+
+    except Exception as e:
+        print(f"  [RECHECK] Error: {e}")
+
+
+def _purge_bad_deals():
+    """
+    Delete Firestore deals where the stored prices are clearly wrong:
+    - current_price < 200 (spec number like "59" or "128" saved as price)
+    - original_price / current_price > 8 (ratio above 8× — e.g. 1400 RPM case)
+    - discount_percent > 90% on a Noon deal (almost always a mis-extracted number
+      like a sales badge "380+ sold recently" used as current_price)
+    - current_price > original_price (inverted prices)
+    Runs at end of each scraper cycle to clean up any garbage that slipped through.
+    """
+    try:
+        docs = list(db.collection("deals").stream())
+        removed = 0
+        for d in docs:
+            data = d.to_dict() or {}
+            cp   = float(data.get("current_price") or 0)
+            op   = float(data.get("original_price") or 0)
+            disc = float(data.get("discount_percent") or 0)
+            site = data.get("site", "")
+            bad = False
+            reason = ""
+            if cp < 200:
+                bad = True
+                reason = f"cp={cp} below 200 floor"
+            elif op > 0 and cp > 0 and op / cp > 8.0:
+                bad = True
+                reason = f"ratio={op/cp:.1f} (op={op} cp={cp}) exceeds 8×"
+            elif cp > 0 and op > 0 and cp > op:
+                bad = True
+                reason = f"cp={cp} > op={op} (inverted)"
+            elif "noon" in site and disc > 90:
+                bad = True
+                reason = f"Noon deal at {disc:.0f}% off — sales badge likely used as price"
+            if bad:
+                print(f"  [PURGE] Deleting bad deal {d.id[:16]}… {reason}")
+                db.collection("deals").document(d.id).delete()
+                removed += 1
+        if removed:
+            print(f"  [PURGE] Removed {removed} bad deal(s)")
+        else:
+            print(f"  [PURGE] All {len(docs)} deals look clean")
+
+        # ── Stale duplicate purge: same URL at different prices ───────────────
+        # deal_id = MD5(site+url+price) so price changes create a new document;
+        # the old-price document is never deleted automatically.
+        # Group all deals by (site, product_url); for any URL with multiple docs
+        # keep only the one with the newest timestamp, delete the rest.
+        try:
+            url_map: dict = {}  # (site, product_url) → [(timestamp_str, doc_id), ...]
+            for d in docs:
+                data = d.to_dict() or {}
+                key = (data.get("site", ""), data.get("product_url", ""))
+                if not key[1]:
+                    continue
+                ts = data.get("timestamp", "")
+                url_map.setdefault(key, []).append((ts, d.id))
+
+            dup_removed = 0
+            for key, entries in url_map.items():
+                if len(entries) <= 1:
+                    continue
+                # Sort by timestamp desc; newest first
+                entries.sort(key=lambda x: x[0], reverse=True)
+                for _, old_id in entries[1:]:  # keep [0], delete rest
+                    print(f"  [PURGE-DUP] Stale price doc {old_id[:16]}… url={key[1][:50]}")
+                    db.collection("deals").document(old_id).delete()
+                    dup_removed += 1
+
+            if dup_removed:
+                print(f"  [PURGE-DUP] Removed {dup_removed} stale price duplicate(s)")
+        except Exception as e:
+            print(f"  [PURGE-DUP] Error: {e}")
+
+    except Exception as e:
+        print(f"  [PURGE] Error: {e}")
 
 
 if __name__ == "__main__":

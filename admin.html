@@ -488,7 +488,7 @@ tr:hover td{background:#fafafa;}
       <th>Price</th>
       <th>Original</th>
       <th>Rating</th>
-      <th>Kanbkam Verdict</th>
+      <th>Price Verdict</th>
       <th>Lowest Ever</th>
       <th>Status</th>
       <th>Clicks</th>
@@ -681,11 +681,11 @@ tr:hover td{background:#fafafa;}
           <input type="text" id="m-coupon" placeholder="e.g. SAVE20 or خصم20"/>
         </div>
         <button class="btn btn-p" style="width:100%;padding:10px;font-size:12px;" onclick="addManualDeal()">
-          Save Deal + Auto-Check Kanbkam / حفظ + فحص كنبكام تلقائياً
+          Save Deal + Auto-Check Price History / حفظ + فحص تاريخ الأسعار تلقائياً
         </button>
         <div style="margin-top:11px;padding:10px;background:#f8f8f8;border-radius:7px;font-size:10px;color:#888;line-height:1.7;">
           <strong style="color:#444;">Image URL / رابط الصورة:</strong> Right-click product image → "Copy image address" → Paste above.<br>
-          <strong style="color:#444;">Kanbkam:</strong> We automatically check the real price history for Amazon products.
+          <strong style="color:#444;">Price History:</strong> We automatically verify the real price history for Amazon products.
         </div>
       </div>
     </div>
@@ -1276,10 +1276,23 @@ tr:hover td{background:#fafafa;}
   </div>
 </div>
 
-<!-- Firebase SDK -->
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+<!-- Re-Check Deal modal -->
+<div class="mo" id="recheck-modal">
+  <div class="md" style="max-width:480px;">
+    <h3 id="recheck-title" style="font-size:13px;margin-bottom:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Checking deal…</h3>
+    <div id="recheck-body" style="min-height:80px;display:flex;align-items:center;justify-content:center;">
+      <span class="spin"></span>&nbsp;Running price history check…
+    </div>
+    <div class="ma" style="margin-top:14px;">
+      <button class="btn" onclick="document.getElementById('recheck-modal').classList.remove('show')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase SDK — self-hosted from Railway so no external CDN is needed -->
+<script src="/sdk/firebase-app-compat.js"></script>
+<script src="/sdk/firebase-firestore-compat.js"></script>
+<script src="/sdk/firebase-auth-compat.js"></script>
 
 <script>
 // ════════════════════════════════════════════════════════════
@@ -2811,8 +2824,8 @@ function renderCheckerResult(res,title,price,orig,platform,kanbkamData){
   const cmap={green:'#3B6D11',yellow:'#854F0B',red:'#A32D2D'};
   const recs=['Search this product on Google Shopping to compare prices.'];
   if(platform==='amazon_eg')recs.push('Check CamelCamelCamel.com or Keepa.com for Amazon price history.');
-  recs.push('Our Kanbkam integration verifies the real price history for Amazon Egypt products automatically.');
-  recs.push('The Safqa feature in DealHunter app will automatically track and verify price histories for you.');
+  recs.push('DealHunter automatically verifies real price history for Amazon Egypt products.');
+  recs.push('DealHunter will track and alert you when prices drop to historical lows.');
   document.getElementById('checker-output').innerHTML=`
     <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;padding-bottom:16px;border-bottom:0.5px solid #f0f0f0;">
       <div class="fdc-score ${res.vClass}">${res.score}</div>
@@ -2824,7 +2837,7 @@ function renderCheckerResult(res,title,price,orig,platform,kanbkamData){
     </div>
     ${kanbkamData?`
     <div style="background:#EAF3DE;border-radius:9px;padding:12px;margin-bottom:14px;">
-      <div style="font-size:12px;font-weight:600;color:#3B6D11;margin-bottom:6px;">📊 Kanbkam Price History / تاريخ كنبكام</div>
+      <div style="font-size:12px;font-weight:600;color:#3B6D11;margin-bottom:6px;">📊 Price History / تاريخ الأسعار</div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;text-align:center;">
         <div><div style="font-size:9px;color:#888;">Lowest Ever / أقل سعر</div><div style="font-size:15px;font-weight:700;color:#3B6D11;">${fp(kanbkamData.lowest_price)}</div></div>
         <div><div style="font-size:9px;color:#888;">Current / الحالي</div><div style="font-size:15px;font-weight:700;color:#E24B4A;">${fp(price)}</div></div>
@@ -2854,6 +2867,82 @@ function renderCheckerResult(res,title,price,orig,platform,kanbkamData){
   document.getElementById('checker-result').style.display='block';
   document.getElementById('checker-result').scrollIntoView({behavior:'smooth'});
 }
+
+async function recheckDeal(d) {
+  const modal = document.getElementById('recheck-modal');
+  const body  = document.getElementById('recheck-body');
+  const titleEl = document.getElementById('recheck-title');
+  titleEl.textContent = (d.title || 'Deal').substring(0, 60);
+  modal.classList.add('show');
+
+  // Extract ASIN from Amazon product URL if available
+  let asin = d.asin || '';
+  if (!asin && d.product_url) {
+    const m = d.product_url.match(/\/dp\/([A-Z0-9]{10})/);
+    if (m) asin = m[1];
+  }
+
+  const isAmazon = (d.site||'').includes('amazon');
+  if (!isAmazon && !asin) {
+    body.innerHTML = `<div style="text-align:center;padding:10px;">
+      <div style="font-size:18px;margin-bottom:8px;">ℹ️</div>
+      <div style="font-weight:600;margin-bottom:4px;">Price history not available</div>
+      <div style="font-size:11px;color:#888;">Price history database only tracks Amazon products.<br>
+      Noon, Jumia and other sites are not supported.</div>
+    </div>`;
+    return;
+  }
+  body.innerHTML = '<span class="spin"></span>&nbsp;Running price history check…';
+
+  try {
+    const token = await firebase.auth().currentUser?.getIdToken();
+    const resp = await fetch('/api/v1/admin/re-check-deal', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json', ...(token?{'Authorization':'Bearer '+token}:{})},
+      body: JSON.stringify({
+        asin,
+        product_url: d.product_url || '',
+        current_price:  d.current_price  || 0,
+        original_price: d.original_price || 0,
+        title: d.title || '',
+        site:  d.site  || 'amazon_eg',
+      })
+    });
+    const json = await resp.json();
+    if (!json.success) throw new Error(json.error || 'Server error');
+    const r = json.result;
+    const emojiColor = r.verdict==='GENUINE'?'#3B6D11':r.verdict==='FAKE'?'#A32D2D':'#854F0B';
+    body.innerHTML = `
+      <div style="width:100%;">
+        <div style="font-size:22px;font-weight:700;color:${emojiColor};margin-bottom:6px;">${r.emoji||''} ${r.verdict||'—'}</div>
+        <div style="font-size:11px;color:#444;margin-bottom:10px;line-height:1.5;">${(r.reason||'').replace(/\n/g,'<br>')}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;">
+          <div style="background:#f8f8f8;border-radius:7px;padding:8px;">
+            <div style="color:#999;font-size:9px;text-transform:uppercase;">Lowest Ever</div>
+            <div style="font-weight:600;">${r.lowest_price?'EGP '+r.lowest_price.toLocaleString():'—'}</div>
+          </div>
+          <div style="background:#f8f8f8;border-radius:7px;padding:8px;">
+            <div style="color:#999;font-size:9px;text-transform:uppercase;">Highest Ever</div>
+            <div style="font-weight:600;">${r.highest_price?'EGP '+r.highest_price.toLocaleString():'—'}</div>
+          </div>
+          <div style="background:#f8f8f8;border-radius:7px;padding:8px;">
+            <div style="color:#999;font-size:9px;text-transform:uppercase;">Source</div>
+            <div style="font-weight:600;">${r.source_used||'—'}</div>
+          </div>
+          <div style="background:#f8f8f8;border-radius:7px;padding:8px;">
+            <div style="color:#999;font-size:9px;text-transform:uppercase;">Fake Score</div>
+            <div style="font-weight:600;">${r.fake_score||0}%</div>
+          </div>
+        </div>
+        ${r.rule_a_triggered||r.rule_b_triggered?`<div style="margin-top:8px;font-size:10px;color:#888;">${r.rule_a_triggered?'⚑ Rule A: was-price inflated':''} ${r.rule_b_triggered?'⚑ Rule B: price never changed':''}</div>`:''}
+        ${r.kanbkam_url?`<a href="${r.kanbkam_url}" target="_blank" style="font-size:10px;color:#185FA5;display:inline-block;margin-top:6px;">Kanbkam ↗</a>`:''}
+        ${r.safqa_url?`<a href="${r.safqa_url}" target="_blank" style="font-size:10px;color:#185FA5;display:inline-block;margin-top:6px;margin-left:8px;">Safqa ↗</a>`:''}
+      </div>`;
+  } catch(e) {
+    body.innerHTML = `<div style="color:#A32D2D;">Error: ${e.message}</div>`;
+  }
+}
+
 function launchCheckerForDeal(d) {
   // Pre-fill the fake checker with deal data and switch to checker page
   showPage('checker', document.querySelector('[onclick*="checker"]'));
@@ -2907,10 +2996,10 @@ async function analyzeFromUrl(){
     if(platform!=='other')document.getElementById('c-platform').value=platform;
     if(title)document.getElementById('c-cat').value=detectCatFromTitle(title);
 
-    // Run Kanbkam check if Amazon + ASIN
+    // Run price history check if Amazon + ASIN
     let kanbkamData=null;
     if(platform==='amazon_eg'&&asin&&currentPrice>0){
-      status.innerHTML='<span class="spin"></span> Checking Kanbkam for real price history / جاري فحص كنبكام...';
+      status.innerHTML='<span class="spin"></span> Checking price history database…';
       try{
         const kUrl=`https://api.allorigins.win/get?url=${encodeURIComponent('https://www.kanbkam.com/eg/ar/search?q='+asin)}`;
         const kResp=await fetch(kUrl,{signal:AbortSignal.timeout(12000)});
@@ -2925,12 +3014,12 @@ async function analyzeFromUrl(){
         if(hmatch)hi=parseFloat(hmatch[1].replace(',',''));
         if(lo>0&&hi>0){
           kanbkamData={lowest_price:lo,highest_price:hi,kanbkam_url:`https://www.kanbkam.com/eg/ar/${asin}`,suggested_wait_price:Math.round(lo*1.05)};
-          status.innerHTML=`✅ Kanbkam found! Lowest: EGP ${lo.toLocaleString()} / High: EGP ${hi.toLocaleString()}`;
+          status.innerHTML=`✅ Price history found! Lowest: EGP ${lo.toLocaleString()} / High: EGP ${hi.toLocaleString()}`;
         }else{
-          status.innerHTML='ℹ️ Product found but price data incomplete on Kanbkam';
+          status.innerHTML='ℹ️ Product found but price data incomplete in history';
         }
       }catch(ke){
-        status.innerHTML='ℹ️ Kanbkam check skipped ('+ke.message+')';
+        status.innerHTML='ℹ️ Price history check skipped ('+ke.message+')';
       }
     }
 

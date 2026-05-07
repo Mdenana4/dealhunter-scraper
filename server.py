@@ -822,12 +822,14 @@ def mobile_get_deals():
             fresh = [d for d in all_docs if (_doc_dt(d) or _epoch) >= _cutoff_dt(30)]
         all_docs = fresh
 
-        # Apply min_discount and paginate in memory (Firestore doesn't support !=)
+        # Apply min_discount, skip expired deals, and paginate in memory
         results = []
         skipped = 0
         for doc in all_docs:
             d = doc.to_dict()
             try:
+                if d.get('status') == 'expired':
+                    continue
                 if int(d.get('discount_percent') or 0) < min_disc:
                     continue
                 if skipped < offset:

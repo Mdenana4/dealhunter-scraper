@@ -365,13 +365,18 @@ def check_price_history(asin=None, product_url=None, current_price=0,
     kanbkam_data = {"found": False, "lowest_price": 0, "highest_price": 0}
     safqa_data   = {"found": False, "lowest_price": 0, "highest_price": 0, "coupon_codes": []}
 
-    # Kanbkam: Amazon only, needs ASIN
+    # Price history lookup only works for Amazon products (need ASIN-based tracking)
+    is_amazon = "amazon" in str(site).lower()
+    if not is_amazon:
+        return local_verdict(current_price, original_price)
+
+    # Kanbkam: Amazon Egypt only, needs ASIN
     if site == "amazon_eg" and asin:
         kanbkam_data = check_kanbkam(asin, title)
         time.sleep(1)
 
-    # Safqa: Amazon + Noon + Jumia
-    if asin or (product_url and any(s in str(product_url) for s in ["noon", "jumia", "amazon"])):
+    # Safqa: Amazon only (ASIN-based)
+    if asin:
         safqa_data = check_safqa(asin, product_url, title)
         time.sleep(1)
 
