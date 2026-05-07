@@ -1364,12 +1364,13 @@ def _scrape_amazon_region(
     currency="EGP",
     country_code="eg",
     skip_asins: set = None,
+    force_api_scan: bool = False,
 ):
     """Scrape any Amazon regional store. Called by the three wrappers below."""
     print(f"\n[AMAZON/{country_code.upper()}] Starting — {site_display}...")
     total = 0
 
-    if not AMAZON_KEYWORD_ENABLED:
+    if not AMAZON_KEYWORD_ENABLED and not force_api_scan:
         print(f"  [AMAZON/{country_code.upper()}] keyword scan disabled (AMAZON_KEYWORD_ENABLED=false)")
         return 0
 
@@ -1587,21 +1588,30 @@ def _scrape_amazon_region(
 
 
 def scrape_amazon():
-    """Amazon Egypt — deals page (always) + keyword scan (if enabled)."""
+    """Amazon Egypt — deals page first; if 0 products, fall back to structured API scan."""
     deals_total, seen = _scrape_amazon_deals_page()
-    kw_total = _scrape_amazon_region(skip_asins=seen)
+    # If HTML deals page is blocked (0 products), force the structured API keyword scan
+    # so Amazon Egypt always produces deals regardless of AMAZON_KEYWORD_ENABLED flag.
+    force = (deals_total == 0)
+    if force:
+        print(f"\n[AMAZON/EG] Deals page blocked (0) → forcing structured API scan as fallback")
+    kw_total = _scrape_amazon_region(skip_asins=seen, force_api_scan=force)
     return deals_total + kw_total
 
 def scrape_amazon_ae():
     """Amazon UAE — deals page (always) + keyword scan (if enabled)."""
     deals_total, seen = _scrape_amazon_deals_page("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
-    kw_total = _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae", skip_asins=seen)
+    force = (deals_total == 0)
+    kw_total = _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae",
+                                      skip_asins=seen, force_api_scan=force)
     return deals_total + kw_total
 
 def scrape_amazon_sa():
     """Amazon Saudi Arabia — deals page (always) + keyword scan (if enabled)."""
     deals_total, seen = _scrape_amazon_deals_page("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
-    kw_total = _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa", skip_asins=seen)
+    force = (deals_total == 0)
+    kw_total = _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa",
+                                      skip_asins=seen, force_api_scan=force)
     return deals_total + kw_total
 
 
@@ -1625,21 +1635,21 @@ def scrape_jumia():
     for url, default_cat in pages:
         try:
             # scrape.do plain HTML first (1 credit)
-            resp = fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False)
+            # Try scrape.do with residential proxy (super_proxy=True, 10 credits).
+            # Jumia blocks scrape.do datacenter IPs (causes 502); residential bypasses this.
+            resp = fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=True)
             _scrapedo_ok = resp and not is_blocked_response(resp, min_length=3000)
+            print(f"  [JUMIA] scrape.do residential {'OK' if _scrapedo_ok else ('502' if not resp else 'blocked')} for {url[:55]}")
             if not _scrapedo_ok:
-                # scrape.do failed (502 or blocked) — go directly to ScraperAPI
-                # with render=true. _skip_scrapedo=True prevents double-calling
-                # scrape.do since fetch_with_scraperapi normally tries it first.
-                print(f"  [JUMIA] scrape.do {'502' if not resp else 'blocked'} → ScraperAPI residential fallback")
-                resp = fetch_with_scraperapi(url, render_js=True, country="eg",
+                print(f"  [JUMIA] scrape.do blocked → ScraperAPI residential fallback")
+                resp = fetch_with_scraperapi(url, render_js=False, country="eg",
                                              _skip_scrapedo=True, premium=True)
                 _sa_ok = resp and not is_blocked_response(resp, min_length=3000)
                 print(f"  [JUMIA] ScraperAPI {'OK' if _sa_ok else 'FAILED'} for {url[:55]}")
                 if not _sa_ok:
-                    print(f"  [JUMIA] ScraperAPI also blocked → direct fetch (server IP)")
-                    resp = fetch_direct(url)
-                    _direct_ok = resp and not is_blocked_response(resp, min_length=3000)
+                    print(f"  [JUMIA] ScraperAPI blocked → direct fetch (server IP)")
+                    resp = fetch_direct(url, mobile=True)
+                    _direct_ok = resp and not is_blocked_response(resp, min_length=1000)
                     print(f"  [JUMIA] Direct fetch {'OK' if _direct_ok else 'FAILED'} for {url[:55]}")
             if is_blocked_response(resp, min_length=3000):
                 print(f"  [JUMIA] all methods blocked: {url[:55]}...")
