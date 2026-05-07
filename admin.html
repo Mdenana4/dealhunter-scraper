@@ -2255,6 +2255,7 @@ function filterDeals(){
       <td style="font-size:10px;color:#888;">${(d.click_count||0)} / ${(d.buy_click_count||0)}</td>
       <td><div style="display:flex;gap:3px;flex-wrap:wrap;">
         <button class="btn btn-sm" onclick="window.open('${d.product_url}','_blank')">View</button>
+        <button class="btn btn-sm" onclick="recheckDeal(${JSON.stringify(d).replace(/"/g,'&quot;')})">🔍 Check</button>
         <button class="btn btn-sm ${d.featured?'btn-p':''}" onclick="toggleFeat('${d.id}',${!!d.featured})">${d.featured?'Unpin':'Pin'}</button>
         <button class="btn btn-sm btn-d" onclick="toggleHide('${d.id}',${!!d.hidden})">${d.hidden?'Show':'Hide'}</button>
         <button class="btn btn-sm btn-d" onclick="delDeal('${d.id}')">Del</button>
@@ -2872,7 +2873,6 @@ async function recheckDeal(d) {
   const body  = document.getElementById('recheck-body');
   const titleEl = document.getElementById('recheck-title');
   titleEl.textContent = (d.title || 'Deal').substring(0, 60);
-  body.innerHTML = '<span class="spin"></span>&nbsp;Running Kanbkam + Safqa check…';
   modal.classList.add('show');
 
   // Extract ASIN from Amazon product URL if available
@@ -2881,6 +2881,18 @@ async function recheckDeal(d) {
     const m = d.product_url.match(/\/dp\/([A-Z0-9]{10})/);
     if (m) asin = m[1];
   }
+
+  const isAmazon = (d.site||'').includes('amazon');
+  if (!isAmazon && !asin) {
+    body.innerHTML = `<div style="text-align:center;padding:10px;">
+      <div style="font-size:18px;margin-bottom:8px;">ℹ️</div>
+      <div style="font-weight:600;margin-bottom:4px;">Price history not available</div>
+      <div style="font-size:11px;color:#888;">Kanbkam and Safqa only track Amazon products.<br>
+      Noon, Jumia and other sites are not supported.</div>
+    </div>`;
+    return;
+  }
+  body.innerHTML = '<span class="spin"></span>&nbsp;Running Kanbkam + Safqa check…';
 
   try {
     const token = await firebase.auth().currentUser?.getIdToken();

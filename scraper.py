@@ -2236,8 +2236,7 @@ def _process_noon_item(src, default_cat, region_path="egypt-en", currency="EGP")
         op = cp
 
     disc = calculate_discount(op, cp)
-    # Accept if either our calculated disc OR the stored disc_percent meets MIN_DISCOUNT
-    if disc < MIN_DISCOUNT and int(disc_stored or 0) < MIN_DISCOUNT:
+    if disc < MIN_DISCOUNT:
         return None
 
     img_keys = src.get("image_keys") or []
@@ -2610,21 +2609,9 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                     continue
 
                 disc = calculate_discount(op, cp)
-                # Detect category early so electronics can use a lower threshold
                 cat = detect_category(title) or default_cat
-                # Electronics (phones, laptops, TVs) are high-value — notify at 15%+
-                # even though general threshold is 40%. A 15% off a 60,000 EGP laptop
-                # saves 9,000 EGP which is highly relevant.
-                _eff_min_discount = 15 if cat == "electronics" else MIN_DISCOUNT
 
-                if _d_debug_count < 8:
-                    _nlinks = len(container.find_all("a", href=noon_sku_re))
-                    print(f"    [noon parse] D-debug lvl={_lvl} links={_nlinks} cat={cat} "
-                          f"href={href[:45]} op={op} cp={cp} disc={disc}")
-
-                if disc < _eff_min_discount:
-                    if _d_debug_count < 5:
-                        _d_debug_count += 1
+                if disc < MIN_DISCOUNT:
                     break
                 if not price_in_range(cp):
                     break
