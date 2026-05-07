@@ -2513,13 +2513,19 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                     full_text = container.get_text(" ", strip=True)
                     price_text = full_text.replace(_title_excl, " ") if _title_excl else full_text
 
-                    # Strip sales-count badges BEFORE extracting numbers.
-                    # "380+ sold recently" → "380" would otherwise pass the floor
-                    # and be mistaken for a price.  Patterns: "380+ sold recently",
-                    # "1.2k bought", "500 orders", "250 people bought", etc.
+                    # Strip non-price numbers BEFORE extracting candidates.
+                    # "380+ sold recently" → 380 looks like a price but isn't.
+                    # "999 Ratings"        → 999 looks like a price but isn't.
+                    # Pattern: number (optional +/k) then a social-proof word.
                     price_text = _re.sub(
                         r'[\d][\d,\.]*[\+k]?\s*(?:sold\s*recently|sold|bought|orders|'
-                        r'purchases|people\s*bought|items?\s*sold|reviews?)',
+                        r'purchases|people\s*bought|items?\s*sold|reviews?|ratings?|'
+                        r'customers?|verified\s*purchase)',
+                        ' ', price_text, flags=_re.IGNORECASE
+                    )
+                    # Also handle reversed form: "Ratings 999" / "Reviews: 500"
+                    price_text = _re.sub(
+                        r'(?:ratings?|reviews?)\s*:?\s*[\d][\d,\.]*',
                         ' ', price_text, flags=_re.IGNORECASE
                     )
 
@@ -3277,6 +3283,11 @@ def _purge_bad_deals():
             elif "noon" in site and disc > 90:
                 bad = True
                 reason = f"Noon deal at {disc:.0f}% off — sales badge likely used as price"
+            elif "noon" in site and disc > 40 and op > 0 and op == int(op) and op <= 2000:
+                # op is a whole number ≤ 2000 — classic rating-count shape (e.g. 999 Ratings).
+                # Real Noon prices are rarely exact integers at this range.
+                bad = True
+                reason = f"Noon op={op} is a whole number ≤2000 — likely rating count, not price"
             if bad:
                 print(f"  [PURGE] Deleting bad deal {d.id[:16]}… {reason}")
                 db.collection("deals").document(d.id).delete()
