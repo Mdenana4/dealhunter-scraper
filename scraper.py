@@ -27,7 +27,7 @@ load_dotenv()
 
 MIN_DISCOUNT    = int(os.getenv("MIN_DISCOUNT", 40))
 AMAZON_KEYWORD_ENABLED = os.getenv("AMAZON_KEYWORD_ENABLED", "false").lower() == "true"
-INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 90))
+INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 60))
 SCRAPER_API_KEY = (
     os.getenv("SCRAPER_API_KEY") or
     os.getenv("SCRAPERAPI_KEY") or
@@ -292,19 +292,19 @@ def get_headers(mobile=False):
 
 def detect_category(title):
     t = title.lower()
-    if re.search(r'phone|mobile|iphone|samsung|xiaomi|oppo|vivo|realme|laptop|notebook|tablet|ipad|computer|monitor|keyboard|mouse|headphone|earphone|earbuds|airpods|speaker|digital.?camera|security.?camera|action.?camera|\bcamera\s+\d|\btv\b|television|gaming|playstation|xbox|console|router|charger|cable|power.?bank|smartwatch|flash.?drive|usb|ssd|hard.?disk|printer|drone|\bram\b|processor', t):
+    if re.search(r'phone|mobile|iphone|samsung|xiaomi|oppo|vivo|realme|laptop|notebook|tablet|ipad|computer|monitor|keyboard|mouse|headphone|earphone|earbuds|airpods|speaker|camera|\btv\b|television|gaming|playstation|xbox|console|router|charger|cable|power.?bank|smartwatch|flash.?drive|usb|ssd|hard.?disk|printer|drone|ram|processor', t):
         return "electronics"
     if re.search(r'dress|shirt|shoes|bag|perfume|parfum|fragrance|eau.?de|attar|oud|jeans|jacket|sneaker|sandal|handbag|wallet|belt|hat|cap|suit|blouse|skirt|coat|boots|polo|t-shirt|tshirt|underwear|socks|scarf|glasses|sunglasses|leggings|hoodie|sweatshirt|bra|swimsuit', t):
         return "fashion"
-    if re.search(r'sofa|chair|bed|table|lamp|kitchen|blender|cookware|vacuum|air.?condition|refrigerator|washing.?machine|oven|microwave|curtain|pillow|mattress|shelf|cabinet|wardrobe|fan|heater|iron|kettle|toaster|coffee.?maker|air.?fryer|pressure.?cooker|dishwasher|water.?filter|steamer|garment.?steamer', t):
+    if re.search(r'sofa|chair|bed|table|lamp|kitchen|blender|cookware|vacuum|air.?condition|refrigerator|washing.?machine|oven|microwave|curtain|pillow|mattress|shelf|cabinet|wardrobe|fan|heater|iron|kettle|toaster|coffee.?maker|air.?fryer|pressure.?cooker|dishwasher|water.?filter', t):
         return "home"
-    if re.search(r'cream|serum|shampoo|makeup|skincare|moisturizer|lotion|vitamin|supplement|omega|collagen|fish.?oil|probiotic|face.?wash|nail|lipstick|foundation|mascara|toner|sunscreen|body.?wash|deodorant|cologne|hair.?dryer|straightener|razor|trimmer|toothpaste|toothbrush|oral.?care|diaper|nappy|baby.?wipe|baby.?lotion|baby.?shampoo', t):
+    if re.search(r'cream|serum|shampoo|makeup|skincare|moisturizer|lotion|vitamin|supplement|omega|collagen|fish.?oil|probiotic|face.?wash|nail|lipstick|foundation|mascara|toner|sunscreen|body.?wash|deodorant|cologne|hair.?dryer|straightener|razor|trimmer', t):
         return "beauty"
     if re.search(r'gym|sport|fitness|yoga|bicycle|bike|football|tennis|treadmill|dumbbell|resistance.?band|protein|swimming|basketball|volleyball|badminton|weights|barbell|boxing', t):
         return "sports"
-    if re.search(r'toy|baby|kids|children|doll|lego|puzzle|infant|toddler|stroller|feeding|educational|board.?game|action.?figure', t):
+    if re.search(r'toy|baby|kids|children|doll|lego|puzzle|infant|toddler|stroller|diaper|feeding|educational|board.?game|action.?figure', t):
         return "toys"
-    if re.search(r'car|\bauto\b|vehicle|tire|wheel|motor.?oil|engine|spare.?part|seat.?cover|dashboard|steering|wiper|exhaust', t):
+    if re.search(r'car|auto|vehicle|tire|wheel|motor.?oil|engine|spare.?part|seat.?cover|dashboard|steering|wiper|exhaust', t):
         return "automotive"
     if re.search(r'food|grocery|snack|drink|juice|rice|pasta|oil|sugar|coffee|tea|chocolate|biscuit|chips|sauce|spice|flour|bread|milk|cheese|yogurt|honey|jam|cereal|protein.?bar', t):
         return "grocery"
@@ -345,9 +345,6 @@ _SCRAPERAPI_EXHAUSTED = False  # set True when monthly quota gone
 # Cleared at the end of each run_scraper() call.
 _new_deals_this_run: list = []
 
-# Credit counter for the current cycle. Reset at cycle start, printed in summary.
-_cycle_credits: int = 0
-
 
 def is_blocked_response(resp, min_length=2000):
     """Return True when the response looks like a CAPTCHA or bot-block page."""
@@ -372,8 +369,8 @@ def is_blocked_response(resp, min_length=2000):
 
 def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False,
                         wait_until=None, wait_selector=None, custom_wait=None):
-    """Fetch via scrape.do proxy. 1 credit (HTML), 5 (JS render), 10 (super residential), 25 (super+render)."""
-    global _scrapedo_dead, _cycle_credits
+    """Fetch via scrape.do proxy. 1 credit (HTML), 5 (JS render), 10 (super residential)."""
+    global _scrapedo_dead
     if not SCRAPEDO_TOKEN or _scrapedo_dead:
         return None
     import gzip as _gz
@@ -381,20 +378,11 @@ def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False,
         params = {
             "token":   SCRAPEDO_TOKEN,
             "url":     url,
-            "render":  "true" if render_js else "false",
+            "render":  "true" if (render_js or super_proxy) else "false",
             "geoCode": country.upper(),
         }
         if super_proxy:
             params["super"] = "true"
-        # Credit accounting: super+render=25, super=10, render=5, plain=1
-        if super_proxy and render_js:
-            _cycle_credits += 25
-        elif super_proxy:
-            _cycle_credits += 10
-        elif render_js:
-            _cycle_credits += 5
-        else:
-            _cycle_credits += 1
         if wait_until:
             params["waitUntil"] = wait_until
         if wait_selector:
@@ -533,10 +521,11 @@ def fetch_amazon_product_detail(asin, country_code):
         return None
 
 
-def fetch_with_scraperapi(url, render_js=True, country="eg"):
+def fetch_with_scraperapi(url, render_js=True, country="eg", _skip_scrapedo=False):
     global _SCRAPERAPI_EXHAUSTED
-    # Prefer scrape.do when token is set
-    if SCRAPEDO_TOKEN:
+    # Prefer scrape.do when token is set — UNLESS caller explicitly skips it
+    # (e.g. Jumia already tried scrape.do and got 502; don't retry it here)
+    if not _skip_scrapedo and SCRAPEDO_TOKEN:
         resp = fetch_with_scrapedo(url, render_js=render_js, country=country)
         if resp:
             return resp
@@ -630,9 +619,11 @@ def save_deal(deal):
             new_price  = deal["current_price"]
 
             update = {
-                "current_price":   new_price,
+                "current_price":    new_price,
                 "discount_percent": deal["discount_percent"],
-                "timestamp":       deal["timestamp"],
+                "timestamp":        deal["timestamp"],
+                "last_scraped":     deal["timestamp"],
+                "status":           "active",
             }
             if deal.get("image_url"):
                 update["image_url"] = deal["image_url"]
@@ -669,6 +660,8 @@ def save_deal(deal):
             else:
                 print(f"  REFRESH: {deal['title'][:45]} | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
         else:
+            deal["last_scraped"] = deal["timestamp"]
+            deal["status"] = "active"
             ref.set(deal)
             ref.collection("price_history").document().set({
                 "price": deal["current_price"], "timestamp": deal["timestamp"]
@@ -1213,6 +1206,7 @@ def _scrape_amazon_deals_page(
     )
     print(f"\n[AMAZON/{country_code.upper()}] Scraping deals page...")
     total = 0
+    seen_asins_deals: set = set()
 
     for page_num in range(1, 4):  # pages 1–3
         try:
@@ -1248,6 +1242,8 @@ def _scrape_amazon_deals_page(
                 try:
                     asin = product.get("data-asin", "").strip()
                     if not asin:
+                        continue
+                    if asin in seen_asins_deals:
                         continue
                     if product.get("data-component-type") == "sp-sponsored-result":
                         continue
@@ -1333,6 +1329,7 @@ def _scrape_amazon_deals_page(
                         currency=currency,
                     )
                     save_deal(deal)
+                    seen_asins_deals.add(asin)
                     total += 1
                     time.sleep(0.5)
 
@@ -1346,7 +1343,7 @@ def _scrape_amazon_deals_page(
             break
 
     print(f"[AMAZON/{country_code.upper()}] Deals page done. {total} deals.")
-    return total
+    return total, seen_asins_deals
 
 
 def _scrape_amazon_region(
@@ -1355,6 +1352,7 @@ def _scrape_amazon_region(
     site_display="Amazon Egypt",
     currency="EGP",
     country_code="eg",
+    skip_asins: set = None,
 ):
     """Scrape any Amazon regional store. Called by the three wrappers below."""
     print(f"\n[AMAZON/{country_code.upper()}] Starting — {site_display}...")
@@ -1364,7 +1362,7 @@ def _scrape_amazon_region(
         print(f"  [AMAZON/{country_code.upper()}] keyword scan disabled (AMAZON_KEYWORD_ENABLED=false)")
         return 0
 
-    seen_asins: set = set()  # deduplicate across all keywords (avoids 20+ adidas variants)
+    seen_asins: set = set(skip_asins or [])  # pre-seed with deals-page ASINs to skip duplicates
 
     for item in AMAZON_KEYWORDS:
         try:
@@ -1578,19 +1576,22 @@ def _scrape_amazon_region(
 
 
 def scrape_amazon():
-    """Amazon Egypt — keyword HTML scraper via scrape.do."""
-    print("\n[AMAZON/EG] Skipping RapidAPI (free plan 403) — going straight to HTML scraper")
-    return _scrape_amazon_region()
+    """Amazon Egypt — deals page (always) + keyword scan (if enabled)."""
+    deals_total, seen = _scrape_amazon_deals_page()
+    kw_total = _scrape_amazon_region(skip_asins=seen)
+    return deals_total + kw_total
 
 def scrape_amazon_ae():
-    """Amazon UAE — keyword HTML scraper via scrape.do."""
-    print("\n[AMAZON/AE] Skipping RapidAPI — going straight to HTML scraper")
-    return _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
+    """Amazon UAE — deals page (always) + keyword scan (if enabled)."""
+    deals_total, seen = _scrape_amazon_deals_page("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
+    kw_total = _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae", skip_asins=seen)
+    return deals_total + kw_total
 
 def scrape_amazon_sa():
-    """Amazon Saudi Arabia — keyword HTML scraper via scrape.do."""
-    print("\n[AMAZON/SA] Skipping RapidAPI — going straight to HTML scraper")
-    return _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
+    """Amazon Saudi Arabia — deals page (always) + keyword scan (if enabled)."""
+    deals_total, seen = _scrape_amazon_deals_page("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
+    kw_total = _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa", skip_asins=seen)
+    return deals_total + kw_total
 
 
 # ─────────────────────────────────────────────────────
@@ -1612,10 +1613,17 @@ def scrape_jumia():
 
     for url, default_cat in pages:
         try:
-            # scrape.do plain HTML first (1 credit), fallback to ScraperAPI
+            # scrape.do plain HTML first (1 credit)
             resp = fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False)
-            if not resp or is_blocked_response(resp, min_length=3000):
-                resp = fetch_with_scraperapi(url, render_js=False, country="eg")
+            _scrapedo_ok = resp and not is_blocked_response(resp, min_length=3000)
+            if not _scrapedo_ok:
+                # scrape.do failed (502 or blocked) — go directly to ScraperAPI
+                # with render=true. _skip_scrapedo=True prevents double-calling
+                # scrape.do since fetch_with_scraperapi normally tries it first.
+                print(f"  [JUMIA] scrape.do {'502' if not resp else 'blocked'} → ScraperAPI fallback")
+                resp = fetch_with_scraperapi(url, render_js=True, country="eg", _skip_scrapedo=True)
+                _sa_ok = resp and not is_blocked_response(resp, min_length=3000)
+                print(f"  [JUMIA] ScraperAPI {'OK' if _sa_ok else 'FAILED'} for {url[:55]}")
             if is_blocked_response(resp, min_length=3000):
                 print(f"  [JUMIA] blocked/empty: {url[:55]}...")
                 _log_scraper_error("jumia_eg", url, "Blocked/empty response")
@@ -1686,19 +1694,9 @@ def scrape_jumia():
                     if discount < MIN_DISCOUNT:
                         continue
 
-                    # Bug 3 fix: prefer <a class="core"> which wraps the whole
-                    # card on Jumia, rather than the first <a> (may be an image link).
-                    link_el = (
-                        p.find("a", class_="core") or
-                        p.find("a", href=lambda h: h and h.endswith(".html")) or
-                        p.find("a", href=True)
-                    )
+                    link_el = p.find("a", href=True)
                     href = link_el["href"] if link_el else ""
-                    if not href or href in ("/", "#"):
-                        continue
                     product_url = href if href.startswith("http") else "https://www.jumia.com.eg" + href
-                    if not product_url.startswith("https://www.jumia.com.eg/"):
-                        continue
 
                     img_el    = p.find("img")
                     image_url = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
@@ -1723,10 +1721,9 @@ def scrape_jumia():
                         except Exception:
                             pass
 
-                    cat = detect_category(title) or default_cat
-
-                    print(f"  [JUMIA-D] {title[:40]!r} cp={current_price} "
-                          f"op={original_price} disc={discount}% cat={cat}")
+                    cat = detect_category(title)
+                    if cat == "general":
+                        cat = default_cat
 
                     kb = check_price_history(
                         product_url=product_url,
@@ -2236,7 +2233,8 @@ def _process_noon_item(src, default_cat, region_path="egypt-en", currency="EGP")
         op = cp
 
     disc = calculate_discount(op, cp)
-    if disc < MIN_DISCOUNT:
+    # Accept if either our calculated disc OR the stored disc_percent meets MIN_DISCOUNT
+    if disc < MIN_DISCOUNT and int(disc_stored or 0) < MIN_DISCOUNT:
         return None
 
     img_keys = src.get("image_keys") or []
@@ -2263,11 +2261,6 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
     Returns count of deals saved.
     """
     saved = 0
-    import re as _re
-    _SOCIAL_RE = _re.compile(
-        r'sold|bought|orders|purchases|reviews?|ratings?|customers?',
-        _re.IGNORECASE
-    )
 
     # ── Helper: walk any JSON tree for product-shaped objects ─────────────
     def _walk(obj, depth=0):
@@ -2439,6 +2432,7 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
     # Method D: product link scan
     # Noon URL pattern: /region-lang/product-slug/SKU/p/?o=...
     # The SKU sits BEFORE /p/, not after — fix the regex accordingly.
+    import re as _re
     noon_sku_re = _re.compile(r'/[A-Za-z0-9]{5,}/p/', _re.IGNORECASE)
     all_a_tags = soup.find_all("a", href=True)
     p_hrefs = [a["href"] for a in all_a_tags if "/p/" in (a.get("href") or "")]
@@ -2514,22 +2508,14 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                 # fall through to Stage 2 text scan instead of hard-skipping.
                 cp = op = None
                 if _cp_el and _op_el:
-                    _cp_raw = _cp_el.get_text(strip=True)
-                    _op_raw = _op_el.get_text(strip=True)
-                    # Reject if either element contains social-proof text:
-                    # clean_price("592 Ratings") → 592, which fools the ratio check.
-                    if _SOCIAL_RE.search(_cp_raw) or _SOCIAL_RE.search(_op_raw):
-                        print(f"    [noon parse] S1-social href={href[:45]} "
-                              f"cp_raw={_cp_raw[:30]!r} op_raw={_op_raw[:30]!r}")
+                    _cp_v = clean_price(_cp_el.get_text(strip=True))
+                    _op_v = clean_price(_op_el.get_text(strip=True))
+                    if (_cp_v and _op_v and _cp_v >= 200 and _op_v > _cp_v
+                            and 1.15 <= _op_v / _cp_v <= 8.0):
+                        cp, op = _cp_v, _op_v
                     else:
-                        _cp_v = clean_price(_cp_raw)
-                        _op_v = clean_price(_op_raw)
-                        if (_cp_v and _op_v and _cp_v >= 200 and _op_v > _cp_v
-                                and 1.15 <= _op_v / _cp_v <= 8.0):
-                            cp, op = _cp_v, _op_v
-                        else:
-                            print(f"    [noon parse] S1-reject href={href[:45]} "
-                                  f"cp={_cp_v} op={_op_v}")
+                        print(f"    [noon parse] S1-reject href={href[:45]} "
+                              f"cp={_cp_v} op={_op_v}")
 
                 # ── Stage 2: title-excluded text scan (fallback) ───────────
                 if cp is None:
@@ -2546,22 +2532,6 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                     _title_excl = title_el_excl.get_text(" ", strip=True) if title_el_excl else ""
                     full_text = container.get_text(" ", strip=True)
                     price_text = full_text.replace(_title_excl, " ") if _title_excl else full_text
-
-                    # Strip non-price numbers BEFORE extracting candidates.
-                    # "380+ sold recently" → 380 looks like a price but isn't.
-                    # "999 Ratings"        → 999 looks like a price but isn't.
-                    # Pattern: number (optional +/k) then a social-proof word.
-                    price_text = _re.sub(
-                        r'[\d][\d,\.]*[\+k]?\s*(?:sold\s*recently|sold|bought|orders|'
-                        r'purchases|people\s*bought|items?\s*sold|reviews?|ratings?|'
-                        r'customers?|verified\s*purchase)',
-                        ' ', price_text, flags=_re.IGNORECASE
-                    )
-                    # Also handle reversed form: "Ratings 999" / "Reviews: 500"
-                    price_text = _re.sub(
-                        r'(?:ratings?|reviews?)\s*:?\s*[\d][\d,\.]*',
-                        ' ', price_text, flags=_re.IGNORECASE
-                    )
 
                     # Standalone number regex: non-alphanumeric boundary on both
                     # sides excludes "83J" (model code), "16G" (RAM), "144Hz".
@@ -2609,9 +2579,21 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                     continue
 
                 disc = calculate_discount(op, cp)
+                # Detect category early so electronics can use a lower threshold
                 cat = detect_category(title) or default_cat
+                # Electronics (phones, laptops, TVs) are high-value — notify at 15%+
+                # even though general threshold is 40%. A 15% off a 60,000 EGP laptop
+                # saves 9,000 EGP which is highly relevant.
+                _eff_min_discount = 15 if cat == "electronics" else MIN_DISCOUNT
 
-                if disc < MIN_DISCOUNT:
+                if _d_debug_count < 8:
+                    _nlinks = len(container.find_all("a", href=noon_sku_re))
+                    print(f"    [noon parse] D-debug lvl={_lvl} links={_nlinks} cat={cat} "
+                          f"href={href[:45]} op={op} cp={cp} disc={disc}")
+
+                if disc < _eff_min_discount:
+                    if _d_debug_count < 5:
+                        _d_debug_count += 1
                     break
                 if not price_in_range(cp):
                     break
@@ -2714,11 +2696,16 @@ def _scrape_noon_region(
 
     # ── Phase 2: Category search terms ─────────────────────────────────────
     search_terms = [
-        ("iphone",          "electronics"), ("samsung galaxy",  "electronics"),
-        ("laptop",          "electronics"), ("tv",              "electronics"),
-        ("perfume",         "fashion"),     ("refrigerator",    "home"),
-        ("washing machine", "home"),        ("skincare",        "beauty"),
-        ("makeup",          "beauty"),      ("headphones",      "electronics"),
+        ("samsung galaxy",  "electronics"), ("iphone",     "electronics"),
+        ("laptop",          "electronics"), ("headphones", "electronics"),
+        ("tv",              "electronics"), ("tablet",     "electronics"),
+        ("nike shoes",      "fashion"),     ("dress",      "fashion"),
+        ("perfume",         "fashion"),     ("handbag",    "fashion"),
+        ("refrigerator",    "home"),        ("washing machine", "home"),
+        ("air conditioner", "home"),        ("microwave",  "home"),
+        ("skincare",        "beauty"),      ("makeup",     "beauty"),
+        ("hair dryer",      "beauty"),      ("vitamins",   "beauty"),
+        ("gym equipment",   "sports"),      ("protein",    "sports"),
     ]
 
     for term, default_cat in search_terms:
@@ -3190,9 +3177,6 @@ def run_scraper():
 
 
 def _run_scraper_inner():
-    global _cycle_credits
-    _cycle_credits = 0
-
     if not check_scraper_control():
         return
 
@@ -3251,6 +3235,9 @@ def _run_scraper_inner():
     update_analytics()
     _health.flush()   # write health summary + send FCM alert if anything broke
 
+    # ── Re-check stale deals and mark expired ones ───────────────────────────
+    _recheck_expired_deals()
+
     # ── Purge deals that slipped through with wrong prices ────────────────────
     _purge_bad_deals()
 
@@ -3265,10 +3252,142 @@ def _run_scraper_inner():
     print(f"  CYCLE COMPLETE: {_cycle_end}")
     print(f"  TOTAL DEALS THIS CYCLE: {total}")
     print(f"  NEW DEALS NOTIFIED:     {len(_new_deals_this_run)}")
-    print(f"  CREDITS USED THIS CYCLE: {_cycle_credits:,}  (≈{_cycle_credits/250000*100:.2f}% of 250k plan)")
     print(f"  PROXY: scrape.do={'dead' if _scrapedo_dead else ('active' if SCRAPEDO_TOKEN else 'not set')}")
     print(f"  Next cycle in: {INTERVAL} min")
     print(f"{'=' * 62}\n")
+
+
+def _recheck_expired_deals():
+    """
+    Re-fetch product pages for deals not seen in the last 90 minutes.
+    If the discount is still ≥ MIN_DISCOUNT, update last_scraped + keep active.
+    Otherwise mark status='expired'. Expired deals older than 7 days are deleted.
+    Capped at 50 re-checks per source per cycle to avoid credit burn.
+    """
+    try:
+        from datetime import timedelta
+        now_dt = datetime.now(timezone.utc)
+        stale_cutoff   = now_dt - timedelta(minutes=90)
+        expired_cutoff = now_dt - timedelta(days=7)
+
+        docs = list(db.collection("deals").stream())
+        checked = {}   # source → count
+        expired_count = 0
+        deleted_count = 0
+
+        for d in docs:
+            data = d.to_dict() or {}
+            status = data.get("status", "active")
+
+            # Delete expired deals older than 7 days
+            if status == "expired":
+                ts = data.get("last_scraped") or data.get("timestamp")
+                ts_dt = None
+                if ts:
+                    if hasattr(ts, "tzinfo"):
+                        ts_dt = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+                    elif isinstance(ts, str):
+                        try:
+                            ts_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        except Exception:
+                            pass
+                if ts_dt and ts_dt < expired_cutoff:
+                    db.collection("deals").document(d.id).delete()
+                    deleted_count += 1
+                continue
+
+            # Check if last_scraped is stale
+            ls = data.get("last_scraped")
+            if not ls:
+                continue
+            if hasattr(ls, "tzinfo"):
+                ls_dt = ls if ls.tzinfo else ls.replace(tzinfo=timezone.utc)
+            elif isinstance(ls, str):
+                try:
+                    ls_dt = datetime.fromisoformat(ls.replace("Z", "+00:00"))
+                except Exception:
+                    continue
+            else:
+                continue
+
+            if ls_dt >= stale_cutoff:
+                continue  # recently seen, skip
+
+            site = data.get("site", "")
+            checked.setdefault(site, 0)
+            if checked[site] >= 50:
+                continue
+            checked[site] += 1
+
+            product_url = data.get("product_url", "")
+            if not product_url:
+                continue
+
+            try:
+                # Re-fetch the product page
+                resp = fetch_with_scrapedo(product_url, render_js=False, country="eg")
+                if not resp or is_blocked_response(resp, min_length=2000):
+                    resp = fetch_with_scraperapi(product_url, render_js=False, country="eg",
+                                                 _skip_scrapedo=True)
+
+                still_live = False
+                if resp and not is_blocked_response(resp, min_length=2000):
+                    soup = BeautifulSoup(resp.content, "lxml")
+                    cp_raw = ""
+                    op_raw = ""
+                    if "amazon" in site:
+                        cp_el = soup.find("span", class_="a-price-whole")
+                        if cp_el:
+                            cp_raw = cp_el.get_text(strip=True)
+                        op_block = soup.find("span", class_="a-price a-text-price")
+                        if op_block:
+                            op_el = op_block.find("span", class_="a-offscreen")
+                            if op_el:
+                                op_raw = op_el.get_text(strip=True)
+                    elif "jumia" in site:
+                        cp_el = soup.find("span", class_="prc") or soup.find("div", class_="prc")
+                        if cp_el:
+                            cp_raw = cp_el.get_text(strip=True)
+                        op_el = soup.find("span", class_="old") or soup.find("div", class_="old")
+                        if op_el:
+                            op_raw = op_el.get_text(strip=True)
+                    elif "noon" in site:
+                        cp_el = soup.find("span", attrs={"data-qa": "price"})
+                        if cp_el:
+                            cp_raw = cp_el.get_text(strip=True)
+
+                    cp = clean_price(cp_raw)
+                    op = clean_price(op_raw) or cp
+                    if cp and cp >= 200 and op >= cp:
+                        disc = calculate_discount(op, cp)
+                        if disc >= MIN_DISCOUNT:
+                            still_live = True
+                            db.collection("deals").document(d.id).update({
+                                "last_scraped": now_iso(),
+                                "status": "active",
+                                "current_price": cp,
+                                "original_price": op,
+                                "discount_percent": disc,
+                            })
+                            print(f"  [RECHECK] Still live: {data.get('title','')[:40]} | {disc}% off")
+
+                if not still_live:
+                    db.collection("deals").document(d.id).update({
+                        "status": "expired",
+                        "last_scraped": now_iso(),
+                    })
+                    expired_count += 1
+                    print(f"  [RECHECK] Expired: {data.get('title','')[:40]}")
+
+            except Exception as re_err:
+                print(f"  [RECHECK] Error for {d.id[:16]}: {re_err}")
+
+            time.sleep(1)
+
+        print(f"  [RECHECK] Expired: {expired_count} | Deleted (>7d): {deleted_count} | Rechecked per source: {dict(checked)}")
+
+    except Exception as e:
+        print(f"  [RECHECK] Error: {e}")
 
 
 def _purge_bad_deals():
@@ -3355,7 +3474,6 @@ if __name__ == "__main__":
     print(f"Min discount: {MIN_DISCOUNT}% | Interval: {INTERVAL} min")
     if MIN_PRICE > 0 or MAX_PRICE < 9999999:
         print(f"Price filter: EGP {MIN_PRICE:,.0f} – EGP {MAX_PRICE:,.0f}")
-    print("Scraper started, waiting for first cycle...")
     print()
     run_scraper()
     schedule.every(INTERVAL).minutes.do(run_scraper)

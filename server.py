@@ -822,12 +822,14 @@ def mobile_get_deals():
             fresh = [d for d in all_docs if (_doc_dt(d) or _epoch) >= _cutoff_dt(30)]
         all_docs = fresh
 
-        # Apply min_discount and paginate in memory (Firestore doesn't support !=)
+        # Apply min_discount, skip expired deals, and paginate in memory
         results = []
         skipped = 0
         for doc in all_docs:
             d = doc.to_dict()
             try:
+                if d.get('status') == 'expired':
+                    continue
                 if int(d.get('discount_percent') or 0) < min_disc:
                     continue
                 if skipped < offset:
@@ -2121,7 +2123,7 @@ def admin_stats():
                 site_last[s] = ts
             if d.get('fake_verdict') in ('SUSPICIOUS', 'FAKE'):
                 site_fake[s] = site_fake.get(s, 0) + 1
-            c = d.get('category') or 'general'
+            c = d.get('category', 'general')
             cat_counts[c] = cat_counts.get(c, 0) + 1
 
         user_docs = list(db.collection('users').stream())
@@ -2150,90 +2152,6 @@ def admin_stats():
         }
         _stats_cache.update({'data': result, 'at': time.time()})
         return jsonify(result)
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/api/v1/admin/noon-audit')
-def noon_audit():
-    """
-    Audit all Noon deals in Firestore.
-    Reports: discount distribution, category breakdown, suspicious deals
-    (wrong category → wrong threshold), and price sanity checks.
-    Call: GET /api/v1/admin/noon-audit
-    """
-    try:
-        docs = list(db.collection('deals')
-                    .order_by('timestamp', direction=firestore.Query.DESCENDING)
-                    .limit(500).stream())
-
-        noon_deals = []
-        for d in docs:
-            data = d.to_dict() or {}
-            if 'noon' not in (data.get('site') or ''):
-                continue
-            noon_deals.append({
-                'id':       d.id[:20],
-                'title':    (data.get('title') or '')[:60],
-                'category': data.get('category', '?'),
-                'site':     data.get('site', '?'),
-                'cp':       float(data.get('current_price') or 0),
-                'op':       float(data.get('original_price') or 0),
-                'disc':     float(data.get('discount_percent') or 0),
-                'ts':       str(data.get('timestamp', ''))[:19],
-            })
-
-        # ── Discount distribution ──────────────────────────────────────────
-        buckets = {'<15': [], '15-29': [], '30-39': [], '40-59': [], '60-79': [], '80+': []}
-        for d in noon_deals:
-            disc = d['disc']
-            if disc < 15:       buckets['<15'].append(d)
-            elif disc < 30:     buckets['15-29'].append(d)
-            elif disc < 40:     buckets['30-39'].append(d)
-            elif disc < 60:     buckets['40-59'].append(d)
-            elif disc < 80:     buckets['60-79'].append(d)
-            else:               buckets['80+'].append(d)
-
-        # ── Category breakdown ────────────────────────────────────────────
-        by_cat = {}
-        for d in noon_deals:
-            cat = d['category']
-            by_cat.setdefault(cat, []).append(d)
-
-        # ── Suspicious: non-electronics below 40% ─────────────────────────
-        suspicious = [
-            d for d in noon_deals
-            if d['disc'] < 40 and d['category'] not in ('electronics',)
-        ]
-
-        # ── Price sanity: ratio > 5× or cp < 200 ──────────────────────────
-        bad_price = [
-            {**d, 'ratio': round(d['op'] / d['cp'], 1) if d['cp'] > 0 else 0}
-            for d in noon_deals
-            if d['cp'] > 0 and (d['cp'] < 200 or (d['op'] > 0 and d['op'] / d['cp'] > 5))
-        ]
-
-        return jsonify({
-            'success': True,
-            'total_noon_deals': len(noon_deals),
-            'discount_buckets': {k: len(v) for k, v in buckets.items()},
-            'by_category': {k: len(v) for k, v in by_cat.items()},
-            'suspicious_sub40_non_electronics': [
-                {'title': d['title'], 'cat': d['category'], 'disc': d['disc'],
-                 'cp': d['cp'], 'op': d['op'], 'ts': d['ts']}
-                for d in sorted(suspicious, key=lambda x: x['disc'])[:50]
-            ],
-            'bad_price_ratio': [
-                {'title': d['title'], 'cat': d['category'],
-                 'cp': d['cp'], 'op': d['op'], 'ratio': d['ratio']}
-                for d in sorted(bad_price, key=lambda x: -x['ratio'])[:30]
-            ],
-            'electronics_sub30': [
-                {'title': d['title'], 'disc': d['disc'], 'cp': d['cp'], 'op': d['op']}
-                for d in noon_deals
-                if d['category'] == 'electronics' and d['disc'] < 30
-            ][:30],
-        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -2443,33 +2361,6 @@ def admin_tier_history():
         return jsonify({'success': True, 'history': history})
     except Exception as e:
         return jsonify({'success': True, 'history': []})
-
-
-@app.route('/api/v1/admin/re-check-deal', methods=['POST'])
-def admin_re_check_deal():
-    """Run server-side Kanbkam+Safqa fake check on a deal and return the verdict."""
-    try:
-        from fake_checker import check_price_history
-        payload      = request.get_json(silent=True) or {}
-        asin         = payload.get('asin') or None
-        product_url  = payload.get('product_url') or None
-        current_price  = float(payload.get('current_price') or 0)
-        original_price = float(payload.get('original_price') or 0)
-        title        = payload.get('title') or ''
-        site         = payload.get('site') or 'amazon_eg'
-        if not current_price:
-            return jsonify({'success': False, 'error': 'current_price required'}), 400
-        result = check_price_history(
-            asin=asin,
-            product_url=product_url,
-            current_price=current_price,
-            original_price=original_price,
-            title=title,
-            site=site,
-        )
-        return jsonify({'success': True, 'result': result})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/v1/admin/deals/<deal_id>', methods=['PATCH', 'DELETE'])
@@ -2905,40 +2796,6 @@ def set_country_pricing(country_code):
 def serve_admin():
     resp = send_from_directory('.', 'admin.html')
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-    return resp
-
-_FIREBASE_SDK_FILES = {
-    'firebase-app-compat.js':      'https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js',
-    'firebase-firestore-compat.js':'https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js',
-    'firebase-auth-compat.js':     'https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js',
-}
-
-def _ensure_firebase_sdk():
-    """Download Firebase SDK files if missing or empty.
-    Dockerfile tries to curl them at build time; this is the runtime fallback
-    for cases where the build-time download failed or the image is cached."""
-    for filename, url in _FIREBASE_SDK_FILES.items():
-        path = os.path.join('.', filename)
-        if not os.path.exists(path) or os.path.getsize(path) < 10_000:
-            try:
-                print(f"[SDK] Downloading {filename} from gstatic.com...")
-                r = requests.get(url, timeout=30)
-                r.raise_for_status()
-                with open(path, 'wb') as f:
-                    f.write(r.content)
-                print(f"[SDK] {filename} saved ({len(r.content):,} bytes)")
-            except Exception as e:
-                print(f"[SDK] WARNING: could not download {filename}: {e}")
-
-_ensure_firebase_sdk()
-
-@app.route('/sdk/<filename>')
-def serve_sdk(filename):
-    """Self-host Firebase SDK so browser never needs gstatic.com or any CDN."""
-    if filename not in _FIREBASE_SDK_FILES:
-        return '', 404
-    resp = send_from_directory('.', filename, mimetype='application/javascript')
-    resp.headers['Cache-Control'] = 'public, max-age=86400'
     return resp
 
 # ── Scraper source toggle ─────────────────────────────────────────────────────
