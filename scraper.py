@@ -28,6 +28,18 @@ load_dotenv()
 
 MIN_DISCOUNT    = int(os.getenv("MIN_DISCOUNT", 40))
 AMAZON_KEYWORD_ENABLED = os.getenv("AMAZON_KEYWORD_ENABLED", "false").lower() == "true"
+
+# ═══════════════════════════════════════════════════════════
+# DEAL SOURCES vs PRICE-COLLECTION SOURCES
+# ═══════════════════════════════════════════════════════════
+# Only these sources save deals to the "deals" collection,
+# send FCM notifications, and appear in the app.
+# All other sources (Noon, Jumia, Amazon AE/SA) run in
+# background mode — they ONLY record prices to the
+# price_history database.  After ~60 days this gives us
+# independent price verification for every product.
+# ═══════════════════════════════════════════════════════════
+_DEAL_SOURCES = {"amazon_eg"}
 INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 60))
 SCRAPER_API_KEY = (
     os.getenv("SCRAPER_API_KEY") or
@@ -152,7 +164,27 @@ def load_disabled_sources():
     except Exception:
         _disabled_sources = set()
 
+# Sources that ALWAYS run for price-history collection
+# (even when disabled in admin panel).  Only Amazon EG can
+# be fully disabled — every other source is needed to build
+# the long-term price database.
+_PRICE_COLLECTION_SOURCES = {
+    "amazon_ae", "amazon_sa",
+    "noon_eg",   "noon_ae",  "noon_sa",
+    "jumia_eg",
+}
+
 def is_source_enabled(key: str) -> bool:
+    """
+    Return True if the source should run this cycle.
+
+    * Price-collection sources always run — they are needed to
+      build the independent price-history database.
+    * Deal sources (amazon_eg) honour the Firestore disabled list.
+    * B2B / niche sources also honour the disabled list.
+    """
+    if key in _PRICE_COLLECTION_SOURCES:
+        return True
     return key not in _disabled_sources
 
 
@@ -604,101 +636,116 @@ def _log_scraper_error(scraper: str, url: str, message: str) -> None:
 # SAVE DEAL — Always update Firebase, never skip
 # ─────────────────────────────────────────────────────
 def save_deal(deal):
+    """
+    Save a deal to Firebase.
+
+    Dual-mode behaviour:
+      * _DEAL_SOURCES (e.g. amazon_eg) → full deal save + FCM queue
+      * Background sources (noon_*, jumia, amazon_ae/sa) → price
+        history ONLY; deals are NOT shown in the app.
+    """
     deal_id = deal["deal_id"]
-    ref = db.collection("deals").document(deal_id)
-    try:
-        if deal.get("review_count", 0) == 0:
-            deal["review_count"] = None
+    site    = deal.get("site", "")
+    is_deal_source = site in _DEAL_SOURCES
 
-        existing = ref.get()
-        if existing.exists:
-            old = existing.to_dict()
-            old_price = old.get("current_price", 0)
-            new_price  = deal["current_price"]
+    # ── 1.  Full deal persistence (visible in app) ──
+    if is_deal_source:
+        ref = db.collection("deals").document(deal_id)
+        try:
+            if deal.get("review_count", 0) == 0:
+                deal["review_count"] = None
 
-            update = {
-                "current_price":    new_price,
-                "discount_percent": deal["discount_percent"],
-                "timestamp":        deal["timestamp"],
-                "last_scraped":     deal["timestamp"],
-                "status":           "active",
-            }
-            if deal.get("image_url"):
-                update["image_url"] = deal["image_url"]
-            if deal.get("rating", 0) > 0:
-                update["rating"] = deal["rating"]
-            if deal.get("review_count") is not None:
-                update["review_count"] = deal["review_count"]
-            if deal.get("coupon_codes"):
-                update["coupon_codes"]   = deal["coupon_codes"]
-                update["coupon_display"] = deal.get("coupon_display", "")
+            existing = ref.get()
+            if existing.exists:
+                old = existing.to_dict()
+                old_price = old.get("current_price", 0)
+                new_price  = deal["current_price"]
 
-            kb = deal.get("kanbkam", {})
-            if kb:
-                update.update({
-                    "kanbkam":              kb,
-                    "fake_verdict":         kb.get("verdict", "UNVERIFIED"),
-                    "fake_verdict_ar":      kb.get("verdict_ar", ""),
-                    "fake_emoji":           kb.get("emoji", ""),
-                    "rule_a":               kb.get("rule_a_triggered", False),
-                    "rule_b":               kb.get("rule_b_triggered", False),
-                    "lowest_price_ever":    kb.get("lowest_price", 0),
-                    "highest_price_ever":   kb.get("highest_price", 0),
-                    "suggested_wait_price": kb.get("suggested_wait_price", 0),
-                    "source_used":          kb.get("source_used", ""),
-                })
+                update = {
+                    "current_price":    new_price,
+                    "discount_percent": deal["discount_percent"],
+                    "timestamp":        deal["timestamp"],
+                    "last_scraped":     deal["timestamp"],
+                    "status":           "active",
+                }
+                if deal.get("image_url"):
+                    update["image_url"] = deal["image_url"]
+                if deal.get("rating", 0) > 0:
+                    update["rating"] = deal["rating"]
+                if deal.get("review_count") is not None:
+                    update["review_count"] = deal["review_count"]
+                if deal.get("coupon_codes"):
+                    update["coupon_codes"]   = deal["coupon_codes"]
+                    update["coupon_display"] = deal.get("coupon_display", "")
 
-            ref.update(update)
+                kb = deal.get("kanbkam", {})
+                if kb:
+                    update.update({
+                        "kanbkam":              kb,
+                        "fake_verdict":         kb.get("verdict", "UNVERIFIED"),
+                        "fake_verdict_ar":      kb.get("verdict_ar", ""),
+                        "fake_emoji":           kb.get("emoji", ""),
+                        "rule_a":               kb.get("rule_a_triggered", False),
+                        "rule_b":               kb.get("rule_b_triggered", False),
+                        "lowest_price_ever":    kb.get("lowest_price", 0),
+                        "highest_price_ever":   kb.get("highest_price", 0),
+                        "suggested_wait_price": kb.get("suggested_wait_price", 0),
+                        "source_used":          kb.get("source_used", ""),
+                    })
 
-            if old_price != new_price:
-                ref.collection("price_history").document().set({
-                    "price": new_price, "old_price": old_price, "timestamp": deal["timestamp"]
-                })
-                print(f"  UPDATED: {deal['title'][:45]} | EGP {old_price:,.0f}→{new_price:,.0f} | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
+                ref.update(update)
+
+                if old_price != new_price:
+                    ref.collection("price_history").document().set({
+                        "price": new_price, "old_price": old_price, "timestamp": deal["timestamp"]
+                    })
+                    print(f"  UPDATED: {deal['title'][:45]} | EGP {old_price:,.0f}→{new_price:,.0f} | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
+                else:
+                    print(f"  REFRESH: {deal['title'][:45]} | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
             else:
-                print(f"  REFRESH: {deal['title'][:45]} | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
-        else:
-            deal["last_scraped"] = deal["timestamp"]
-            deal["status"] = "active"
-            ref.set(deal)
-            ref.collection("price_history").document().set({
-                "price": deal["current_price"], "timestamp": deal["timestamp"]
-            })
-            print(f"  NEW:     {deal['title'][:45]} | {deal['discount_percent']}% OFF | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
-            # Queue for batch FCM notification at end of scraper run
-            _new_deals_this_run.append({
-                "title":            deal["title"],
-                "discount_percent": deal.get("discount_percent", 0),
-                "site":             deal.get("site", ""),
-                "site_display":     deal.get("site_display", ""),
-                "currency":         deal.get("currency", "EGP"),
-                "current_price":    deal.get("current_price", 0),
-                "deal_id":          deal.get("deal_id", ""),
-            })
+                deal["last_scraped"] = deal["timestamp"]
+                deal["status"] = "active"
+                ref.set(deal)
+                ref.collection("price_history").document().set({
+                    "price": deal["current_price"], "timestamp": deal["timestamp"]
+                })
+                print(f"  NEW:     {deal['title'][:45]} | {deal['discount_percent']}% OFF | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
+                # Queue for batch FCM notification at end of scraper run
+                _new_deals_this_run.append({
+                    "title":            deal["title"],
+                    "discount_percent": deal.get("discount_percent", 0),
+                    "site":             deal.get("site", ""),
+                    "site_display":     deal.get("site_display", ""),
+                    "currency":         deal.get("currency", "EGP"),
+                    "current_price":    deal.get("current_price", 0),
+                    "deal_id":          deal.get("deal_id", ""),
+                })
+        except Exception as e:
+            print(f"  SAVE ERROR: {e}")
+    else:
+        # Background source — only log price collection (no app deal)
+        print(f"  [PRICE-COLLECT] {deal['title'][:40]} | {deal['current_price']:,.0f} {deal.get('currency','EGP')} | site={site}")
 
-        # ── Record to price_tracker (builds the full price-history schema) ──
-        mc = _SITE_TO_MC.get(deal.get("site", ""))
-        if mc and db:
-            try:
-                _result = _pt_record(
-                    marketplace_country = mc,
-                    product_id          = _tracker_id(deal),
-                    name                = deal["title"],
-                    url                 = deal["product_url"],
-                    price               = float(deal["current_price"]),
-                    original_price      = float(deal["original_price"]) if deal.get("original_price") else None,
-                    currency            = deal.get("currency", "EGP"),
-                    in_stock            = deal.get("availability") != "out_of_stock",
-                    image_url           = deal.get("image_url"),
-                    category            = deal.get("category"),
-                )
-                if _result.get("price_changed"):
-                    _fire_price_alerts(_result)
-            except Exception as _te:
-                print(f"  [TRACKER] {_te}")
-
-    except Exception as e:
-        print(f"  SAVE ERROR: {e}")
+    # ── 2.  Price history (ALL sources — deal or background) ──
+    mc = _SITE_TO_MC.get(site)
+    if mc and db:
+        try:
+            _result = _pt_record(
+                marketplace_country = mc,
+                product_id          = _tracker_id(deal),
+                name                = deal["title"],
+                url                 = deal["product_url"],
+                price               = float(deal["current_price"]),
+                original_price      = float(deal["original_price"]) if deal.get("original_price") else None,
+                currency            = deal.get("currency", "EGP"),
+                in_stock            = deal.get("availability") != "out_of_stock",
+                image_url           = deal.get("image_url"),
+                category            = deal.get("category"),
+            )
+            if _result.get("price_changed"):
+                _fire_price_alerts(_result)
+        except Exception as _te:
+            print(f"  [TRACKER] {_te}")
 
 
 def _notify_new_deals(deals: list) -> None:
@@ -3282,14 +3329,15 @@ def _run_scraper_inner():
 
     # ── Egypt ────────────────────────────────────────────────────────────────
     run("amazon_eg",     scrape_amazon)
-    # jumia_eg and noon_eg temporarily paused — Amazon-only testing phase
-    # run("jumia_eg",      scrape_jumia)
+    # Background price collection (no app deals, no notifications)
+    run("noon_eg",       scrape_noon)
+    run("jumia_eg",      scrape_jumia)
+    # B2B / niche sources — admin-controlled
     run("btech_eg",      scrape_btech)
     run("carrefour_eg",  scrape_carrefour)
     run("sharaf_dg_eg",  scrape_sharaf_dg)
     run("hyperone_eg",   scrape_hyperone)
     run("sahla_eg",      scrape_sahla)
-    # run("noon_eg",       scrape_noon)
 
     # ── UAE ──────────────────────────────────────────────────────────────────
     run("amazon_ae",     scrape_amazon_ae)
