@@ -3274,7 +3274,8 @@ def _run_scraper_inner():
 
     # ── Send deal notifications to users ─────────────────────────────────────
     # _new_deals_this_run was populated by save_deal() for every brand-new deal.
-    print(f"\n  [FCM-DEALS] New deals this cycle: {len(_new_deals_this_run)}")
+    _new_deals_count = len(_new_deals_this_run)
+    print(f"\n  [FCM-DEALS] New deals this cycle: {_new_deals_count}")
     _notify_new_deals(_new_deals_this_run)
     _new_deals_this_run.clear()  # reset for next cycle
 
@@ -3298,7 +3299,7 @@ def _run_scraper_inner():
             print(f"    {label:<22} {v:>4} deals")
     print(f"  {'─' * 32}")
     print(f"  {'TOTAL':<22} {total:>4} deals")
-    print(f"  NEW DEALS NOTIFIED:     {len(_new_deals_this_run)}")
+    print(f"  NEW DEALS NOTIFIED:     {_new_deals_count}")
     print(f"  PROXY: scrape.do={'dead' if _scrapedo_dead else ('active' if SCRAPEDO_TOKEN else 'not set')}")
     print(f"  Next cycle in: {INTERVAL} min")
     print(f"{'=' * 62}\n")
@@ -3458,9 +3459,16 @@ def _purge_bad_deals():
             site = data.get("site", "")
             bad = False
             reason = ""
-            if cp < 200:
+            is_amazon = "amazon" in str(site).lower()
+            # USD detection: Amazon prices in EGP are always whole numbers.
+            # A decimal value under 500 on an Amazon listing is almost certainly
+            # a raw USD price that was never converted (e.g. $71.83).
+            if is_amazon and cp < 500 and cp != int(cp):
                 bad = True
-                reason = f"cp={cp} below 200 floor"
+                reason = f"cp={cp} looks like raw USD (Amazon, non-integer, <500)"
+            elif cp < 50:
+                bad = True
+                reason = f"cp={cp} below 50 floor"
             elif op > 0 and cp > 0 and op / cp > 8.0:
                 bad = True
                 reason = f"ratio={op/cp:.1f} (op={op} cp={cp}) exceeds 8×"
