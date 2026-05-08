@@ -26,6 +26,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from firebase_admin import firestore
+from google.cloud.firestore import FieldFilter
 
 
 # ─── Marketplace metadata ─────────────────────────────────────────────────────
@@ -289,7 +290,7 @@ def get_price_history(
         db.collection("products")
           .document(doc_id)
           .collection("price_history")
-          .where("timestamp", ">=", since)
+          .where(filter=FieldFilter("timestamp", ">=", since))
           .order_by("timestamp", direction=firestore.Query.ASCENDING)
           .limit(limit)
           .stream()
@@ -379,14 +380,14 @@ def get_recent_price_changes(
     """
     db    = _db()
     since = _now() - timedelta(hours=hours)
-    q     = db.collection("price_change_events").where("timestamp", ">=", since)
+    q     = db.collection("price_change_events").where(filter=FieldFilter("timestamp", ">=", since))
 
     if marketplace_country:
-        q = q.where("marketplace_country", "==", marketplace_country)
+        q = q.where(filter=FieldFilter("marketplace_country", "==", marketplace_country))
     elif marketplace:
-        q = q.where("marketplace", "==", marketplace)
+        q = q.where(filter=FieldFilter("marketplace", "==", marketplace))
     elif country:
-        q = q.where("country", "==", country)
+        q = q.where(filter=FieldFilter("country", "==", country))
 
     docs = (
         q.order_by("timestamp", direction=firestore.Query.DESCENDING)
@@ -480,8 +481,8 @@ def get_triggered_alerts(price_change_event: dict) -> list[dict]:
 
     alerts = (
         db.collection("price_alerts")
-          .where("product_doc_id", "==", doc_id)
-          .where("is_active", "==", True)
+          .where(filter=FieldFilter("product_doc_id", "==", doc_id))
+          .where(filter=FieldFilter("is_active", "==", True))
           .stream()
     )
 
@@ -508,8 +509,8 @@ def get_user_alerts(user_id: str) -> list[dict]:
     db = _db()
     docs = (
         db.collection("price_alerts")
-          .where("user_id", "==", user_id)
-          .where("is_active", "==", True)
+          .where(filter=FieldFilter("user_id", "==", user_id))
+          .where(filter=FieldFilter("is_active", "==", True))
           .order_by("created_at", direction="DESCENDING")
           .stream()
     )
