@@ -439,9 +439,7 @@ def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False,
 
 
 _AMAZON_API_GEOCODES = {
-    # Egypt, UAE, Saudi Arabia are NOT supported by the scrape.do Amazon
-    # structured API (returns HTTP 400). Only Western markets are supported.
-    # Add a geocode here only after confirming it works.
+    "eg": "eg",   # Testing — scrape.do may support Egypt now
     "us": "us", "uk": "uk", "de": "de", "fr": "fr",
     "it": "it", "es": "es", "ca": "ca", "au": "au",
     "jp": "jp", "in": "in", "br": "br", "mx": "mx",
@@ -1184,9 +1182,8 @@ AMAZON_KEYWORDS = [
     {"k": "yoga mat",         "cat": "sports"},
     {"k": "lego",             "cat": "toys"},
     {"k": "baby stroller",    "cat": "toys"},
-    {"k": "arabic novel",     "cat": "books"},
-    {"k": "protein bar",      "cat": "grocery"},
-    {"k": "organic honey",    "cat": "grocery"},
+    {"k": "baby monitor",     "cat": "toys"},
+    {"k": "remote control car","cat": "toys"},
     # Electronics — extra
     {"k": "realme phone",        "cat": "electronics"},
     {"k": "honor phone",         "cat": "electronics"},

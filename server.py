@@ -358,7 +358,9 @@ def get_deals():
         q = db.collection('deals')
         if category and category!="all":
             q = q.where('category','==',category.lower())
-        deals=[serialize_deal(d.id,d.to_dict()) for d in q.limit(limit).stream()]
+        deals=[serialize_deal(d.id,d.to_dict()) for d in q.limit(limit).stream()
+               if d.to_dict().get('fake_verdict') != 'FAKE'
+               and d.to_dict().get('status') != 'expired']
         return jsonify({"success":True,"count":len(deals),"deals":deals,"timestamp":now_iso()})
     except Exception as e:
         return jsonify({"success":False,"error":str(e)}),500
@@ -829,6 +831,8 @@ def mobile_get_deals():
             d = doc.to_dict()
             try:
                 if d.get('status') == 'expired':
+                    continue
+                if d.get('fake_verdict') == 'FAKE':
                     continue
                 if int(d.get('discount_percent') or 0) < min_disc:
                     continue
