@@ -3362,9 +3362,11 @@ def _recheck_expired_deals():
         expired_cutoff = now_dt - timedelta(days=7)
 
         docs = list(db.collection("deals").stream())
-        checked = {}   # source → count
+        checked = {}              # source → count
+        consecutive_failures = {} # source → consecutive HTTP failure count
         expired_count = 0
         deleted_count = 0
+        skipped_suspended = 0
 
         for d in docs:
             data = d.to_dict() or {}
@@ -3405,6 +3407,16 @@ def _recheck_expired_deals():
                 continue  # recently seen, skip
 
             site = data.get("site", "")
+
+            # Skip rechecks for suspended sources entirely
+            if site in _disabled_sources:
+                skipped_suspended += 1
+                continue
+
+            # Skip source after 5 consecutive failures this cycle
+            if consecutive_failures.get(site, 0) >= 5:
+                continue
+
             checked.setdefault(site, 0)
             if checked[site] >= 50:
                 continue
@@ -3415,7 +3427,7 @@ def _recheck_expired_deals():
                 continue
 
             try:
-                # Re-fetch the product page
+                # Up to 2 attempts per deal: scrapedo first, scraperapi as retry
                 resp = fetch_with_scrapedo(product_url, render_js=False, country="eg")
                 if not resp or is_blocked_response(resp, min_length=2000):
                     resp = fetch_with_scraperapi(product_url, render_js=False, country="eg",
@@ -3423,6 +3435,7 @@ def _recheck_expired_deals():
 
                 still_live = False
                 if resp and not is_blocked_response(resp, min_length=2000):
+                    consecutive_failures[site] = 0  # reset on success
                     soup = BeautifulSoup(resp.content, "lxml")
                     cp_raw = ""
                     op_raw = ""
@@ -3461,6 +3474,8 @@ def _recheck_expired_deals():
                                 "discount_percent": disc,
                             })
                             print(f"  [RECHECK] Still live: {data.get('title','')[:40]} | {disc}% off")
+                else:
+                    consecutive_failures[site] = consecutive_failures.get(site, 0) + 1
 
                 if not still_live:
                     db.collection("deals").document(d.id).update({
@@ -3471,11 +3486,15 @@ def _recheck_expired_deals():
                     print(f"  [RECHECK] Expired: {data.get('title','')[:40]}")
 
             except Exception as re_err:
+                consecutive_failures[site] = consecutive_failures.get(site, 0) + 1
                 print(f"  [RECHECK] Error for {d.id[:16]}: {re_err}")
 
             time.sleep(1)
 
-        print(f"  [RECHECK] Expired: {expired_count} | Deleted (>7d): {deleted_count} | Rechecked per source: {dict(checked)}")
+        skipped_by_failures = {s: c for s, c in consecutive_failures.items() if c >= 5}
+        print(f"  [RECHECK] Expired: {expired_count} | Deleted (>7d): {deleted_count} | Skipped (suspended): {skipped_suspended} | Rechecked per source: {dict(checked)}")
+        if skipped_by_failures:
+            print(f"  [RECHECK] Sources abandoned after 5 failures: {skipped_by_failures}")
 
     except Exception as e:
         print(f"  [RECHECK] Error: {e}")
