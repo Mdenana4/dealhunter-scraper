@@ -26,7 +26,7 @@ from scraper_health import health as _health
 load_dotenv()
 
 MIN_DISCOUNT    = int(os.getenv("MIN_DISCOUNT", 40))
-AMAZON_KEYWORD_ENABLED = os.getenv("AMAZON_KEYWORD_ENABLED", "false").lower() == "true"
+AMAZON_KEYWORD_ENABLED = os.getenv("AMAZON_KEYWORD_ENABLED", "true").lower() == "true"
 INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 60))
 SCRAPER_API_KEY = (
     os.getenv("SCRAPER_API_KEY") or
@@ -1187,6 +1187,51 @@ AMAZON_KEYWORDS = [
     {"k": "arabic novel",     "cat": "books"},
     {"k": "protein bar",      "cat": "grocery"},
     {"k": "organic honey",    "cat": "grocery"},
+    # Electronics — extra
+    {"k": "realme phone",        "cat": "electronics"},
+    {"k": "honor phone",         "cat": "electronics"},
+    {"k": "infinix phone",       "cat": "electronics"},
+    {"k": "tecno phone",         "cat": "electronics"},
+    {"k": "wireless charger",    "cat": "electronics"},
+    {"k": "smart watch",         "cat": "electronics"},
+    {"k": "bluetooth speaker",   "cat": "electronics"},
+    {"k": "usb hub",             "cat": "electronics"},
+    {"k": "gaming mouse",        "cat": "electronics"},
+    {"k": "gaming headset",      "cat": "electronics"},
+    {"k": "monitor screen",      "cat": "electronics"},
+    {"k": "hard drive external", "cat": "electronics"},
+    {"k": "memory card",         "cat": "electronics"},
+    {"k": "flash drive",         "cat": "electronics"},
+    # Home & kitchen
+    {"k": "electric iron",       "cat": "home"},
+    {"k": "stand fan",           "cat": "home"},
+    {"k": "water heater",        "cat": "home"},
+    {"k": "food processor",      "cat": "home"},
+    {"k": "pressure cooker",     "cat": "home"},
+    {"k": "rice cooker",         "cat": "home"},
+    {"k": "electric grill",      "cat": "home"},
+    {"k": "storage organizer",   "cat": "home"},
+    # Fashion
+    {"k": "watch men",           "cat": "fashion"},
+    {"k": "watch women",         "cat": "fashion"},
+    {"k": "backpack",            "cat": "fashion"},
+    {"k": "leather wallet",      "cat": "fashion"},
+    {"k": "running shoes",       "cat": "fashion"},
+    # Beauty & health
+    {"k": "electric shaver",     "cat": "beauty"},
+    {"k": "hair straightener",   "cat": "beauty"},
+    {"k": "face wash",           "cat": "beauty"},
+    {"k": "sunscreen spf",       "cat": "beauty"},
+    # Sports
+    {"k": "resistance bands",    "cat": "sports"},
+    {"k": "dumbbells set",       "cat": "sports"},
+    {"k": "bicycle",             "cat": "sports"},
+    # Baby & toys
+    {"k": "baby monitor",        "cat": "toys"},
+    {"k": "remote control car",  "cat": "toys"},
+    # Grocery
+    {"k": "olive oil",           "cat": "grocery"},
+    {"k": "nuts mixed",          "cat": "grocery"},
 ]
 
 
@@ -1202,7 +1247,7 @@ def _scrape_amazon_deals_page(
     # Filters: 40%+ off, sorted by discount rank. Works on EG, AE, SA.
     deals_url = (
         f"https://www.{base_domain}/s?"
-        f"rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE"
+        f"rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_US"
     )
     print(f"\n[AMAZON/{country_code.upper()}] Scraping deals page...")
     total = 0
@@ -1309,7 +1354,7 @@ def _scrape_amazon_deals_page(
                         except Exception:
                             pass
 
-                    product_url = f"https://www.{base_domain}/dp/{asin}?language=en_AE"
+                    product_url = f"https://www.{base_domain}/dp/{asin}?language=en_US"
                     cat = detect_category(title)
 
                     print(f"    [{discount}%] {title[:40]}...")
@@ -1386,7 +1431,7 @@ def _scrape_amazon_region(
             if api_products:
                 saved_this_keyword = 0
                 for p in api_products:
-                    if saved_this_keyword >= 6:
+                    if saved_this_keyword >= 10:
                         break
                     asin  = (p.get("asin") or "").strip()
                     title = (p.get("title") or "").strip()
@@ -1419,7 +1464,7 @@ def _scrape_amazon_region(
                     rating = float(pdp.get("rating") or 0)
                     rc     = int(pdp.get("total_ratings") or 0)
                     cat    = detect_category(title) or item["cat"]
-                    product_url = f"https://www.{base_domain}/dp/{asin}?language=en_AE"
+                    product_url = f"https://www.{base_domain}/dp/{asin}?language=en_US"
 
                     print(f"    [amz-api✓] {title[:40]} | {discount}% off")
                     kb = check_price_history(asin=asin, product_url=product_url,
@@ -1441,7 +1486,7 @@ def _scrape_amazon_region(
                 continue  # structured API succeeded — skip HTML fallback
 
             # ── Strategy B: HTML keyword search (fallback) ─────────────────
-            url = f"https://www.{base_domain}/s?k={item['k'].replace(' ', '+')}&language=en_AE"
+            url = f"https://www.{base_domain}/s?k={item['k'].replace(' ', '+')}&language=en_US"
             resp = fetch_with_scrapedo(url, render_js=True, country=country_code)
             if not resp or is_blocked_response(resp, min_length=5000):
                 resp = fetch_with_scraperapi(url, render_js=True, country=country_code)
@@ -1460,7 +1505,7 @@ def _scrape_amazon_region(
 
             for product in products:
                 try:
-                    if saved_this_keyword >= 6:
+                    if saved_this_keyword >= 10:
                         break  # cap at 6 deals per keyword to avoid 20+ adidas variants
                     asin = product.get("data-asin", "").strip()
                     if not asin:
@@ -1532,7 +1577,7 @@ def _scrape_amazon_region(
                             except Exception:
                                 pass
 
-                    product_url = f"https://www.{base_domain}/dp/{asin}?language=en_AE"
+                    product_url = f"https://www.{base_domain}/dp/{asin}?language=en_US"
                     cat = detect_category(title)
                     if cat == "general":
                         cat = item["cat"]
