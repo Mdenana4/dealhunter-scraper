@@ -18,6 +18,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timezone
 import firebase_admin
 from firebase_admin import credentials, firestore, messaging
+from google.cloud.firestore import FieldFilter
 from dotenv import load_dotenv
 from fake_checker import check_price_history
 from price_tracker import record_price as _pt_record, get_triggered_alerts as _pt_alerts
@@ -1241,17 +1242,14 @@ def _scrape_amazon_deals_page(
     """Scrape Amazon discount-sorted search page (SSR, works without JS). Returns deal count."""
     # Amazon's discount-filtered search is server-side rendered — no React hydration needed.
     # Filters: 40%+ off, sorted by discount rank. Works on EG, AE, SA.
-    deals_url = (
-        f"https://www.{base_domain}/s?"
-        f"rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_US"
-    )
+    deals_url = f"https://www.{base_domain}/gp/goldbox"
     print(f"\n[AMAZON/{country_code.upper()}] Scraping deals page...")
     total = 0
     seen_asins_deals: set = set()
 
-    for page_num in range(1, 4):  # pages 1–3
+    for page_num in range(1, 2):  # goldbox is a single page
         try:
-            url = deals_url if page_num == 1 else f"{deals_url}&page={page_num}"
+            url = deals_url
             # Use super_proxy (residential IP) + render_js to avoid bot detection
             resp = fetch_with_scrapedo(url, render_js=True, country=country_code, super_proxy=True)
             if not resp or is_blocked_response(resp, min_length=3000):
@@ -3183,7 +3181,7 @@ def scrape_custom_sources():
                         continue
 
             try:
-                docs = db.collection("admin").where("site_url", "==", site_url).limit(1).get()
+                docs = db.collection("admin").where(filter=FieldFilter("site_url", "==", site_url)).limit(1).get()
                 for doc in docs:
                     doc.reference.update({"last_scraped": now_iso(), "last_count": products_found})
             except Exception:
