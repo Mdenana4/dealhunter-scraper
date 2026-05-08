@@ -2335,6 +2335,58 @@ def delete_user(user_id):
     return jsonify({'success': True})
 
 
+@app.route('/api/v1/users/me', methods=['GET', 'POST'])
+def upsert_user_profile():
+    """
+    Called by the mobile app after signup or login.
+    Creates the Firestore user document on first call; updates last_login on every call.
+    Body (all optional): { name, email, phone, fcm_token, country, language }
+    Requires: Authorization: Bearer <firebase_id_token>
+    """
+    decoded = _verify_firebase_token(required=True)
+    if not decoded:
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+
+    uid  = decoded.get('uid', '')
+    ref  = db.collection('users').document(uid)
+    snap = ref.get()
+
+    if request.method == 'GET':
+        if not snap.exists:
+            return jsonify({'success': False, 'error': 'User not found'}), 404
+        return jsonify({'success': True, 'user': {**snap.to_dict(), 'id': uid}})
+
+    body = request.get_json(silent=True) or {}
+    now  = now_iso()
+
+    if snap.exists:
+        update = {'last_login': now}
+        if body.get('fcm_token'):
+            update['fcm_token'] = body['fcm_token']
+        if body.get('name'):
+            update['name'] = body['name']
+        ref.update(update)
+        data = snap.to_dict()
+        data.update(update)
+    else:
+        data = {
+            'uid':              uid,
+            'name':             body.get('name') or decoded.get('name') or '',
+            'email':            body.get('email') or decoded.get('email') or '',
+            'phone':            body.get('phone') or decoded.get('phone_number') or '',
+            'tier':             'free',
+            'daily_deal_limit': 50,
+            'country':          body.get('country', 'EG'),
+            'language':         body.get('language', 'en'),
+            'fcm_token':        body.get('fcm_token', ''),
+            'created_at':       now,
+            'last_login':       now,
+        }
+        ref.set(data)
+
+    return jsonify({'success': True, 'user': {**data, 'id': uid}})
+
+
 @app.route('/api/v1/admin/sources')
 def admin_sources():
     """Admin: custom scraper sources from 'admin' collection."""
