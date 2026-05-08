@@ -3288,13 +3288,14 @@ def _run_scraper_inner():
 
     # ── Egypt ────────────────────────────────────────────────────────────────
     run("amazon_eg",     scrape_amazon)
-    run("jumia_eg",      scrape_jumia)
+    # jumia_eg and noon_eg temporarily paused — Amazon-only testing phase
+    # run("jumia_eg",      scrape_jumia)
     run("btech_eg",      scrape_btech)
     run("carrefour_eg",  scrape_carrefour)
     run("sharaf_dg_eg",  scrape_sharaf_dg)
     run("hyperone_eg",   scrape_hyperone)
     run("sahla_eg",      scrape_sahla)
-    run("noon_eg",       scrape_noon)
+    # run("noon_eg",       scrape_noon)
 
     # ── UAE ──────────────────────────────────────────────────────────────────
     run("amazon_ae",     scrape_amazon_ae)
