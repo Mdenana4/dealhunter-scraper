@@ -26,7 +26,7 @@ from scraper_health import health as _health
 load_dotenv()
 
 MIN_DISCOUNT    = int(os.getenv("MIN_DISCOUNT", 40))
-AMAZON_KEYWORD_ENABLED = os.getenv("AMAZON_KEYWORD_ENABLED", "true").lower() == "true"
+AMAZON_KEYWORD_ENABLED = os.getenv("AMAZON_KEYWORD_ENABLED", "false").lower() == "true"
 INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 60))
 SCRAPER_API_KEY = (
     os.getenv("SCRAPER_API_KEY") or
@@ -439,7 +439,6 @@ def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False,
 
 
 _AMAZON_API_GEOCODES = {
-    "eg": "eg",   # Testing — scrape.do may support Egypt now
     "us": "us", "uk": "uk", "de": "de", "fr": "fr",
     "it": "it", "es": "es", "ca": "ca", "au": "au",
     "jp": "jp", "in": "in", "br": "br", "mx": "mx",
