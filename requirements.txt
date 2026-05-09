@@ -9,4 +9,4 @@ schedule
 python-dotenv
 
 # Browser automation for Safqa (no proxy needed)
-playwright>=1.40.0
+playwright>=1.40.0  # cache-bust-v4-2026-05-09
