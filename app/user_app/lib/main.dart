@@ -113,13 +113,40 @@ class _DealHunterAppState extends ConsumerState<DealHunterApp> {
       ],
       theme: ThemeData(
         useMaterial3: true,
-        colorSchemeSeed: const Color(0xFF1565C0),
-        brightness: Brightness.light,
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF0A0A0F),
       ),
+      themeMode: ThemeMode.dark,
       darkTheme: ThemeData(
         useMaterial3: true,
-        colorSchemeSeed: const Color(0xFF1565C0),
         brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF0A0A0F),
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFFFF6B00),
+          secondary: Color(0xFF6C00FF),
+          surface: Color(0xFF141420),
+          background: Color(0xFF0A0A0F),
+          onPrimary: Colors.white,
+          onSecondary: Colors.white,
+          onSurface: Colors.white,
+          onBackground: Colors.white,
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF0A0A0F),
+          elevation: 0,
+          iconTheme: IconThemeData(color: Colors.white),
+          titleTextStyle: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+        ),
+        cardTheme: CardTheme(
+          color: const Color(0xFF141420),
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+        bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+          backgroundColor: Color(0xFF0A0A0F),
+          selectedItemColor: Color(0xFFFF6B00),
+          unselectedItemColor: Color(0x66FFFFFF),
+        ),
       ),
       routerConfig: appRouter,
     );
