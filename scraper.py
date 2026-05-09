@@ -1287,157 +1287,167 @@ def _scrape_amazon_deals_page(
     country_code="eg",
 ):
     """Scrape Amazon discount-sorted search page (SSR, works without JS). Returns deal count."""
-    # Amazon's discount-filtered search is server-side rendered — no React hydration needed.
+    # v8 FIX: /gp/goldbox returns keyboard shortcuts page. Use discount-rank search URL.
     # Filters: 40%+ off, sorted by discount rank. Works on EG, AE, SA.
-    deals_url = f"https://www.{base_domain}/gp/goldbox"
     print(f"\n[AMAZON/{country_code.upper()}] Scraping deals page...")
     total = 0
     seen_asins_deals: set = set()
 
-    for page_num in range(1, 2):  # goldbox is a single page
+    # v8: Multiple URL patterns to try — goldbox is broken, discount-rank works
+    DEALS_URL_PATTERNS = [
+        f"https://www.{base_domain}/s?rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_US",
+        f"https://www.{base_domain}/gp/goldbox?language=en_US&ref_=nav_cs_gb",
+        f"https://www.{base_domain}/deals?language=en_US",
+    ]
+
+    resp = None
+    url = None
+    for url in DEALS_URL_PATTERNS:
         try:
-            url = deals_url
-            # Use super_proxy (residential IP) + render_js to avoid bot detection
+            print(f"  Trying deals URL: {url[:60]}...")
             resp = fetch_with_scrapedo(url, render_js=True, country=country_code, super_proxy=True)
-            if not resp or is_blocked_response(resp, min_length=3000):
-                print(f"  Deals page {page_num}: scrape.do blocked → ScraperAPI residential fallback")
-                resp = fetch_with_scraperapi(url, render_js=True, country=country_code,
-                                             _skip_scrapedo=True, premium=True)
-            if is_blocked_response(resp, min_length=3000):
-                print(f"  Deals page {page_num}: all proxies blocked — trying direct fetch")
-                resp = fetch_direct(url)
-            if is_blocked_response(resp, min_length=3000):
-                print(f"  Deals page {page_num}: blocked/empty (HTTP {resp.status_code if resp else 'no response'}) — skipping")
-                _log_scraper_error(f"amazon_{country_code}", url, "Blocked/CAPTCHA response on deals page")
+            if resp and not is_blocked_response(resp, min_length=5000):
+                print(f"  Deals page loaded via scrape.do ({len(resp.content)} bytes)")
                 break
-
-            soup = BeautifulSoup(resp.content, "lxml")
-            # Amazon search/deals pages use several card structures.
-            # data-asin divs that also have data-component-type="s-search-result" are the
-            # top-level product cards. Filter to only those with an ASIN and a child h2
-            # (title) to skip wrapper/container divs that also carry data-asin.
-            _all_asin = [p for p in soup.find_all("div", attrs={"data-asin": True})
-                         if p.get("data-asin", "").strip()]
-            products = (
-                [p for p in _all_asin if p.get("data-component-type") == "s-search-result"] or
-                [p for p in _all_asin if p.find("h2")] or
-                _all_asin or
-                soup.find_all("div", attrs={"data-testid": "deal-card"}) or
-                soup.find_all("li", class_=re.compile(r"GridItem|deal-card|s-result-item", re.I)) or
-                soup.find_all("div", class_=re.compile(r"DealCard|deal-card|dealCard", re.I))
-            )
-            if not products:
-                # Log a snippet to help diagnose selector issues
-                body_text = soup.get_text(" ", strip=True)[:200]
-                print(f"  Deals page {page_num}: 0 products — selectors exhausted. Page preview: {body_text!r}")
-                _log_scraper_error(f"amazon_{country_code}", url, "0 products parsed — all selectors failed")
+            print(f"  scrape.do failed, trying ScraperAPI...")
+            resp = fetch_with_scraperapi(url, render_js=True, country=country_code,
+                                         _skip_scrapedo=True, premium=True)
+            if resp and not is_blocked_response(resp, min_length=5000):
+                print(f"  Deals page loaded via ScraperAPI ({len(resp.content)} bytes)")
                 break
-
-            print(f"  Deals page {page_num}: {len(products)} product divs")
-
-            for product in products:
-                try:
-                    asin = product.get("data-asin", "").strip()
-                    if not asin:
-                        continue
-                    if asin in seen_asins_deals:
-                        continue
-                    if product.get("data-component-type") == "sp-sponsored-result":
-                        continue
-
-                    title_el = (
-                        product.find("h2") or
-                        product.find("span", class_="a-size-medium") or
-                        product.find("span", class_="a-size-base-plus")
-                    )
-                    if not title_el:
-                        continue
-                    title = title_el.get_text(strip=True)
-                    if not title or len(title.split()) < 3:
-                        continue
-
-                    price_el = product.find("span", class_="a-price-whole")
-                    if not price_el:
-                        continue
-                    current_price = clean_price(price_el.get_text(strip=True))
-                    if current_price < 1:
-                        continue
-
-                    original_price = current_price
-                    orig_block = product.find("span", class_="a-price a-text-price")
-                    if orig_block:
-                        orig_el = orig_block.find("span", class_="a-offscreen")
-                        if orig_el:
-                            original_price = clean_price(orig_el.get_text(strip=True)) or current_price
-
-                    # Try to get discount from badge first (most reliable on deals page)
-                    discount = calculate_discount(original_price, current_price)
-                    badge_el = product.find("span", class_="a-badge-text")
-                    if badge_el:
-                        badge_text = badge_el.get_text(strip=True)
-                        nums = re.findall(r'\d+', badge_text)
-                        if nums and int(nums[0]) >= MIN_DISCOUNT:
-                            discount = int(nums[0])
-                            if original_price <= current_price:
-                                original_price = round(current_price / (1 - discount / 100))
-
-                    if discount < MIN_DISCOUNT:
-                        continue
-
-                    img_el    = product.find("img", class_="s-image")
-                    image_url = img_el.get("src", "") if img_el else ""
-
-                    rating = 0.0
-                    rating_el = product.find("span", class_="a-icon-alt")
-                    if rating_el:
-                        try:
-                            rating = float(rating_el.get_text(strip=True).split(" ")[0])
-                        except Exception:
-                            pass
-
-                    product_url = f"https://www.{base_domain}/dp/{asin}?language=en_US"
-                    cat = detect_category(title)
-
-                    print(f"    [{discount}%] {title[:40]}...")
-                    kb = check_price_history(
-                        asin=asin,
-                        product_url=product_url,
-                        current_price=current_price,
-                        original_price=original_price,
-                        title=title,
-                        site=marketplace_country,
-                    )
-                    time.sleep(1)
-
-                    deal = build_deal(
-                        title=title,
-                        site=marketplace_country,
-                        site_display=site_display,
-                        category=cat,
-                        current_price=current_price,
-                        original_price=original_price,
-                        discount=discount,
-                        image_url=image_url,
-                        product_url=product_url,
-                        rating=rating,
-                        review_count=None,
-                        asin=asin,
-                        kanbkam_result=kb,
-                        currency=currency,
-                    )
-                    save_deal(deal)
-                    seen_asins_deals.add(asin)
-                    total += 1
-                    time.sleep(0.5)
-
-                except Exception:
-                    continue
-
-            time.sleep(3)
-
+            print(f"  Trying direct fetch...")
+            resp = fetch_direct(url)
+            if resp and not is_blocked_response(resp, min_length=5000):
+                print(f"  Deals page loaded via direct ({len(resp.content)} bytes)")
+                break
+            print(f"  URL failed: {url[:60]}")
+            resp = None
         except Exception as e:
-            print(f"  Amazon/{country_code} deals page error (page {page_num}): {e}")
-            break
+            print(f"  URL error {url[:60]}: {e}")
+            resp = None
+
+    if not resp or is_blocked_response(resp, min_length=5000):
+        print(f"  All deals page URLs failed — skipping deals page")
+        _log_scraper_error(f"amazon_{country_code}", str(DEALS_URL_PATTERNS[0]), "All deals page URLs failed")
+        return 0, seen_asins_deals
+
+    soup = BeautifulSoup(resp.content, "lxml")
+    # Amazon search/deals pages use several card structures.
+    _all_asin = [p for p in soup.find_all("div", attrs={"data-asin": True})
+                 if p.get("data-asin", "").strip()]
+    products = (
+        [p for p in _all_asin if p.get("data-component-type") == "s-search-result"] or
+        [p for p in _all_asin if p.find("h2")] or
+        _all_asin or
+        soup.find_all("div", attrs={"data-testid": "deal-card"}) or
+        soup.find_all("li", class_=re.compile(r"GridItem|deal-card|s-result-item", re.I)) or
+        soup.find_all("div", class_=re.compile(r"DealCard|deal-card|dealCard", re.I))
+    )
+    if not products:
+        body_text = soup.get_text(" ", strip=True)[:300]
+        print(f"  Deals page: 0 products — selectors exhausted. Page preview: {body_text!r}")
+        _log_scraper_error(f"amazon_{country_code}", url, "0 products parsed — all selectors failed")
+        return 0, seen_asins_deals
+
+    print(f"  Deals page: {len(products)} product divs")
+
+    for product in products:
+        try:
+            asin = product.get("data-asin", "").strip()
+            if not asin:
+                continue
+            if asin in seen_asins_deals:
+                continue
+            if product.get("data-component-type") == "sp-sponsored-result":
+                continue
+
+            title_el = (
+                product.find("h2") or
+                product.find("span", class_="a-size-medium") or
+                product.find("span", class_="a-size-base-plus")
+            )
+            if not title_el:
+                continue
+            title = title_el.get_text(strip=True)
+            if not title or len(title.split()) < 3:
+                continue
+
+            price_el = product.find("span", class_="a-price-whole")
+            if not price_el:
+                continue
+            current_price = clean_price(price_el.get_text(strip=True))
+            if current_price < 1:
+                continue
+
+            original_price = current_price
+            orig_block = product.find("span", class_="a-price a-text-price")
+            if orig_block:
+                orig_el = orig_block.find("span", class_="a-offscreen")
+                if orig_el:
+                    original_price = clean_price(orig_el.get_text(strip=True)) or current_price
+
+            # Try to get discount from badge first (most reliable on deals page)
+            discount = calculate_discount(original_price, current_price)
+            badge_el = product.find("span", class_="a-badge-text")
+            if badge_el:
+                badge_text = badge_el.get_text(strip=True)
+                nums = re.findall(r'\d+', badge_text)
+                if nums and int(nums[0]) >= MIN_DISCOUNT:
+                    discount = int(nums[0])
+                    if original_price <= current_price:
+                        original_price = round(current_price / (1 - discount / 100))
+
+            if discount < MIN_DISCOUNT:
+                continue
+
+            img_el    = product.find("img", class_="s-image")
+            image_url = img_el.get("src", "") if img_el else ""
+
+            rating = 0.0
+            rating_el = product.find("span", class_="a-icon-alt")
+            if rating_el:
+                try:
+                    rating = float(rating_el.get_text(strip=True).split(" ")[0])
+                except Exception:
+                    pass
+
+            product_url = f"https://www.{base_domain}/dp/{asin}?language=en_US"
+            cat = detect_category(title)
+
+            print(f"    [{discount}%] {title[:40]}...")
+            kb = check_price_history(
+                asin=asin,
+                product_url=product_url,
+                current_price=current_price,
+                original_price=original_price,
+                title=title,
+                site=marketplace_country,
+            )
+            time.sleep(1)
+
+            deal = build_deal(
+                title=title,
+                site=marketplace_country,
+                site_display=site_display,
+                category=cat,
+                current_price=current_price,
+                original_price=original_price,
+                discount=discount,
+                image_url=image_url,
+                product_url=product_url,
+                rating=rating,
+                review_count=None,
+                asin=asin,
+                kanbkam_result=kb,
+                currency=currency,
+            )
+            save_deal(deal)
+            seen_asins_deals.add(asin)
+            total += 1
+            time.sleep(0.5)
+
+        except Exception:
+            continue
 
     print(f"[AMAZON/{country_code.upper()}] Deals page done. {total} deals.")
     return total, seen_asins_deals
