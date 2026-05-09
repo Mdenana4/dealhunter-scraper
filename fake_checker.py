@@ -202,7 +202,7 @@ def check_kanbkam(asin, title=""):
 # ─────────────────────────────────────────────────────
 def check_safqa(asin=None, product_url=None, title=""):
     """
-    Fetch price history from Safqa (safqaprice.com).
+    Fetch price history from Safqa (joinsafqa.com).
 
     v5: Uses headless Chromium browser via Playwright.
     The old proxy-based approach (scrape.do / ScraperAPI) is broken —
