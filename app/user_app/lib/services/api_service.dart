@@ -48,11 +48,13 @@ class ApiService {
   }
 
   // ─── Deals ─────────────────────────────────────────────────────────────────
+  // NOTE: Only Amazon Egypt deals are shown to users. Other sources (Noon, Jumia)
+  // are still scraped for price history / fake deal detection, but not displayed.
 
   Future<List<DealModel>> getDeals({
     String? category,
     String? country,
-    String? source,
+    String? source = 'amazon_eg',  // Default: only Amazon Egypt deals
     String? marketplaceCountry,
     double minDiscount = 0,
     int page = 1,
