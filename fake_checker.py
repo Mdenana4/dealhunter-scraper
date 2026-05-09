@@ -166,9 +166,9 @@ def check_kanbkam(asin, title=""):
 # ─────────────────────────────────────────────────────
 def check_safqa(asin=None, product_url=None, title=""):
     """
-    Fetch price history from Safqa (joinsafqa.com)
-    FIX: Rebuilt all 4 methods with correct endpoint URLs.
-         Old code used wrong API paths that always returned nothing.
+    Fetch price history from Safqa (safqaprice.com)
+    FIX v2: Domain was joinsafqa.com (wrong) → safqaprice.com (correct).
+         API endpoints updated to match safqaprice.com structure.
     Returns: {lowest_price, highest_price, coupon_codes, found, url}
     """
     result = {
@@ -183,8 +183,8 @@ def check_safqa(asin=None, product_url=None, title=""):
 
     try:
         base_headers = get_headers(arabic=True)
-        base_headers["Referer"] = "https://joinsafqa.com/"
-        base_headers["Origin"] = "https://joinsafqa.com"
+        base_headers["Referer"] = "https://safqaprice.com/"
+        base_headers["Origin"] = "https://safqaprice.com"
 
         # ─── Method 1: Safqa API — try known endpoint formats ───
         if asin and not result["found"]:
@@ -194,10 +194,12 @@ def check_safqa(asin=None, product_url=None, title=""):
             ext_headers["x-country"] = "eg"
 
             api_urls = [
-                f"https://api.joinsafqa.com/product?asin={asin}&country=eg",
-                f"https://joinsafqa.com/api/v1/product?asin={asin}&country=eg",
-                f"https://joinsafqa.com/api/extension/product?asin={asin}&country=eg",
-                f"https://joinsafqa.com/api/product?asin={asin}&country=eg",
+                f"https://api.safqaprice.com/v1/product?asin={asin}&country=eg",
+                f"https://api.safqaprice.com/product?asin={asin}&country=eg",
+                f"https://safqaprice.com/api/v1/product?asin={asin}&country=eg",
+                f"https://safqaprice.com/api/products/{asin}?country=eg",
+                f"https://safqaprice.com/api/deals/{asin}?country=eg",
+                f"https://backend.safqaprice.com/api/product?asin={asin}&country=eg",
             ]
             for url in api_urls:
                 try:
@@ -217,10 +219,10 @@ def check_safqa(asin=None, product_url=None, title=""):
         # ─── Method 2: Product/search page HTML scrape ───
         if asin and not result["found"]:
             page_urls = [
-                f"https://joinsafqa.com/products/{asin}",
-                f"https://joinsafqa.com/product/{asin}",
-                f"https://joinsafqa.com/eg/ar/dp/{asin}",
-                f"https://joinsafqa.com/search?q={asin}",
+                f"https://safqaprice.com/product/{asin}",
+                f"https://safqaprice.com/products/{asin}",
+                f"https://safqaprice.com/item/{asin}",
+                f"https://safqaprice.com/search?q={asin}&country=eg",
             ]
             for url in page_urls:
                 try:
