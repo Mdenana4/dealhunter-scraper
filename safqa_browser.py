@@ -301,6 +301,13 @@ class SafqaBrowser:
         self._page.wait_for_load_state("networkidle", timeout=self.timeout_ms)
         # Extra wait for React to render price elements
         self._page.wait_for_timeout(self.render_wait_ms)
+        # DEBUG
+        try:
+            t = self._page.title()
+            c = self._page.content()
+            print(f"      [SAFQA-BROWSER] Page: title={t[:40]} has_EGP={'EGP' in c} has_price={'price' in c.lower()}")
+        except Exception as e:
+            print(f"      [SAFQA-BROWSER] Page info error: {e}")
 
     # ── Extraction Methods ──
 
