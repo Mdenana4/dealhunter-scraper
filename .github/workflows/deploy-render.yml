@@ -1,0 +1,20 @@
+name: Deploy API to Render
+
+on:
+  push:
+    branches: [ api, main ]
+    paths:
+      - 'api/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Render
+        uses: johnbeynon/render-deploy-action@v0.0.8
+        with:
+          service-id: srv-d7cnfijeo5us73fekul0
+          api-key: ${{ secrets.RENDER_API_KEY }}

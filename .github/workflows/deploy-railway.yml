@@ -1,0 +1,23 @@
+name: Deploy Scraper to Railway
+
+on:
+  push:
+    branches: [ scraper, main ]
+    paths:
+      - 'scraper/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Railway
+        uses: railway/deploy-action@v1
+        with:
+          railway_token: ${{ secrets.RAILWAY_TOKEN }}
+          project_id: aa7d717f-aa2e-4dee-88e1-2ec3558c8f0b
+          service_id: a26bc021-532b-4926-b76d-3f7bf9d4dc4f
+          environment_id: 7ab563bb-2b92-4d31-be88-7f752bb3c4f1
+          root: scraper

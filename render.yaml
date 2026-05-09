@@ -1,0 +1,26 @@
+# DealHunter API — Render Deployment Config
+# Render will auto-detect this file and configure the service
+services:
+  - type: web
+    name: dealhunter-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server:app --bind 0.0.0.0:$PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: FLASK_ENV
+        value: production
+      - key: FLASK_APP
+        value: server.py
+    # Set these in Render Dashboard → Environment:
+    # FIREBASE_KEY_JSON=<paste-firebase-service-account-json>
+    # SCRAPEDO_TOKEN=<your-scrape.do-token>
+    # PAYMOB_API_KEY=<your-paymob-key>
+    # PAYMOB_INTEGRATION_ID=<your-integration-id>
+    # PAYMOB_IFRAME_ID=<your-iframe-id>
+    # PAYMOB_HMAC_SECRET=<your-hmac-secret>
+    # TAP_SECRET_KEY=<your-tap-secret>
+    # FLASK_SECRET_KEY=<random-secret-key>
