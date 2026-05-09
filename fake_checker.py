@@ -199,7 +199,7 @@ def check_kanbkam(asin, title=""):
 # SOURCE 2: SAFQA — Rebuilt with working endpoints
 # ─────────────────────────────────────────────────────
 def check_safqa(asin=None, product_url=None, title=""):
-    """Fetch price history from Safqa (safqaprice.com) using scrape.do proxy."""
+    """Fetch price history from Safqa (safqaprice.com) v4 — with retry logic for 502s."""
     import os
 
     scrapedo_token = os.environ.get("SCRAPEDO_TOKEN", "")
@@ -213,48 +213,74 @@ def check_safqa(asin=None, product_url=None, title=""):
 
     ext_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Accept": "application/json"}
 
-    def _do_request(url, method="GET", payload=None, headers=None):
+    def _do_request(url, method="GET", payload=None, headers=None, retries=2):
         h = headers or ext_headers
-        try:
-            if scrapedo_token:
-                encoded = requests.utils.quote(url, safe="")
-                proxy_url = f"https://api.scrape.do/?token={scrapedo_token}&url={encoded}&render=true"
-                try:
-                    if method == "POST":
-                        r = requests.post(proxy_url, headers=h, json=payload, timeout=25)
-                    else:
-                        r = requests.get(proxy_url, headers=h, timeout=25)
-                    print(f"      [SAFQA] scrape.do | {url[:55]}... | Status: {r.status_code} | Len: {len(r.text)}")
-                    if r.status_code == 200:
-                        return r
-                except Exception as e:
-                    print(f"      [SAFQA] scrape.do err: {str(e)[:50]}")
-            if scraper_key:
-                encoded = requests.utils.quote(url, safe="")
-                proxy_url = f"http://api.scraperapi.com?api_key={scraper_key}&url={encoded}"
-                try:
-                    if method == "POST":
-                        r = requests.post(proxy_url, headers=h, json=payload, timeout=25)
-                    else:
-                        r = requests.get(proxy_url, headers=h, timeout=25)
-                    print(f"      [SAFQA] scraperapi | {url[:55]}... | Status: {r.status_code} | Len: {len(r.text)}")
-                    if r.status_code == 200:
-                        return r
-                except Exception as e:
-                    print(f"      [SAFQA] scraperapi err: {str(e)[:50]}")
+        for attempt in range(retries):
             try:
-                if method == "POST":
-                    r = requests.post(url, headers=h, json=payload, timeout=10)
-                else:
-                    r = requests.get(url, headers=h, timeout=10)
-                print(f"      [SAFQA] direct | {url[:55]}... | Status: {r.status_code} | Len: {len(r.text)}")
-                return r
+                # Try 1: scrape.do with longer timeout and wait
+                if scrapedo_token:
+                    encoded = requests.utils.quote(url, safe="")
+                    # Add wait=5000 to let React SPA render (5 seconds)
+                    proxy_url = f"https://api.scrape.do/?token={scrapedo_token}&url={encoded}&render=true&wait=5000"
+                    try:
+                        if method == "POST":
+                            r = requests.post(proxy_url, headers=h, json=payload, timeout=35)
+                        else:
+                            r = requests.get(proxy_url, headers=h, timeout=35)
+                        status = r.status_code
+                        print(f"      [SAFQA] scrape.do | {url[:50]}... | Status: {status} | Len: {len(r.text)}")
+                        if status == 200:
+                            return r
+                        # 502 might be temporary — retry once
+                        if status == 502 and attempt == 0:
+                            print(f"      [SAFQA] 502, retrying in 3s...")
+                            import time
+                            time.sleep(3)
+                            continue
+                    except Exception as e:
+                        print(f"      [SAFQA] scrape.do err: {str(e)[:40]}")
+
+                # Try 2: scrape.do without render (lighter request)
+                if scrapedo_token and attempt == 1:
+                    proxy_url = f"https://api.scrape.do/?token={scrapedo_token}&url={encoded}"
+                    try:
+                        r = requests.get(proxy_url, headers=h, timeout=25)
+                        print(f"      [SAFQA] scrape.do(nr) | {url[:50]}... | Status: {r.status_code} | Len: {len(r.text)}")
+                        if r.status_code == 200:
+                            return r
+                    except Exception as e:
+                        print(f"      [SAFQA] scrape.do(nr) err: {str(e)[:40]}")
+
+                # Try 3: ScraperAPI
+                if scraper_key:
+                    encoded = requests.utils.quote(url, safe="")
+                    proxy_url = f"http://api.scraperapi.com?api_key={scraper_key}&url={encoded}"
+                    try:
+                        if method == "POST":
+                            r = requests.post(proxy_url, headers=h, json=payload, timeout=25)
+                        else:
+                            r = requests.get(proxy_url, headers=h, timeout=25)
+                        print(f"      [SAFQA] scraperapi | {url[:50]}... | Status: {r.status_code} | Len: {len(r.text)}")
+                        if r.status_code == 200:
+                            return r
+                    except Exception as e:
+                        print(f"      [SAFQA] scraperapi err: {str(e)[:40]}")
+
+                # Try 4: direct (last resort)
+                try:
+                    if method == "POST":
+                        r = requests.post(url, headers=h, json=payload, timeout=10)
+                    else:
+                        r = requests.get(url, headers=h, timeout=10)
+                    print(f"      [SAFQA] direct | {url[:50]}... | Status: {r.status_code} | Len: {len(r.text)}")
+                    return r
+                except Exception as e:
+                    print(f"      [SAFQA] direct err: {str(e)[:40]}")
+                    return None
             except Exception as e:
-                print(f"      [SAFQA] direct err: {str(e)[:50]}")
+                print(f"      [SAFQA] req failed: {str(e)[:40]}")
                 return None
-        except Exception as e:
-            print(f"      [SAFQA] req failed: {str(e)[:50]}")
-            return None
+        return None
 
     # ─── Method 1: API endpoints ───
     api_urls = [
