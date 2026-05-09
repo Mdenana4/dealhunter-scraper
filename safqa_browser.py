@@ -141,7 +141,7 @@ class SafqaBrowser:
             return
 
         _ensure_imports()
-        logger.info("[SAFQA-BROWSER] Starting Chromium...")
+        print("    [SAFQA-BROWSER] Starting Chromium...")
         t0 = time.time()
 
         self._pw = _sync_playwright().start()
@@ -175,11 +175,11 @@ class SafqaBrowser:
         """)
         self._page = self._context.new_page()
         self._started = True
-        logger.info(f"[SAFQA-BROWSER] Chromium ready in {time.time()-t0:.1f}s")
+        print(f"    [SAFQA-BROWSER] Chromium ready in {time.time()-t0:.1f}s")
 
     def stop(self) -> None:
         """Close browser. Call at scraper shutdown."""
-        logger.info("[SAFQA-BROWSER] Stopping Chromium...")
+        print("    [SAFQA-BROWSER] Stopping Chromium...")
         try:
             if self._context:
                 self._context.close()
@@ -201,6 +201,7 @@ class SafqaBrowser:
         product_url: Optional[str] = None,
         title: str = "",
     ) -> SafqaResult:
+        print(f"    [SAFQA-BROWSER] check_product() called, asin={asin}, _started={self._started}")
         """
         Check Safqa for price data on a product.
 
@@ -266,10 +267,10 @@ class SafqaBrowser:
                                 return result
 
             except Exception as exc:
-                logger.debug(f"[SAFQA-BROWSER] URL failed {url[:50]}: {exc}")
+                print(f"    [SAFQA-BROWSER] URL failed {url[:50]}: {exc}")
                 continue
 
-        logger.info(f"[SAFQA-BROWSER] ❌ ASIN {asin}: not found on Safqa")
+        print(f"    [SAFQA-BROWSER] ❌ ASIN {asin}: not found on Safqa")
         return result
 
     # ── Internal ──
