@@ -1332,28 +1332,87 @@ def _scrape_amazon_deals_page(
         return 0, seen_asins_deals
 
     soup = BeautifulSoup(resp.content, "lxml")
-    # Amazon search/deals pages use several card structures.
+
+    # v8: Debug — log what selectors find so we can diagnose
+    debug_counts = {}
+
+    # Strategy 1: data-asin divs (traditional Amazon search results)
     _all_asin = [p for p in soup.find_all("div", attrs={"data-asin": True})
                  if p.get("data-asin", "").strip()]
-    products = (
-        [p for p in _all_asin if p.get("data-component-type") == "s-search-result"] or
-        [p for p in _all_asin if p.find("h2")] or
-        _all_asin or
+    debug_counts["data-asin"] = len(_all_asin)
+
+    # Strategy 2: s-result-item class (common on search pages)
+    _s_result = soup.find_all("div", class_=re.compile(r"s-result-item", re.I))
+    debug_counts["s-result-item"] = len(_s_result)
+
+    # Strategy 3: s-card-container (newer Amazon layout)
+    _s_card = soup.find_all("div", class_=re.compile(r"s-card-container", re.I))
+    debug_counts["s-card-container"] = len(_s_card)
+
+    # Strategy 4: Direct component type
+    _comp_type = soup.find_all("div", attrs={"data-component-type": "s-search-result"})
+    debug_counts["data-component-type"] = len(_comp_type)
+
+    # Strategy 5: Product links — find /dp/ links, walk up to parent container
+    _dp_links = soup.find_all("a", href=re.compile(r"/dp/[A-Z0-9]{10}", re.I))
+    debug_counts["dp-links"] = len(_dp_links)
+
+    # Strategy 6: Deal cards
+    _deal_cards = (
         soup.find_all("div", attrs={"data-testid": "deal-card"}) or
-        soup.find_all("li", class_=re.compile(r"GridItem|deal-card|s-result-item", re.I)) or
         soup.find_all("div", class_=re.compile(r"DealCard|deal-card|dealCard", re.I))
     )
+    debug_counts["deal-cards"] = len(_deal_cards)
+
+    print(f"  Selector debug: {debug_counts}")
+
+    # v8: If we only have /dp/ links, build product list from those
+    if _dp_links and not (
+        _all_asin or _s_result or _s_card or _comp_type or _deal_cards
+    ):
+        print(f"  Using /dp/ link extraction: {len(_dp_links)} links found")
+        asin_map = {}
+        for link in _dp_links:
+            href = link.get("href", "")
+            m = re.search(r"/dp/([A-Z0-9]{10})", href, re.I)
+            if m:
+                asin = m.group(1).upper()
+                if asin not in asin_map:
+                    asin_map[asin] = link
+        if asin_map:
+            products = list(asin_map.values())
+            print(f"  Extracted {len(products)} unique ASINs from /dp/ links")
+        else:
+            products = []
+    else:
+        # Pick the best product list from DOM selectors
+        products = (
+            [p for p in _all_asin if p.get("data-component-type") == "s-search-result"] or
+            _comp_type or
+            [p for p in _all_asin if p.find("h2")] or
+            _s_result or
+            _s_card or
+            _all_asin or
+            _deal_cards
+        )
+
     if not products:
         body_text = soup.get_text(" ", strip=True)[:300]
-        print(f"  Deals page: 0 products — selectors exhausted. Page preview: {body_text!r}")
-        _log_scraper_error(f"amazon_{country_code}", url, "0 products parsed — all selectors failed")
+        print(f"  Deals page: 0 products — all selectors empty. Preview: {body_text!r}")
+        _log_scraper_error(f"amazon_{country_code}", url, "0 products — all selectors empty")
         return 0, seen_asins_deals
 
     print(f"  Deals page: {len(products)} product divs")
 
     for product in products:
         try:
+            # v8: Handle both div[data-asin] and a[href*=/dp/] elements
             asin = product.get("data-asin", "").strip()
+            if not asin and product.name == "a":
+                href = product.get("href", "")
+                m = re.search(r"/dp/([A-Z0-9]{10})", href, re.I)
+                if m:
+                    asin = m.group(1).upper()
             if not asin:
                 continue
             if asin in seen_asins_deals:
@@ -1361,18 +1420,41 @@ def _scrape_amazon_deals_page(
             if product.get("data-component-type") == "sp-sponsored-result":
                 continue
 
-            title_el = (
-                product.find("h2") or
-                product.find("span", class_="a-size-medium") or
-                product.find("span", class_="a-size-base-plus")
-            )
-            if not title_el:
-                continue
-            title = title_el.get_text(strip=True)
+            # v8: Handle both div containers and <a> link elements
+            if product.name == "a":
+                title = product.get_text(strip=True) or product.get("title", "")
+                if not title:
+                    # Try to find title in parent container
+                    parent = product.find_parent("div")
+                    if parent:
+                        title_el = (
+                            parent.find("h2") or
+                            parent.find("span", class_="a-size-medium") or
+                            parent.find("span", class_="a-size-base-plus")
+                        )
+                        if title_el:
+                            title = title_el.get_text(strip=True)
+            else:
+                title_el = (
+                    product.find("h2") or
+                    product.find("span", class_="a-size-medium") or
+                    product.find("span", class_="a-size-base-plus")
+                )
+                title = title_el.get_text(strip=True) if title_el else ""
             if not title or len(title.split()) < 3:
                 continue
 
-            price_el = product.find("span", class_="a-price-whole")
+            # v8: For <a> link products, search in parent container for prices
+            search_root = product
+            if product.name == "a":
+                for _ in range(3):
+                    search_root = search_root.find_parent("div")
+                    if not search_root:
+                        break
+                    if search_root.find("span", class_="a-price-whole"):
+                        break
+
+            price_el = search_root.find("span", class_="a-price-whole")
             if not price_el:
                 continue
             current_price = clean_price(price_el.get_text(strip=True))
@@ -1380,15 +1462,14 @@ def _scrape_amazon_deals_page(
                 continue
 
             original_price = current_price
-            orig_block = product.find("span", class_="a-price a-text-price")
+            orig_block = search_root.find("span", class_="a-price a-text-price")
             if orig_block:
                 orig_el = orig_block.find("span", class_="a-offscreen")
                 if orig_el:
                     original_price = clean_price(orig_el.get_text(strip=True)) or current_price
 
-            # Try to get discount from badge first (most reliable on deals page)
             discount = calculate_discount(original_price, current_price)
-            badge_el = product.find("span", class_="a-badge-text")
+            badge_el = search_root.find("span", class_="a-badge-text")
             if badge_el:
                 badge_text = badge_el.get_text(strip=True)
                 nums = re.findall(r'\d+', badge_text)
@@ -1400,11 +1481,11 @@ def _scrape_amazon_deals_page(
             if discount < MIN_DISCOUNT:
                 continue
 
-            img_el    = product.find("img", class_="s-image")
+            img_el = search_root.find("img", class_="s-image")
             image_url = img_el.get("src", "") if img_el else ""
 
             rating = 0.0
-            rating_el = product.find("span", class_="a-icon-alt")
+            rating_el = search_root.find("span", class_="a-icon-alt")
             if rating_el:
                 try:
                     rating = float(rating_el.get_text(strip=True).split(" ")[0])
