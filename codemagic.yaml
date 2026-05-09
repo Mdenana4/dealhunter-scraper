@@ -1,0 +1,27 @@
+# DealHunter Egypt — CodeMagic CI/CD Config
+# Place this in the ROOT of your Flutter repo
+workflows:
+  android-release:
+    name: Android Release
+    environment:
+      flutter: stable
+      java: 17
+    scripts:
+      - flutter packages pub get
+      - flutter build apk --release
+      - flutter build appbundle --release
+    artifacts:
+      - build/app/outputs/flutter-apk/*.apk
+      - build/app/outputs/bundle/release/*.aab
+
+  ios-release:
+    name: iOS Release
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - flutter packages pub get
+      - flutter build ios --release --no-codesign
+    artifacts:
+      - build/ios_ipa/*.ipa
