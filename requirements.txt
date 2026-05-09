@@ -7,3 +7,6 @@ lxml
 cryptography
 schedule
 python-dotenv
+
+# Browser automation for Safqa (no proxy needed)
+playwright>=1.40.0
