@@ -109,10 +109,11 @@ class SafqaBrowser:
 
     # URL patterns to try, in order of likelihood
     _URL_PATTERNS = [
-        "{base}/product/{asin}?country=eg",
-        "{base}/products/{asin}?country=eg",
-        "{base}/search?q={asin}&country=eg",
-        "{base}/eg/en/{asin}",
+        "{base}/en/product/{asin}",
+        "{base}/ar/product/{asin}",
+        "{base}/product/{asin}",
+        "{base}/search?q={asin}",
+        "{base}/en/search?q={asin}",
         "{base}/p/{asin}",
     ]
 
@@ -120,7 +121,7 @@ class SafqaBrowser:
         self,
         headless: bool = True,
         timeout_ms: int = 30000,
-        render_wait_ms: int = 5000,
+        render_wait_ms: int = 8000,
     ) -> None:
         self.headless = headless
         self.timeout_ms = timeout_ms
