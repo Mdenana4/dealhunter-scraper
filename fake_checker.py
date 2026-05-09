@@ -12,6 +12,40 @@ import time
 from datetime import datetime, timezone
 from bs4 import BeautifulSoup
 
+# ─── PROXY SETUP for Safqa (Cloudflare bypass) ───
+import os
+
+def _proxied_get(url, headers=None, timeout=15):
+    """Make HTTP request via scrape.do proxy (Railway env)."""
+    # Try scrape.do first
+    scrapedo_token = os.environ.get("SCRAPEDO_TOKEN", "")
+    if scrapedo_token:
+        try:
+            encoded = requests.utils.quote(url, safe="")
+            proxy_url = f"https://api.scrape.do/?token={scrapedo_token}&url={encoded}&render=true"
+            r = requests.get(proxy_url, headers=headers, timeout=timeout+10)
+            if r.status_code == 200:
+                return r
+        except Exception:
+            pass
+
+    # Fallback: ScraperAPI
+    scraper_key = os.environ.get("SCRAPER_API_KEY", "")
+    if scraper_key:
+        try:
+            encoded = requests.utils.quote(url, safe="")
+            proxy_url = f"http://api.scraperapi.com?api_key={scraper_key}&url={encoded}"
+            r = requests.get(proxy_url, headers=headers, timeout=timeout+10)
+            if r.status_code == 200:
+                return r
+        except Exception:
+            pass
+
+    # Direct (will likely fail on Cloudflare)
+    return requests.get(url, headers=headers, timeout=timeout)
+
+
+
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
 
@@ -194,12 +228,21 @@ def check_safqa(asin=None, product_url=None, title=""):
             ext_headers["x-country"] = "eg"
 
             api_urls = [
+                # API subdomain patterns (most likely for React SPAs)
+                f"https://api.safqaprice.com/v1/products/{asin}?country=eg",
+                f"https://api.safqaprice.com/products/{asin}?country=eg",
                 f"https://api.safqaprice.com/v1/product?asin={asin}&country=eg",
                 f"https://api.safqaprice.com/product?asin={asin}&country=eg",
-                f"https://safqaprice.com/api/v1/product?asin={asin}&country=eg",
+                # Backend subdomain
+                f"https://backend.safqaprice.com/api/v1/products/{asin}?country=eg",
+                f"https://backend.safqaprice.com/api/products/{asin}?country=eg",
+                # Same-domain API patterns
+                f"https://safqaprice.com/api/v1/products/{asin}?country=eg",
                 f"https://safqaprice.com/api/products/{asin}?country=eg",
-                f"https://safqaprice.com/api/deals/{asin}?country=eg",
-                f"https://backend.safqaprice.com/api/product?asin={asin}&country=eg",
+                f"https://safqaprice.com/api/product/{asin}?country=eg",
+                # GraphQL (common for React SPAs)
+                f"https://api.safqaprice.com/graphql",
+                f"https://safqaprice.com/graphql",
             ]
             for url in api_urls:
                 try:
@@ -226,7 +269,7 @@ def check_safqa(asin=None, product_url=None, title=""):
             ]
             for url in page_urls:
                 try:
-                    resp = requests.get(url, headers=base_headers, timeout=12)
+                    resp = _proxied_get(url, headers=base_headers, timeout=20)
                     if resp.status_code != 200 or len(resp.text) < 500:
                         continue
                     soup = BeautifulSoup(resp.content, "lxml")
@@ -288,9 +331,9 @@ def check_safqa(asin=None, product_url=None, title=""):
                     continue
 
         if result["found"]:
-            print(f"    [SAFQA] Result: Low={result['lowest_price']:,.0f} High={result['highest_price']:,.0f} Coupons={result['coupon_codes']}")
+            print(f"    [SAFQA] ✅ Result: Low={result['lowest_price']:,.0f} High={result['highest_price']:,.0f} Coupons={result['coupon_codes']}")
         else:
-            print(f"    [SAFQA] Not found for this product")
+            print(f"    [SAFQA] ❌ Not found (tried {len(api_urls)} API + {len(page_urls)} page URLs)")
 
     except Exception as e:
         print(f"    [SAFQA] Error: {e}")
