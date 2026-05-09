@@ -105,7 +105,7 @@ class SafqaBrowser:
         (the scraper's main thread is fine).
     """
 
-    SAFQA_BASE = "https://safqaprice.com"
+    SAFQA_BASE = "https://joinsafqa.com"
 
     # URL patterns to try, in order of likelihood
     _URL_PATTERNS = [
@@ -203,12 +203,12 @@ class SafqaBrowser:
     ) -> SafqaResult:
         print(f"    [SAFQA-BROWSER] check_product() called, asin={asin}, _started={self._started}")
 
-        # DNS pre-check: skip if safqaprice.com is blocked from this network
+        # DNS pre-check: skip if joinsafqa.com is blocked from this network
         import socket
         try:
-            socket.gethostbyname("safqaprice.com")
+            socket.gethostbyname("joinsafqa.com")
         except socket.gaierror:
-            print(f"    [SAFQA-BROWSER] ⚠️  safqaprice.com DNS blocked from this network — skipping")
+            print(f"    [SAFQA-BROWSER] ⚠️  joinsafqa.com DNS blocked from this network — skipping")
             print(f"    [SAFQA-BROWSER]    (Use Egypt-based VPS or residential proxy)")
             return SafqaResult()
         """
@@ -287,7 +287,7 @@ class SafqaBrowser:
     def _build_urls(self, asin: str, product_url: Optional[str]) -> list[str]:
         """Build list of URLs to try."""
         urls = []
-        if product_url and "safqaprice.com" in product_url:
+        if product_url and "joinsafqa.com" in product_url:
             urls.append(product_url)
         for pattern in self._URL_PATTERNS:
             urls.append(pattern.format(base=self.SAFQA_BASE, asin=asin))
