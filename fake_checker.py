@@ -14,6 +14,8 @@ from bs4 import BeautifulSoup
 
 # ─── PROXY SETUP for Safqa (Cloudflare bypass) ───
 import os
+from safqa_browser import check_safqa as _safqa_browser_check, shutdown_browser
+
 
 def _proxied_get(url, headers=None, timeout=15):
     """Make HTTP request via scrape.do proxy (Railway env)."""
