@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """
-Safqa Browser — Headless Chromium Price Checker v8 SEARCH-FIRST
-===============================================================
-Key fix: Actually USE the product title for search-first approach.
+Safqa Browser — Headless Chromium Price Checker v8.2 CLOUDFLARE-STEALTH
+=======================================================================
+Key fix: Fresh browser context per check to evade Cloudflare bot detection.
 
-Changes from v7:
-1. SEARCH-FIRST: If title provided, try /search?q={title} before direct /product/{asin}
-2. Timeout: 30s → 45s page load, 8s → 12s React render wait
-3. Search result click-through: On search page, click first product link
-4. More DOM selectors: class*=price, Tailwind .text-green-600, .text-primary
-5. Full-page EGP text scan as final fallback
-6. Better debug logging at every step
-7. networkidle timeout handling — no longer hard-fails on slow networks
+v8 → v8.1: Text-scan garbage fix, homepage detection, price sanity
+v8.1 → v8.2: Cloudflare evasion — fresh context per check, CF detection, random delays
+
+Changes in v8.2:
+1. FRESH CONTEXT: New browser context for each check_product() call
+2. CLOUDFLARE DETECT: Auto-detect "Just a moment..." challenge pages
+3. RANDOM DELAYS: 2-5s between URL attempts to avoid rate limiting
+4. BETTER STEALTH: Enhanced anti-detection scripts (permissions, webdriver, chrome)
+5. COOKIE ISOLATION: Each check is independent — no cross-session tracking
 
 API (unchanged — fake_checker.py compatible):
     from safqa_browser import check_safqa, shutdown_browser
@@ -23,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
 import time
 import urllib.parse
@@ -88,11 +90,19 @@ class SafqaBrowser:
 
     SAFQA_BASE = "https://joinsafqa.com"
 
+    # v8.2: User agent rotation pool
+    _USER_AGENTS = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.0",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.0",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.0",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.0",
+    ]
+
     def __init__(
         self,
         headless: bool = True,
-        timeout_ms: int = 45_000,       # v8: was 30_000
-        render_wait_ms: int = 12_000,   # v8: was 8_000
+        timeout_ms: int = 45_000,
+        render_wait_ms: int = 12_000,
     ) -> None:
         self.headless = headless
         self.timeout_ms = timeout_ms
@@ -100,14 +110,12 @@ class SafqaBrowser:
 
         self._pw = None
         self._browser = None
-        self._context = None
-        self._page = None
         self._started = False
 
     # ── Lifecycle ──
 
     def start(self) -> None:
-        """Launch Chromium browser. Call once at scraper startup."""
+        """Launch Chromium browser only (no context). Call once at scraper startup."""
         if self._started:
             return
 
@@ -125,25 +133,12 @@ class SafqaBrowser:
                 "--disable-accelerated-2d-canvas",
                 "--disable-gpu",
                 "--disable-blink-features=AutomationControlled",
+                "--disable-features=IsolateOrigins,site-per-process",
                 "--window-size=1920,1080",
+                "--disable-web-security",
+                "--disable-features=BlockInsecurePrivateNetworkRequests",
             ],
         )
-        self._context = self._browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-            locale="en-US",
-            java_script_enabled=True,
-        )
-        self._context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            window.chrome = { runtime: {} };
-            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
-        """)
-        self._page = self._context.new_page()
         self._started = True
         print(f"    [SAFQA-BROWSER] Chromium ready in {time.time()-t0:.1f}s")
 
@@ -151,8 +146,6 @@ class SafqaBrowser:
         """Close browser. Call at scraper shutdown."""
         print("    [SAFQA-BROWSER] Stopping Chromium...")
         try:
-            if self._context:
-                self._context.close()
             if self._browser:
                 self._browser.close()
             if self._pw:
@@ -161,7 +154,118 @@ class SafqaBrowser:
             logger.warning(f"[SAFQA-BROWSER] Cleanup error: {exc}")
         finally:
             self._started = False
-            self._page = None
+
+    # ── v8.2: Stealth Context (fresh per check) ──
+
+    def _create_stealth_context(self):
+        """Create a fresh browser context with anti-detection measures."""
+        viewport = {"width": 1920, "height": 1080}
+        user_agent = random.choice(self._USER_AGENTS)
+
+        context = self._browser.new_context(
+            viewport=viewport,
+            user_agent=user_agent,
+            locale="en-US",
+            java_script_enabled=True,
+            bypass_csp=True,
+            extra_http_headers={
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1",
+            },
+        )
+
+        # v8.2: Enhanced anti-detection script
+        context.add_init_script("""
+            // Remove webdriver flag
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+
+            // Fake chrome.runtime
+            window.chrome = { runtime: {} };
+
+            // Fake plugins
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+
+            // Fake permissions
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ||
+                parameters.name === 'clipboard-read' ||
+                parameters.name === 'clipboard-write'
+                    ? Promise.resolve({ state: Notification.permission })
+                    : originalQuery(parameters)
+            );
+
+            // Remove Playwright-specific properties
+            delete window.__playwright;
+            delete window.__pw_manual;
+            delete window.__PW_inspect;
+
+            // Override iframe contentWindow to prevent detection
+            const originalAttachShadow = Element.prototype.attachShadow;
+            Element.prototype.attachShadow = function attachShadow(options) {
+                return originalAttachShadow.call(this, options);
+            };
+
+            // Navigator.languages
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en']
+            });
+        """)
+
+        return context
+
+    @staticmethod
+    def _is_cloudflare_challenge(page) -> bool:
+        """Detect Cloudflare challenge/interstitial pages."""
+        try:
+            title = page.title().lower()
+            content = page.content()[:500].lower()
+
+            cf_markers = [
+                "just a moment",
+                "checking your browser",
+                "verify you are human",
+                "cf-browser-verification",
+                "challenge-platform",
+                "turnstile",
+                "__cf_bm",
+                "ray id",
+            ]
+
+            for marker in cf_markers:
+                if marker in title or marker in content:
+                    return True
+
+            # Check for Cloudflare-specific elements
+            cf_selectors = [
+                "#cf-challenge-running",
+                ".cf-browser-verification",
+                "input[name='cf-turnstile-response']",
+                "#turnstile-container",
+            ]
+            for sel in cf_selectors:
+                try:
+                    if page.query_selector(sel):
+                        return True
+                except Exception:
+                    continue
+
+            return False
+        except Exception:
+            return False
+
+    @staticmethod
+    def _random_delay(min_sec: float = 2.0, max_sec: float = 5.0) -> None:
+        """Sleep for a random duration to avoid bot detection patterns."""
+        delay = random.uniform(min_sec, max_sec)
+        time.sleep(delay)
 
     # ── Public API ──
 
@@ -171,6 +275,7 @@ class SafqaBrowser:
         product_url: Optional[str] = None,
         title: str = "",
     ) -> SafqaResult:
+        """v8.2: Fresh stealth context per check to evade Cloudflare."""
         print(f"    [SAFQA-BROWSER] check_product() called, asin={asin}, _started={self._started}")
 
         if not self._started:
@@ -180,56 +285,68 @@ class SafqaBrowser:
         if not asin:
             return result
 
-        # ─── v8: SEARCH-FIRST STRATEGY ───
-        # If we have a title, search by title FIRST before trying direct ASIN URLs
-        if title and title.strip():
-            search_result = self._try_search_first(asin, title.strip())
-            if search_result.found:
-                return search_result
-            # If search found the page but no price, fall through to direct URLs
+        # v8.2: Fresh context for each check (isolated cookies, fresh session)
+        context = None
+        page = None
+        try:
+            context = self._create_stealth_context()
+            page = context.new_page()
 
-        # ─── FALLBACK: Direct product URLs ───
-        urls = self._build_urls(asin, product_url)
-        logger.info(f"[SAFQA-BROWSER] Checking ASIN {asin} — {len(urls)} direct URLs")
+            # ─── SEARCH-FIRST STRATEGY ───
+            if title and title.strip():
+                search_result = self._try_search_first(page, asin, title.strip())
+                if search_result.found:
+                    return search_result
 
-        for url in urls:
-            try:
-                result.source_url = url
-                self._navigate(url)
+            # ─── FALLBACK: Direct product URLs ───
+            self._random_delay(2, 4)
+            urls = self._build_urls(asin, product_url)
+            logger.info(f"[SAFQA-BROWSER] Checking ASIN {asin} — {len(urls)} direct URLs")
 
-                prices = self._run_extractors(asin)
-                if prices:
-                    result.found = True
-                    result.lowest_price = min(prices)
-                    result.highest_price = max(prices)
-                    result.price_samples = prices
-                    result.method = "direct-url"
-                    logger.info(
-                        f"[SAFQA-BROWSER] ASIN {asin} via direct URL: "
-                        f"low={result.lowest_price:,.0f}"
-                    )
-                    return result
+            for url in urls:
+                try:
+                    self._random_delay(2, 5)
+                    result.source_url = url
+                    self._navigate(page, url)
 
-            except Exception as exc:
-                print(f"    [SAFQA-BROWSER] URL failed {url[:50]}: {exc}")
-                continue
+                    if self._is_cloudflare_challenge(page):
+                        print(f"      [SAFQA-BROWSER] Cloudflare challenge detected, skipping")
+                        continue
 
-        print(f"    [SAFQA-BROWSER] ASIN {asin}: not found on Safqa")
-        return result
+                    prices = self._run_extractors(page, asin)
+                    if prices:
+                        result.found = True
+                        result.lowest_price = min(prices)
+                        result.highest_price = max(prices)
+                        result.price_samples = prices
+                        result.method = "direct-url"
+                        print(f"    [SAFQA-BROWSER] ASIN {asin} via direct URL: low={result.lowest_price:,.0f}")
+                        return result
 
-    # ── v8: Search-First Implementation ──
+                except Exception as exc:
+                    print(f"    [SAFQA-BROWSER] URL failed {url[:50]}: {exc}")
+                    continue
 
-    def _try_search_first(self, asin: str, title: str) -> SafqaResult:
-        """
-        v8: Search by product title first.
-        1. Go to /search?q={title}
-        2. Wait for results
-        3. Try to find product card matching our ASIN
-        4. Click first result if no ASIN match
-        5. Extract prices from resulting page
-        """
+            print(f"    [SAFQA-BROWSER] ASIN {asin}: not found on Safqa")
+            return result
+
+        finally:
+            if page:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+            if context:
+                try:
+                    context.close()
+                except Exception:
+                    pass
+
+    # ── v8.2: Search-First with Fresh Context ──
+
+    def _try_search_first(self, page, asin: str, title: str) -> SafqaResult:
+        """v8.2: Search by product title first with Cloudflare evasion."""
         result = SafqaResult()
-        # Truncate very long titles
         search_title = title[:70]
         encoded = urllib.parse.quote(search_title)
 
@@ -241,45 +358,54 @@ class SafqaBrowser:
 
         for search_url in search_urls:
             try:
+                self._random_delay(2, 4)
                 print(f"      [SAFQA-BROWSER] Search-first: {search_url[:80]}...")
-                self._navigate(search_url)
+                self._navigate(page, search_url)
+
+                # v8.2: Skip Cloudflare challenge pages
+                if self._is_cloudflare_challenge(page):
+                    print(f"      [SAFQA-BROWSER] Cloudflare challenge on search, skipping")
+                    continue
 
                 # v8.1: Detect if search redirected to homepage (no results)
-                current_url = self._page.url
-                page_title = self._page.title()
+                current_url = page.url
+                page_title = page.title()
                 is_homepage = (
                     "rfeeq altasawuq" in page_title.lower() or
                     "رفيق التسوق" in page_title or
                     ("/search" not in current_url and "/product" not in current_url)
                 )
                 if is_homepage:
-                    print(f"      [SAFQA-BROWSER] Search redirected to homepage — no results for this query")
+                    print(f"      [SAFQA-BROWSER] Search redirected to homepage — no results")
                     continue
 
                 # Strategy A: Look for our ASIN in search results
                 try:
-                    asin_link = self._page.query_selector(f'a[href*="{asin}"]')
+                    asin_link = page.query_selector(f'a[href*="{asin}"]')
                     if asin_link:
                         print(f"      [SAFQA-BROWSER] Found ASIN {asin} in search results, clicking...")
                         asin_link.click()
-                        self._page.wait_for_load_state("domcontentloaded", timeout=self.timeout_ms)
-                        self._page.wait_for_timeout(self.render_wait_ms)
+                        page.wait_for_load_state("domcontentloaded", timeout=self.timeout_ms)
+                        page.wait_for_timeout(self.render_wait_ms)
 
-                        prices = self._run_extractors(asin)
+                        if self._is_cloudflare_challenge(page):
+                            continue
+
+                        prices = self._run_extractors(page, asin)
                         if prices:
                             result.found = True
                             result.lowest_price = min(prices)
                             result.highest_price = max(prices)
                             result.price_samples = prices
-                            result.source_url = self._page.url
+                            result.source_url = page.url
                             result.method = "search-asin-click"
-                            print(f"      [SAFQA-BROWSER] Price found after ASIN click: {result.lowest_price:,.0f} EGP")
+                            print(f"      [SAFQA-BROWSER] Price after ASIN click: {result.lowest_price:,.0f} EGP")
                             return result
                 except Exception as e:
                     print(f"      [SAFQA-BROWSER] ASIN click failed: {e}")
 
                 # Strategy B: Extract price directly from search results page
-                prices = self._run_extractors(asin)
+                prices = self._run_extractors(page, asin)
                 if prices:
                     result.found = True
                     result.lowest_price = min(prices)
@@ -287,12 +413,12 @@ class SafqaBrowser:
                     result.price_samples = prices
                     result.source_url = search_url
                     result.method = "search-page-direct"
-                    print(f"      [SAFQA-BROWSER] Price found on search page: {result.lowest_price:,.0f} EGP")
+                    print(f"      [SAFQA-BROWSER] Price on search page: {result.lowest_price:,.0f} EGP")
                     return result
 
                 # Strategy C: Click first product result, then extract
                 try:
-                    first_link = self._page.query_selector(
+                    first_link = page.query_selector(
                         "a[href*='/product/'], a[href*='/products/'], a[href*='/p/']"
                     )
                     if first_link:
@@ -300,9 +426,12 @@ class SafqaBrowser:
                         if href:
                             click_url = href if href.startswith("http") else f"{self.SAFQA_BASE}{href}"
                             print(f"      [SAFQA-BROWSER] Clicking first result: {click_url[:60]}...")
-                            self._navigate(click_url)
+                            self._navigate(page, click_url)
 
-                            prices = self._run_extractors(asin)
+                            if self._is_cloudflare_challenge(page):
+                                continue
+
+                            prices = self._run_extractors(page, asin)
                             if prices:
                                 result.found = True
                                 result.lowest_price = min(prices)
@@ -310,7 +439,6 @@ class SafqaBrowser:
                                 result.price_samples = prices
                                 result.source_url = click_url
                                 result.method = "search-first-result"
-                                print(f"      [SAFQA-BROWSER] Price from first result: {result.lowest_price:,.0f} EGP")
                                 return result
                 except Exception as e:
                     print(f"      [SAFQA-BROWSER] First result click failed: {e}")
@@ -318,7 +446,7 @@ class SafqaBrowser:
                 print(f"      [SAFQA-BROWSER] Search URL {search_url[:50]}... no prices found")
 
             except Exception as e:
-                print(f"      [SAFQA-BROWSER] Search approach failed: {type(e).__name__}: {str(e)[:80]}")
+                print(f"      [SAFQA-BROWSER] Search failed: {type(e).__name__}: {str(e)[:80]}")
                 continue
 
         print(f"      [SAFQA-BROWSER] Search-first found nothing, falling back to direct URLs")
@@ -331,7 +459,6 @@ class SafqaBrowser:
         urls = []
         if product_url and "joinsafqa.com" in product_url:
             urls.append(product_url)
-        # v8: locale-specific product URLs first
         urls.extend([
             f"{self.SAFQA_BASE}/en/product/{asin}",
             f"{self.SAFQA_BASE}/ar/product/{asin}",
@@ -342,33 +469,26 @@ class SafqaBrowser:
         ])
         return urls
 
-    def _navigate(self, url: str) -> None:
-        """Navigate to URL and wait for React to render."""
-        assert self._page is not None
-        self._page.goto(url, wait_until="domcontentloaded", timeout=self.timeout_ms)
-        # v8: networkidle is best effort — don't hard-fail if it times out
+    def _navigate(self, page, url: str) -> None:
+        """Navigate to URL and wait for React to render. v8.2: accepts page param."""
+        page.goto(url, wait_until="domcontentloaded", timeout=self.timeout_ms)
         try:
-            self._page.wait_for_load_state("networkidle", timeout=15_000)
+            page.wait_for_load_state("networkidle", timeout=15_000)
         except Exception:
-            pass  # domcontentloaded is enough; React may still be rendering
-        # v8: Longer wait for React to render price elements
-        self._page.wait_for_timeout(self.render_wait_ms)
+            pass
+        page.wait_for_timeout(self.render_wait_ms)
         # DEBUG
         try:
-            t = self._page.title()
-            c = self._page.content()
+            t = page.title()
+            c = page.content()
             has_egp = "EGP" in c
             has_price = "price" in c.lower()
-            print(f"      [SAFQA-BROWSER] Page: title={t[:50]} has_EGP={has_egp} has_price={has_price} url={self._page.url[:60]}")
+            print(f"      [SAFQA-BROWSER] Page: title={t[:50]} has_EGP={has_egp} has_price={has_price} url={page.url[:60]}")
         except Exception as e:
             print(f"      [SAFQA-BROWSER] Page info error: {e}")
 
-    def _run_extractors(self, asin: str) -> Optional[list[float]]:
-        """Run price extraction methods, return FIRST successful result.
-
-        v8.1: Stops at first extractor that finds prices — avoids mixing
-        good prices (json-ld, dom) with garbage (text-scan fallback).
-        """
+    def _run_extractors(self, page, asin: str) -> Optional[list[float]]:
+        """Run price extraction methods, return FIRST successful result."""
         extractors = [
             ("json-ld", self._extract_json_ld),
             ("next-data", self._extract_next_data),
@@ -380,23 +500,22 @@ class SafqaBrowser:
 
         for method_name, extractor in extractors:
             try:
-                prices = extractor()
+                prices = extractor(page)
                 if prices:
-                    # Sanity check: at least one price must be in reasonable range
                     reasonable = [p for p in prices if 50 <= p <= 100_000]
                     if reasonable:
-                        print(f"      [SAFQA-BROWSER] Extracted via {method_name}: {reasonable[:5]}{'...' if len(reasonable) > 5 else ''}")
+                        print(f"      [SAFQA-BROWSER] {method_name}: {reasonable[:5]}{'...' if len(reasonable) > 5 else ''}")
                         return reasonable
             except Exception as e:
                 logger.debug(f"Extractor {method_name} failed: {e}")
 
         return None
 
-    # ── Extraction Methods ──
+    # ── Extraction Methods (v8.2: all accept page param) ──
 
-    def _extract_json_ld(self) -> Optional[list[float]]:
-        """Extract prices from JSON-LD structured data."""
-        scripts = self._page.query_selector_all('script[type="application/ld+json"]')
+    @staticmethod
+    def _extract_json_ld(page) -> Optional[list[float]]:
+        scripts = page.query_selector_all('script[type="application/ld+json"]')
         prices = []
         for script in scripts:
             try:
@@ -404,39 +523,38 @@ class SafqaBrowser:
                 if isinstance(data, dict) and data.get("@type") == "Product":
                     offers = data.get("offers", {})
                     if isinstance(offers, dict):
-                        p = self._to_float(offers.get("price"))
+                        p = SafqaBrowser._to_float(offers.get("price"))
                         if p > 0:
                             prices.append(p)
-                    p = self._to_float(data.get("price"))
+                    p = SafqaBrowser._to_float(data.get("price"))
                     if p > 0:
                         prices.append(p)
-                # Also handle @graph arrays
                 graph = data.get("@graph", []) if isinstance(data, dict) else []
                 for item in graph:
                     if isinstance(item, dict) and item.get("@type") == "Product":
                         offers = item.get("offers", {})
                         if isinstance(offers, dict):
-                            p = self._to_float(offers.get("price"))
+                            p = SafqaBrowser._to_float(offers.get("price"))
                             if p > 0:
                                 prices.append(p)
             except (json.JSONDecodeError, AttributeError):
                 continue
         return prices if prices else None
 
-    def _extract_next_data(self) -> Optional[list[float]]:
-        """Extract prices from Next.js __NEXT_DATA__ script."""
-        el = self._page.query_selector("script#__NEXT_DATA__")
+    @staticmethod
+    def _extract_next_data(page) -> Optional[list[float]]:
+        el = page.query_selector("script#__NEXT_DATA__")
         if not el:
             return None
         try:
             data = json.loads(el.inner_text())
-            return self._find_prices_recursive(data)
+            return SafqaBrowser._find_prices_recursive(data)
         except (json.JSONDecodeError, AttributeError):
             return None
 
-    def _extract_initial_state(self) -> Optional[list[float]]:
-        """Extract prices from window.__INITIAL_STATE__ or __DATA__."""
-        state_json = self._page.evaluate("""
+    @staticmethod
+    def _extract_initial_state(page) -> Optional[list[float]]:
+        state_json = page.evaluate("""
             () => {
                 if (window.__INITIAL_STATE__) return JSON.stringify(window.__INITIAL_STATE__);
                 if (window.__DATA__) return JSON.stringify(window.__DATA__);
@@ -449,12 +567,12 @@ class SafqaBrowser:
             return None
         try:
             data = json.loads(state_json)
-            return self._find_prices_recursive(data)
+            return SafqaBrowser._find_prices_recursive(data)
         except (json.JSONDecodeError, AttributeError):
             return None
 
-    def _extract_dom_price(self) -> Optional[list[float]]:
-        """Extract prices from rendered DOM — v8.1: stricter range filtering."""
+    @staticmethod
+    def _extract_dom_price(page) -> Optional[list[float]]:
         selectors = [
             "[data-testid='product-price']",
             "[data-testid='current-price']",
@@ -470,21 +588,20 @@ class SafqaBrowser:
         prices = []
         for sel in selectors:
             try:
-                els = self._page.query_selector_all(sel)
+                els = page.query_selector_all(sel)
                 for el in els:
                     text = el.inner_text().strip()
                     match = re.search(r"[\d,]+\.?\d*", text.replace(",", ""))
                     if match:
                         p = float(match.group())
-                        # v8.1: stricter range — must be reasonable consumer product price
                         if 50 <= p <= 100_000:
                             prices.append(p)
             except Exception:
                 continue
         return prices if prices else None
 
-    def _extract_tailwind_price(self) -> Optional[list[float]]:
-        """v8.1: Extract from Tailwind classes — now requires EGP in text."""
+    @staticmethod
+    def _extract_tailwind_price(page) -> Optional[list[float]]:
         selectors = [
             ".text-green-600",
             ".text-green-500",
@@ -496,10 +613,9 @@ class SafqaBrowser:
         prices = []
         for sel in selectors:
             try:
-                els = self._page.query_selector_all(sel)
+                els = page.query_selector_all(sel)
                 for el in els:
                     text = el.inner_text().strip()
-                    # v8.1: Must contain EGP or currency marker to avoid ratings/reviews
                     if not any(c in text for c in ("EGP", "ج.م", "جنيه")):
                         continue
                     match = re.search(r"[\d,]+\.?\d*", text.replace(",", ""))
@@ -511,20 +627,14 @@ class SafqaBrowser:
                 continue
         return prices if prices else None
 
-    def _extract_text_scan(self) -> Optional[list[float]]:
-        """v8.1: Full-page text scan — ONLY matches numbers with EGP/ج.م currency markers.
-
-        CRITICAL: Never returns standalone numbers without currency context.
-        The old "standalone numbers" fallback extracted ratings, review counts,
-        product IDs, years — pure garbage. Removed entirely.
-        """
+    @staticmethod
+    def _extract_text_scan(page) -> Optional[list[float]]:
+        """v8.1: ONLY matches numbers with EGP/ج.م currency markers."""
         try:
-            text = self._page.content()
+            text = page.content()
         except Exception:
             return None
 
-        # ONLY match numbers adjacent to EGP/ج.م/جنيه currency markers
-        # Patterns: "1,234 EGP", "EGP 1,234", "ج.م ١٢٣٤", "جنيه ١٢٣٤"
         patterns = [
             r'([\d,]+\.?\d*)\s*(?:EGP|ج\.م|جنيه)',
             r'(?:EGP|ج\.م|جنيه)\s*([\d,]+\.?\d*)',
@@ -535,7 +645,6 @@ class SafqaBrowser:
             for m in re.findall(pat, text):
                 try:
                     p = float(m.replace(",", ""))
-                    # Reasonable EGP price range for consumer products
                     if 50 <= p <= 100_000:
                         prices.append(p)
                 except ValueError:
