@@ -297,6 +297,10 @@ class SafqaBrowser:
                 search_result = self._try_search_first(page, asin, title.strip())
                 if search_result.found:
                     return search_result
+                # v8.3: If search hit CF, skip direct URLs — same session, will also fail
+                if self._is_cloudflare_challenge(page):
+                    print(f"    [SAFQA-BROWSER] Cloudflare session flagged — skipping direct URLs")
+                    return result
 
             # ─── FALLBACK: Direct product URLs ───
             self._random_delay(2, 4)
@@ -345,51 +349,89 @@ class SafqaBrowser:
     # ── v8.2: Search-First with Fresh Context ──
 
     def _try_search_first(self, page, asin: str, title: str) -> SafqaResult:
-        """v8.2: Search by product title first with Cloudflare evasion."""
+        """v8.3: Search by product title — ONE attempt only, CF = stop.
+
+        v8.3 fix: Multiple navigations in same context trigger CF.
+        We try ONLY ONE search URL. If it returns homepage (no results),
+        we go directly to product URLs. If CF hits, we stop entirely.
+        """
         result = SafqaResult()
         search_title = title[:70]
         encoded = urllib.parse.quote(search_title)
 
-        search_urls = [
-            f"{self.SAFQA_BASE}/ar/search?q={encoded}",
-            f"{self.SAFQA_BASE}/en/search?q={encoded}",
-            f"{self.SAFQA_BASE}/search?q={encoded}",
-        ]
+        # v8.3: Only ONE search URL — multiple navigations trigger CF
+        search_url = f"{self.SAFQA_BASE}/search?q={encoded}"
 
-        for search_url in search_urls:
+        try:
+            print(f"      [SAFQA-BROWSER] Search-first: {search_url[:80]}...")
+            self._navigate(page, search_url)
+
+            # CF detected → session is flagged, stop ALL further attempts
+            if self._is_cloudflare_challenge(page):
+                print(f"      [SAFQA-BROWSER] Cloudflare challenge — stopping Safqa check entirely")
+                return result  # Caller will see empty result = "not found"
+
+            # Homepage redirect = product not in Safqa's DB
+            current_url = page.url
+            page_title = page.title()
+            is_homepage = (
+                "rfeeq altasawuq" in page_title.lower() or
+                "رفيق التسوق" in page_title or
+                ("/search" not in current_url and "/product" not in current_url)
+            )
+            if is_homepage:
+                print(f"      [SAFQA-BROWSER] Search returned homepage — product not indexed")
+                return result  # Fall through to direct URLs
+
+            # Strategy A: Find ASIN match in search results
             try:
-                self._random_delay(2, 4)
-                print(f"      [SAFQA-BROWSER] Search-first: {search_url[:80]}...")
-                self._navigate(page, search_url)
+                asin_link = page.query_selector(f'a[href*="{asin}"]')
+                if asin_link:
+                    print(f"      [SAFQA-BROWSER] Found ASIN {asin} in results, clicking...")
+                    asin_link.click()
+                    page.wait_for_load_state("domcontentloaded", timeout=self.timeout_ms)
+                    page.wait_for_timeout(self.render_wait_ms)
 
-                # v8.2: Skip Cloudflare challenge pages
-                if self._is_cloudflare_challenge(page):
-                    print(f"      [SAFQA-BROWSER] Cloudflare challenge on search, skipping")
-                    continue
+                    if self._is_cloudflare_challenge(page):
+                        return result
 
-                # v8.1: Detect if search redirected to homepage (no results)
-                current_url = page.url
-                page_title = page.title()
-                is_homepage = (
-                    "rfeeq altasawuq" in page_title.lower() or
-                    "رفيق التسوق" in page_title or
-                    ("/search" not in current_url and "/product" not in current_url)
+                    prices = self._run_extractors(page, asin)
+                    if prices:
+                        result.found = True
+                        result.lowest_price = min(prices)
+                        result.highest_price = max(prices)
+                        result.price_samples = prices
+                        result.source_url = page.url
+                        result.method = "search-asin-click"
+                        return result
+            except Exception as e:
+                print(f"      [SAFQA-BROWSER] ASIN click failed: {e}")
+
+            # Strategy B: Extract from search results page directly
+            prices = self._run_extractors(page, asin)
+            if prices:
+                result.found = True
+                result.lowest_price = min(prices)
+                result.highest_price = max(prices)
+                result.price_samples = prices
+                result.source_url = search_url
+                result.method = "search-page-direct"
+                return result
+
+            # Strategy C: Click first product link
+            try:
+                first_link = page.query_selector(
+                    "a[href*='/product/'], a[href*='/products/'], a[href*='/p/']"
                 )
-                if is_homepage:
-                    print(f"      [SAFQA-BROWSER] Search redirected to homepage — no results")
-                    continue
-
-                # Strategy A: Look for our ASIN in search results
-                try:
-                    asin_link = page.query_selector(f'a[href*="{asin}"]')
-                    if asin_link:
-                        print(f"      [SAFQA-BROWSER] Found ASIN {asin} in search results, clicking...")
-                        asin_link.click()
-                        page.wait_for_load_state("domcontentloaded", timeout=self.timeout_ms)
-                        page.wait_for_timeout(self.render_wait_ms)
+                if first_link:
+                    href = first_link.get_attribute("href")
+                    if href:
+                        click_url = href if href.startswith("http") else f"{self.SAFQA_BASE}{href}"
+                        print(f"      [SAFQA-BROWSER] Clicking first result: {click_url[:60]}...")
+                        self._navigate(page, click_url)
 
                         if self._is_cloudflare_challenge(page):
-                            continue
+                            return result
 
                         prices = self._run_extractors(page, asin)
                         if prices:
@@ -397,76 +439,28 @@ class SafqaBrowser:
                             result.lowest_price = min(prices)
                             result.highest_price = max(prices)
                             result.price_samples = prices
-                            result.source_url = page.url
-                            result.method = "search-asin-click"
-                            print(f"      [SAFQA-BROWSER] Price after ASIN click: {result.lowest_price:,.0f} EGP")
+                            result.source_url = click_url
+                            result.method = "search-first-result"
                             return result
-                except Exception as e:
-                    print(f"      [SAFQA-BROWSER] ASIN click failed: {e}")
-
-                # Strategy B: Extract price directly from search results page
-                prices = self._run_extractors(page, asin)
-                if prices:
-                    result.found = True
-                    result.lowest_price = min(prices)
-                    result.highest_price = max(prices)
-                    result.price_samples = prices
-                    result.source_url = search_url
-                    result.method = "search-page-direct"
-                    print(f"      [SAFQA-BROWSER] Price on search page: {result.lowest_price:,.0f} EGP")
-                    return result
-
-                # Strategy C: Click first product result, then extract
-                try:
-                    first_link = page.query_selector(
-                        "a[href*='/product/'], a[href*='/products/'], a[href*='/p/']"
-                    )
-                    if first_link:
-                        href = first_link.get_attribute("href")
-                        if href:
-                            click_url = href if href.startswith("http") else f"{self.SAFQA_BASE}{href}"
-                            print(f"      [SAFQA-BROWSER] Clicking first result: {click_url[:60]}...")
-                            self._navigate(page, click_url)
-
-                            if self._is_cloudflare_challenge(page):
-                                continue
-
-                            prices = self._run_extractors(page, asin)
-                            if prices:
-                                result.found = True
-                                result.lowest_price = min(prices)
-                                result.highest_price = max(prices)
-                                result.price_samples = prices
-                                result.source_url = click_url
-                                result.method = "search-first-result"
-                                return result
-                except Exception as e:
-                    print(f"      [SAFQA-BROWSER] First result click failed: {e}")
-
-                print(f"      [SAFQA-BROWSER] Search URL {search_url[:50]}... no prices found")
-
             except Exception as e:
-                print(f"      [SAFQA-BROWSER] Search failed: {type(e).__name__}: {str(e)[:80]}")
-                continue
+                print(f"      [SAFQA-BROWSER] First result click failed: {e}")
 
-        print(f"      [SAFQA-BROWSER] Search-first found nothing, falling back to direct URLs")
+            print(f"      [SAFQA-BROWSER] Search page loaded but no prices found")
+
+        except Exception as e:
+            print(f"      [SAFQA-BROWSER] Search failed: {type(e).__name__}: {str(e)[:80]}")
+
         return result
 
     # ── Internal ──
 
     def _build_urls(self, asin: str, product_url: Optional[str]) -> list[str]:
-        """Build list of URLs to try."""
+        """Build list of URLs to try. v8.3: Only 2 — one with product_url, one locale."""
         urls = []
         if product_url and "joinsafqa.com" in product_url:
             urls.append(product_url)
-        urls.extend([
-            f"{self.SAFQA_BASE}/en/product/{asin}",
-            f"{self.SAFQA_BASE}/ar/product/{asin}",
-            f"{self.SAFQA_BASE}/product/{asin}",
-            f"{self.SAFQA_BASE}/p/{asin}",
-            f"{self.SAFQA_BASE}/en/p/{asin}",
-            f"{self.SAFQA_BASE}/ar/p/{asin}",
-        ])
+        # v8.3: Only ONE locale URL — multiple navigations trigger CF
+        urls.append(f"{self.SAFQA_BASE}/en/product/{asin}")
         return urls
 
     def _navigate(self, page, url: str) -> None:
