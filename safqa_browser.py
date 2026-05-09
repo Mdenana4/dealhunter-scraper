@@ -202,6 +202,15 @@ class SafqaBrowser:
         title: str = "",
     ) -> SafqaResult:
         print(f"    [SAFQA-BROWSER] check_product() called, asin={asin}, _started={self._started}")
+
+        # DNS pre-check: skip if safqaprice.com is blocked from this network
+        import socket
+        try:
+            socket.gethostbyname("safqaprice.com")
+        except socket.gaierror:
+            print(f"    [SAFQA-BROWSER] ⚠️  safqaprice.com DNS blocked from this network — skipping")
+            print(f"    [SAFQA-BROWSER]    (Use Egypt-based VPS or residential proxy)")
+            return SafqaResult()
         """
         Check Safqa for price data on a product.
 
