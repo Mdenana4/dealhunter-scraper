@@ -1685,26 +1685,30 @@ def scrape_amazon():
     return deals_total + kw_total
 
 def scrape_amazon_ae():
-    """Amazon UAE — deals page (always) + keyword scan (if enabled)."""
-    deals_total, seen = _scrape_amazon_deals_page("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
-    force = (deals_total == 0)
-    kw_total = _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae",
-                                      skip_asins=seen, force_api_scan=force)
-    return deals_total + kw_total
+    """Amazon UAE — DEAL DISCOVERY SUSPENDED. Price history continues via price_tracker.py."""
+    print("\n[AMAZON/AE] ⏸ Deal discovery SUSPENDED — skipping new deal scrape")
+    print("  Price history collection continues via background re-check")
+    return 0
 
 def scrape_amazon_sa():
-    """Amazon Saudi Arabia — deals page (always) + keyword scan (if enabled)."""
-    deals_total, seen = _scrape_amazon_deals_page("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
-    force = (deals_total == 0)
-    kw_total = _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa",
-                                      skip_asins=seen, force_api_scan=force)
-    return deals_total + kw_total
+    """Amazon Saudi Arabia — DEAL DISCOVERY SUSPENDED. Price history continues via price_tracker.py."""
+    print("\n[AMAZON/SA] ⏸ Deal discovery SUSPENDED — skipping new deal scrape")
+    print("  Price history collection continues via background re-check")
+    return 0
 
 
 # ─────────────────────────────────────────────────────
 # JUMIA EGYPT — Static HTML
 # ─────────────────────────────────────────────────────
 def scrape_jumia():
+    """Jumia Egypt — DEAL DISCOVERY SUSPENDED. Price history continues via price_tracker.py."""
+    print("\n[JUMIA/EG] ⏸ Deal discovery SUSPENDED — skipping new deal scrape")
+    print("  Price history collection continues via background re-check")
+    return 0
+
+
+def _scrape_jumia_disabled_placeholder():
+    """Original Jumia scraper — disabled from deal discovery per admin request."""
     print("\n[JUMIA] Starting...")
     total = 0
     pages = [
@@ -2845,16 +2849,22 @@ def _scrape_noon_region(
 
 
 def scrape_noon():
-    """Noon Egypt (EGP)."""
-    return _scrape_noon_region()
+    """Noon Egypt — DEAL DISCOVERY SUSPENDED. Price history continues via price_tracker.py."""
+    print("\n[NOON/EG] ⏸ Deal discovery SUSPENDED — skipping new deal scrape")
+    print("  Price history collection continues via background re-check")
+    return 0
 
 def scrape_noon_ae():
-    """Noon UAE (AED)."""
-    return _scrape_noon_region("uae-en", "noon_ae", "Noon UAE", "AED", "ae")
+    """Noon UAE — DEAL DISCOVERY SUSPENDED. Price history continues via price_tracker.py."""
+    print("\n[NOON/AE] ⏸ Deal discovery SUSPENDED — skipping new deal scrape")
+    print("  Price history collection continues via background re-check")
+    return 0
 
 def scrape_noon_sa():
-    """Noon Saudi Arabia (SAR)."""
-    return _scrape_noon_region("saudi-en", "noon_sa", "Noon Saudi Arabia", "SAR", "sa")
+    """Noon Saudi Arabia — DEAL DISCOVERY SUSPENDED. Price history continues via price_tracker.py."""
+    print("\n[NOON/SA] ⏸ Deal discovery SUSPENDED — skipping new deal scrape")
+    print("  Price history collection continues via background re-check")
+    return 0
 
 
 # ─────────────────────────────────────────────────────
