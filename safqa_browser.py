@@ -244,6 +244,18 @@ class SafqaBrowser:
                 print(f"      [SAFQA-BROWSER] Search-first: {search_url[:80]}...")
                 self._navigate(search_url)
 
+                # v8.1: Detect if search redirected to homepage (no results)
+                current_url = self._page.url
+                page_title = self._page.title()
+                is_homepage = (
+                    "rfeeq altasawuq" in page_title.lower() or
+                    "رفيق التسوق" in page_title or
+                    ("/search" not in current_url and "/product" not in current_url)
+                )
+                if is_homepage:
+                    print(f"      [SAFQA-BROWSER] Search redirected to homepage — no results for this query")
+                    continue
+
                 # Strategy A: Look for our ASIN in search results
                 try:
                     asin_link = self._page.query_selector(f'a[href*="{asin}"]')
@@ -352,7 +364,11 @@ class SafqaBrowser:
             print(f"      [SAFQA-BROWSER] Page info error: {e}")
 
     def _run_extractors(self, asin: str) -> Optional[list[float]]:
-        """Run all price extraction methods, return first successful list."""
+        """Run price extraction methods, return FIRST successful result.
+
+        v8.1: Stops at first extractor that finds prices — avoids mixing
+        good prices (json-ld, dom) with garbage (text-scan fallback).
+        """
         extractors = [
             ("json-ld", self._extract_json_ld),
             ("next-data", self._extract_next_data),
@@ -362,17 +378,19 @@ class SafqaBrowser:
             ("text-scan", self._extract_text_scan),
         ]
 
-        all_prices = []
         for method_name, extractor in extractors:
             try:
                 prices = extractor()
                 if prices:
-                    print(f"      [SAFQA-BROWSER] Extracted via {method_name}: {prices}")
-                    all_prices.extend(prices)
+                    # Sanity check: at least one price must be in reasonable range
+                    reasonable = [p for p in prices if 50 <= p <= 100_000]
+                    if reasonable:
+                        print(f"      [SAFQA-BROWSER] Extracted via {method_name}: {reasonable[:5]}{'...' if len(reasonable) > 5 else ''}")
+                        return reasonable
             except Exception as e:
                 logger.debug(f"Extractor {method_name} failed: {e}")
 
-        return all_prices if all_prices else None
+        return None
 
     # ── Extraction Methods ──
 
@@ -436,7 +454,7 @@ class SafqaBrowser:
             return None
 
     def _extract_dom_price(self) -> Optional[list[float]]:
-        """Extract prices from rendered DOM elements — v8: expanded selectors."""
+        """Extract prices from rendered DOM — v8.1: stricter range filtering."""
         selectors = [
             "[data-testid='product-price']",
             "[data-testid='current-price']",
@@ -458,14 +476,15 @@ class SafqaBrowser:
                     match = re.search(r"[\d,]+\.?\d*", text.replace(",", ""))
                     if match:
                         p = float(match.group())
-                        if 10 <= p <= 500_000:
+                        # v8.1: stricter range — must be reasonable consumer product price
+                        if 50 <= p <= 100_000:
                             prices.append(p)
             except Exception:
                 continue
         return prices if prices else None
 
     def _extract_tailwind_price(self) -> Optional[list[float]]:
-        """v8: Extract from common Tailwind CSS price classes."""
+        """v8.1: Extract from Tailwind classes — now requires EGP in text."""
         selectors = [
             ".text-green-600",
             ".text-green-500",
@@ -480,44 +499,44 @@ class SafqaBrowser:
                 els = self._page.query_selector_all(sel)
                 for el in els:
                     text = el.inner_text().strip()
+                    # v8.1: Must contain EGP or currency marker to avoid ratings/reviews
+                    if not any(c in text for c in ("EGP", "ج.م", "جنيه")):
+                        continue
                     match = re.search(r"[\d,]+\.?\d*", text.replace(",", ""))
                     if match:
                         p = float(match.group())
-                        if 10 <= p <= 500_000:
+                        if 50 <= p <= 100_000:
                             prices.append(p)
             except Exception:
                 continue
         return prices if prices else None
 
     def _extract_text_scan(self) -> Optional[list[float]]:
-        """v8: Full-page text scan for EGP price patterns — final fallback."""
+        """v8.1: Full-page text scan — ONLY matches numbers with EGP/ج.م currency markers.
+
+        CRITICAL: Never returns standalone numbers without currency context.
+        The old "standalone numbers" fallback extracted ratings, review counts,
+        product IDs, years — pure garbage. Removed entirely.
+        """
         try:
             text = self._page.content()
         except Exception:
             return None
 
-        # Pattern: "1,234 EGP" or "EGP 1,234" or "ج.م ١٢٣٤"
-        price_matches = re.findall(
-            r'([\d,]+\.?\d*)\s*(?:EGP|ج\.م|جنيه)|(?:EGP|ج\.م|جنيه)\s*([\d,]+\.?\d*)',
-            text
-        )
+        # ONLY match numbers adjacent to EGP/ج.م/جنيه currency markers
+        # Patterns: "1,234 EGP", "EGP 1,234", "ج.م ١٢٣٤", "جنيه ١٢٣٤"
+        patterns = [
+            r'([\d,]+\.?\d*)\s*(?:EGP|ج\.م|جنيه)',
+            r'(?:EGP|ج\.م|جنيه)\s*([\d,]+\.?\d*)',
+            r'([\d,]+\.?\d*)\s*(?:L\.E|LE|ل\.إ)',
+        ]
         prices = []
-        for m in price_matches:
-            num_str = (m[0] or m[1]).replace(",", "")
-            try:
-                p = float(num_str)
-                if 10 <= p <= 500_000:
-                    prices.append(p)
-            except ValueError:
-                continue
-
-        # Also look for standalone numbers near price indicators
-        if not prices:
-            matches = re.findall(r'[\d,]+\.?\d*', text)
-            for m in matches:
+        for pat in patterns:
+            for m in re.findall(pat, text):
                 try:
                     p = float(m.replace(",", ""))
-                    if 50 <= p <= 500_000:
+                    # Reasonable EGP price range for consumer products
+                    if 50 <= p <= 100_000:
                         prices.append(p)
                 except ValueError:
                     continue
