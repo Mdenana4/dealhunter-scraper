@@ -201,212 +201,29 @@ def check_kanbkam(asin, title=""):
 # SOURCE 2: SAFQA — Rebuilt with working endpoints
 # ─────────────────────────────────────────────────────
 def check_safqa(asin=None, product_url=None, title=""):
-    """Fetch price history from Safqa (safqaprice.com) v4 — with retry logic for 502s."""
-    import os
+    """
+    Fetch price history from Safqa (safqaprice.com).
 
-    scrapedo_token = os.environ.get("SCRAPEDO_TOKEN", "")
-    scraper_key = os.environ.get("SCRAPER_API_KEY", "")
-    print(f"    [SAFQA] DEBUG: SCRAPEDO_TOKEN={'SET' if scrapedo_token else 'MISSING'} len={len(scrapedo_token)}")
-    print(f"    [SAFQA] DEBUG: SCRAPER_API_KEY={'SET' if scraper_key else 'MISSING'} len={len(scraper_key)}")
+    v5: Uses headless Chromium browser via Playwright.
+    The old proxy-based approach (scrape.do / ScraperAPI) is broken —
+    both return 502/401. This renders Safqa's React SPA directly.
+    """
+    result = {"found": False, "lowest_price": 0, "highest_price": 0, 
+              "price_samples": [], "coupon_codes": []}
 
-    result = {"found": False, "lowest_price": 0, "highest_price": 0, "price_samples": [], "coupon_codes": []}
     if not asin:
         return result
 
-    ext_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Accept": "application/json"}
+    print(f"    [SAFQA] Checking via browser (ASIN: {asin})")
 
-    def _do_request(url, method="GET", payload=None, headers=None, retries=2):
-        h = headers or ext_headers
-        for attempt in range(retries):
-            try:
-                # Try 1: scrape.do with longer timeout and wait
-                if scrapedo_token:
-                    encoded = requests.utils.quote(url, safe="")
-                    # Add wait=5000 to let React SPA render (5 seconds)
-                    proxy_url = f"https://api.scrape.do/?token={scrapedo_token}&url={encoded}&render=true&wait=5000"
-                    try:
-                        if method == "POST":
-                            r = requests.post(proxy_url, headers=h, json=payload, timeout=35)
-                        else:
-                            r = requests.get(proxy_url, headers=h, timeout=35)
-                        status = r.status_code
-                        print(f"      [SAFQA] scrape.do | {url[:50]}... | Status: {status} | Len: {len(r.text)}")
-                        if status == 200:
-                            return r
-                        # 502 might be temporary — retry once
-                        if status == 502 and attempt == 0:
-                            print(f"      [SAFQA] 502, retrying in 3s...")
-                            import time
-                            time.sleep(3)
-                            continue
-                    except Exception as e:
-                        print(f"      [SAFQA] scrape.do err: {str(e)[:40]}")
-
-                # Try 2: scrape.do without render (lighter request)
-                if scrapedo_token and attempt == 1:
-                    proxy_url = f"https://api.scrape.do/?token={scrapedo_token}&url={encoded}"
-                    try:
-                        r = requests.get(proxy_url, headers=h, timeout=25)
-                        print(f"      [SAFQA] scrape.do(nr) | {url[:50]}... | Status: {r.status_code} | Len: {len(r.text)}")
-                        if r.status_code == 200:
-                            return r
-                    except Exception as e:
-                        print(f"      [SAFQA] scrape.do(nr) err: {str(e)[:40]}")
-
-                # Try 3: ScraperAPI
-                if scraper_key:
-                    encoded = requests.utils.quote(url, safe="")
-                    proxy_url = f"http://api.scraperapi.com?api_key={scraper_key}&url={encoded}"
-                    try:
-                        if method == "POST":
-                            r = requests.post(proxy_url, headers=h, json=payload, timeout=25)
-                        else:
-                            r = requests.get(proxy_url, headers=h, timeout=25)
-                        print(f"      [SAFQA] scraperapi | {url[:50]}... | Status: {r.status_code} | Len: {len(r.text)}")
-                        if r.status_code == 200:
-                            return r
-                    except Exception as e:
-                        print(f"      [SAFQA] scraperapi err: {str(e)[:40]}")
-
-                # Try 4: direct (last resort)
-                try:
-                    if method == "POST":
-                        r = requests.post(url, headers=h, json=payload, timeout=10)
-                    else:
-                        r = requests.get(url, headers=h, timeout=10)
-                    print(f"      [SAFQA] direct | {url[:50]}... | Status: {r.status_code} | Len: {len(r.text)}")
-                    return r
-                except Exception as e:
-                    print(f"      [SAFQA] direct err: {str(e)[:40]}")
-                    return None
-            except Exception as e:
-                print(f"      [SAFQA] req failed: {str(e)[:40]}")
-                return None
-        return None
-
-    # ─── Method 1: API endpoints ───
-    api_urls = [
-        f"https://api.safqaprice.com/v1/products/{asin}?country=eg",
-        f"https://api.safqaprice.com/products/{asin}?country=eg",
-        f"https://backend.safqaprice.com/api/products/{asin}?country=eg",
-        f"https://safqaprice.com/api/v1/products/{asin}?country=eg",
-        f"https://safqaprice.com/api/products/{asin}?country=eg",
-        f"https://api.safqaprice.com/v1/search?q={asin}&country=eg",
-        f"https://safqaprice.com/api/search?q={asin}&country=eg",
-    ]
-
-    print(f"    [SAFQA] Trying {len(api_urls)} API URLs for ASIN: {asin}")
-
-    for url in api_urls:
-        try:
-            if result["found"]:
-                break
-            resp = _do_request(url)
-            if resp and resp.status_code == 200:
-                text = resp.text.strip()
-                if not text or text.startswith("<"):
-                    continue
-                try:
-                    data = resp.json()
-                except:
-                    continue
-                if isinstance(data, list) and len(data) > 0:
-                    data = data[0]
-                if not isinstance(data, dict):
-                    continue
-                price = data.get("price") or data.get("current_price") or data.get("sale_price") or 0
-                old_price = data.get("old_price") or data.get("original_price") or data.get("list_price") or 0
-                if price and price != 0:
-                    result["found"] = True
-                    result["lowest_price"] = price
-                    result["highest_price"] = old_price or price
-                    result["price_samples"] = [price]
-                    result["coupon_codes"] = data.get("coupons") or data.get("coupon_codes") or []
-                    print(f"    [SAFQA] HIT via API: {url[:60]}...")
-                    break
-        except Exception as e:
-            print(f"      [SAFQA] API error: {str(e)[:50]}")
-            continue
-
-    # ─── Method 2: Page HTML for embedded JSON ───
-    if not result["found"]:
-        page_urls = [
-            f"https://safqaprice.com/product/{asin}?country=eg",
-            f"https://safqaprice.com/products/{asin}?country=eg",
-        ]
-        print(f"    [SAFQA] Trying {len(page_urls)} page URLs")
-
-        for url in page_urls:
-            try:
-                if result["found"]:
-                    break
-                resp = _do_request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "text/html"})
-                if resp and resp.status_code == 200:
-                    html = resp.text
-
-                    # Look for JSON-LD
-                    json_ld = re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
-                    for ld in json_ld:
-                        try:
-                            ld_data = json.loads(ld.strip())
-                            if isinstance(ld_data, dict) and ld_data.get("@type") in ["Product", "Offer"]:
-                                price_info = ld_data.get("offers", {})
-                                price = price_info.get("price") if isinstance(price_info, dict) else None
-                                if not price:
-                                    price = ld_data.get("price")
-                                if price:
-                                    result["found"] = True
-                                    result["lowest_price"] = float(str(price).replace(",", ""))
-                                    result["price_samples"] = [result["lowest_price"]]
-                                    print(f"    [SAFQA] HIT via JSON-LD")
-                                    break
-                        except:
-                            pass
-
-                    # Look for __NEXT_DATA__ or __INITIAL_STATE__
-                    for pattern in [r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', 
-                                    r'window\.__INITIAL_STATE__\s*=\s*({.*?});']:
-                        match = re.search(pattern, html, re.DOTALL)
-                        if match:
-                            try:
-                                init_data = json.loads(match.group(1))
-                                print(f"    [SAFQA] Found embedded React data")
-                                def _find_prices(obj, depth=0):
-                                    if depth > 10: return []
-                                    prices = []
-                                    if isinstance(obj, dict):
-                                        for k, v in obj.items():
-                                            if k.lower() in ["price", "sale_price", "current_price"] and isinstance(v, (int, float)):
-                                                prices.append(v)
-                                            elif k.lower() in ["price", "sale_price", "current_price"] and isinstance(v, str):
-                                                try: prices.append(float(v.replace(",", "")))
-                                                except: pass
-                                            elif isinstance(v, (dict, list)):
-                                                prices.extend(_find_prices(v, depth+1))
-                                    elif isinstance(obj, list):
-                                        for item in obj:
-                                            prices.extend(_find_prices(item, depth+1))
-                                    return prices
-                                prices = _find_prices(init_data)
-                                if prices:
-                                    result["found"] = True
-                                    result["lowest_price"] = min(prices)
-                                    result["highest_price"] = max(prices)
-                                    result["price_samples"] = prices
-                                    print(f"    [SAFQA] HIT via React data: prices={prices}")
-                                    break
-                            except:
-                                pass
-                    if result["found"]:
-                        break
-            except Exception as e:
-                print(f"      [SAFQA] Page error: {str(e)[:50]}")
-                continue
-
-    if result["found"]:
-        print(f"    [SAFQA] Result: Low={result['lowest_price']:,.0f} High={result['highest_price']:,.0f}")
-    else:
-        print(f"    [SAFQA] Not found (tried {len(api_urls)} API + {len(page_urls)} page URLs)")
+    try:
+        result = _safqa_browser_check(asin=asin, product_url=product_url, title=title)
+        if result.get("found"):
+            print(f"    [SAFQA] ✅ Found: Low={result['lowest_price']:,.0f} High={result['highest_price']:,.0f}")
+        else:
+            print(f"    [SAFQA] ❌ Not found on Safqa")
+    except Exception as e:
+        print(f"    [SAFQA] ⚠️  Error: {str(e)[:80]}")
 
     return result
 
