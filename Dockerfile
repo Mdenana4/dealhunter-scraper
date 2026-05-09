@@ -9,10 +9,30 @@ ENV PYTHONUNBUFFERED=1 \
     FLASK_ENV=production \
     PORT=5000
 
-# Install system dependencies
+# Install system dependencies (including Chromium for Playwright/Safqa)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    wget \
+    ca-certificates \
+    fonts-liberation \
+    libnss3 \
+    libatk1.0-0 \
+    libatk-bridge2.0-0 \
+    libcups2 \
+    libdrm2 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libpango-1.0-0 \
+    libcairo2 \
+    libasound2 \
+    libxss1 \
+    libgtk-3-0 \
+    fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -20,12 +40,15 @@ WORKDIR /app
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN pip install --upgrade pip && \
-    pip install -r requirements.txt
+    pip install -r requirements.txt && \
+    pip install playwright && \
+    playwright install chromium
 
 # Copy application code
 COPY server.py .
 COPY scraper.py .
 COPY fake_checker.py .
+COPY safqa_browser.py .
 COPY price_tracker.py .
 COPY scraper_health.py .
 COPY start.sh .
