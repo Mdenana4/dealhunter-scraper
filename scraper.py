@@ -2172,11 +2172,38 @@ def _engine2_tracking(seen_asins=None):
         print("[AMAZON-TRACKING] Skipped — anti-block pause active")
         return 0
 
+    # v10.3: Full category coverage per user spec (23 categories)
     tracking_categories = [
-        {"name": "Electronics",    "url": "https://www.amazon.eg/s?k=electronics&pct-off=40-&language=en_US"},
-        {"name": "Smartphones",    "url": "https://www.amazon.eg/s?k=smartphone&pct-off=40-&language=en_US"},
-        {"name": "Headphones",     "url": "https://www.amazon.eg/s?k=headphones&pct-off=40-&language=en_US"},
-        {"name": "Laptops",        "url": "https://www.amazon.eg/s?k=laptop&pct-off=40-&language=en_US"},
+        # Electronics & Tech
+        {"name": "Electronics",     "url": "https://www.amazon.eg/s?k=electronics&pct-off=40-&language=en_US"},
+        {"name": "Smartphones",     "url": "https://www.amazon.eg/s?k=smartphone&pct-off=40-&language=en_US"},
+        {"name": "Headphones",      "url": "https://www.amazon.eg/s?k=headphones&pct-off=40-&language=en_US"},
+        {"name": "Laptops",         "url": "https://www.amazon.eg/s?k=laptop&pct-off=40-&language=en_US"},
+        {"name": "TVs",             "url": "https://www.amazon.eg/s?k=television&pct-off=40-&language=en_US"},
+        {"name": "Cameras",         "url": "https://www.amazon.eg/s?k=camera&pct-off=40-&language=en_US"},
+        {"name": "Gaming",          "url": "https://www.amazon.eg/s?k=gaming&pct-off=40-&language=en_US"},
+        # Fashion
+        {"name": "Men's Fashion",   "url": "https://www.amazon.eg/s?k=men+clothing&pct-off=40-&language=en_US"},
+        {"name": "Women's Fashion", "url": "https://www.amazon.eg/s?k=women+clothing&pct-off=40-&language=en_US"},
+        {"name": "Shoes",           "url": "https://www.amazon.eg/s?k=shoes&pct-off=40-&language=en_US"},
+        {"name": "Watches",         "url": "https://www.amazon.eg/s?k=watch&pct-off=40-&language=en_US"},
+        {"name": "Bags",            "url": "https://www.amazon.eg/s?k=bag&pct-off=40-&language=en_US"},
+        # Home & Kitchen
+        {"name": "Home & Kitchen",  "url": "https://www.amazon.eg/s?k=home+kitchen&pct-off=40-&language=en_US"},
+        {"name": "Furniture",       "url": "https://www.amazon.eg/s?k=furniture&pct-off=40-&language=en_US"},
+        # Beauty
+        {"name": "Beauty",          "url": "https://www.amazon.eg/s?k=beauty&pct-off=40-&language=en_US"},
+        {"name": "Skincare",        "url": "https://www.amazon.eg/s?k=skincare&pct-off=40-&language=en_US"},
+        {"name": "Perfume",         "url": "https://www.amazon.eg/s?k=perfume&pct-off=40-&language=en_US"},
+        # Sports & Lifestyle
+        {"name": "Sports",          "url": "https://www.amazon.eg/s?k=sports&pct-off=40-&language=en_US"},
+        {"name": "Baby Products",   "url": "https://www.amazon.eg/s?k=baby&pct-off=40-&language=en_US"},
+        # Food & Grocery
+        {"name": "Grocery",         "url": "https://www.amazon.eg/s?k=grocery&pct-off=40-&language=en_US"},
+        # Other
+        {"name": "Books",           "url": "https://www.amazon.eg/s?k=books&pct-off=40-&language=en_US"},
+        {"name": "Automotive",      "url": "https://www.amazon.eg/s?k=car+accessories&pct-off=40-&language=en_US"},
+        {"name": "Pet Supplies",    "url": "https://www.amazon.eg/s?k=pet+supplies&pct-off=40-&language=en_US"},
     ]
 
     deals_found = 0
