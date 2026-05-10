@@ -406,7 +406,7 @@ def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False,
     global _scrapedo_dead
     if not SCRAPEDO_TOKEN or _scrapedo_dead:
         return None
-    import gzip as _gz
+    # v10.1: Removed manual gzip decompression — requests handles it automatically
     try:
         params = {
             "token":   SCRAPEDO_TOKEN,
@@ -422,48 +422,25 @@ def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False,
             params["waitSelector"] = wait_selector
         if custom_wait:
             params["customWait"] = str(custom_wait)
-        # stream=True lets us read raw bytes before decompression
+        # v10.1: Let requests handle gzip automatically — fixes sporadic
+        # "incorrect header check" errors with stream=True + manual decompress.
         resp = requests.get(
             "https://api.scrape.do",
             params=params,
             timeout=60,
             headers={"Accept-Encoding": "gzip, deflate"},
             allow_redirects=True,
-            stream=True,
         )
         if resp.status_code in (401, 403):
             print(f"    [scrape.do] HTTP {resp.status_code} — token invalid or credits exhausted, disabling for this session")
             _scrapedo_dead = True
-            resp.close()
             return None
         if resp.status_code not in (200, 301, 302):
             print(f"    [scrape.do] HTTP {resp.status_code} for {url[:60]}")
-            resp.close()
             return None
-        # Read raw bytes without auto-decompression, then decompress manually
-        raw = resp.raw.read(decode_content=False)
-        resp.close()
-        enc = resp.headers.get("Content-Encoding", "").lower()
-        if "gzip" in enc or raw[:2] == b"\x1f\x8b":
-            try:
-                content = _gz.decompress(raw)
-            except Exception:
-                content = raw
-        elif "deflate" in enc:
-            import zlib as _zlib
-            try:
-                content = _zlib.decompress(raw)
-            except Exception:
-                try:
-                    content = _zlib.decompress(raw, -15)
-                except Exception:
-                    content = raw
-        else:
-            content = raw
+        content = resp.content
         if len(content) < 500:
             return None
-        # Patch response so callers can use .content and .text normally
-        resp._content = content
         resp.encoding = resp.apparent_encoding or "utf-8"
         return resp
     except Exception as e:
@@ -1794,7 +1771,7 @@ ENGINE1_DISCOVERY_ENABLED = os.getenv("ENGINE1_DISCOVERY_ENABLED", "true").lower
 ENGINE2_TRACKING_ENABLED  = os.getenv("ENGINE2_TRACKING_ENABLED", "true").lower() == "true"
 ENGINE1_INTERVAL_HOURS    = int(os.getenv("ENGINE1_INTERVAL_HOURS", 4))  # Run every N hours
 
-# Category search URLs with pct-off=40- filter
+# v10.1: Expanded categories for broader ASIN discovery
 _DISCOVERY_CATEGORIES = [
     {"name": "Electronics",     "url": "https://www.amazon.eg/s?k=electronics&pct-off=40-&language=en_US"},
     {"name": "Smartphones",     "url": "https://www.amazon.eg/s?k=smartphone&pct-off=40-&language=en_US"},
@@ -1804,6 +1781,11 @@ _DISCOVERY_CATEGORIES = [
     {"name": "Gaming",          "url": "https://www.amazon.eg/s?k=gaming&pct-off=40-&language=en_US"},
     {"name": "Home & Kitchen",  "url": "https://www.amazon.eg/s?k=home+kitchen&pct-off=40-&language=en_US"},
     {"name": "Beauty",          "url": "https://www.amazon.eg/s?k=beauty&pct-off=40-&language=en_US"},
+    # v10.1: Added 4 new categories
+    {"name": "Watches",         "url": "https://www.amazon.eg/s?k=watch&pct-off=40-&language=en_US"},
+    {"name": "Tablets",         "url": "https://www.amazon.eg/s?k=tablet&pct-off=40-&language=en_US"},
+    {"name": "Cameras",         "url": "https://www.amazon.eg/s?k=camera&pct-off=40-&language=en_US"},
+    {"name": "Sports",          "url": "https://www.amazon.eg/s?k=sports&pct-off=40-&language=en_US"},
 ]
 
 # Bestseller pages
@@ -1867,6 +1849,15 @@ def _extract_asins_from_html(html_text, html_raw):
     # Strategy 4: /gp/product/ASIN
     gp_matches = re.findall(r'/gp/product/([A-Z0-9]{10})', html_raw, re.I)
     asins.update(m.upper() for m in gp_matches)
+
+    # v10.1 Strategy 5: ASIN in search result cards (data-asin in s-search-result)
+    # Amazon search pages use div[data-component-type="s-search-result"] with data-asin
+    card_matches = re.findall(r'<div[^>]*data-component-type="s-search-result"[^>]*data-asin="([A-Z0-9]{10})"', html_raw, re.I)
+    asins.update(m.upper() for m in card_matches)
+
+    # v10.1 Strategy 6: Generic ASIN pattern (10-char alphanumeric after "ASIN" keyword)
+    asin_text_matches = re.findall(r'[\"\s]ASIN[\"\s]*[:=]?\s*["\']?([A-Z0-9]{10})["\']?', html_raw, re.I)
+    asins.update(m.upper() for m in asin_text_matches)
 
     return asins
 
@@ -2063,7 +2054,7 @@ def _fetch_amazon_html(url, render_js=False):
 def _engine1_discovery():
     """
     Engine #1: Discover new discounted ASINs from category pages.
-    Runs every ENGINE1_INTERVAL_HOURS.
+    v10.1: Added pagination (pages 1-3) and raw HTML extraction fix.
     """
     print(f"\n[AMAZON-DISCOVERY] === Engine #1: Discovery Starting ===")
     print(f"[AMAZON-DISCOVERY] Categories: {len(_DISCOVERY_CATEGORIES)}, Bestsellers: {len(_BESTSELLER_PAGES)}")
@@ -2075,24 +2066,34 @@ def _engine1_discovery():
     total_new = 0
     all_asins = set()
 
-    # ─── Category Pages ───
+    # ─── Category Pages (with pagination) ───
     for cat in _DISCOVERY_CATEGORIES:
         try:
-            print(f"[AMAZON-DISCOVERY] Scraping category: {cat['name']}")
-            html = _fetch_amazon_html(cat["url"])
-            if not html:
-                print(f"[AMAZON-DISCOVERY] ✗ Failed to load {cat['name']}")
-                continue
+            cat_new = 0
+            for page_num in range(1, 4):  # Pages 1, 2, 3
+                paginated_url = cat["url"] + f"&page={page_num}"
+                print(f"[AMAZON-DISCOVERY] {cat['name']} page {page_num}...")
+                html = _fetch_amazon_html(paginated_url)
+                if not html:
+                    print(f"[AMAZON-DISCOVERY] ✗ Failed {cat['name']} p{page_num}")
+                    break  # Stop pagination on failure
 
-            asins = _extract_asins_from_html(html, html)
-            print(f"[AMAZON-DISCOVERY] {cat['name']}: found {len(asins)} ASINs")
-            all_asins.update(asins)
+                # v10.1: Pass raw response content for regex extraction
+                raw_html = html if isinstance(html, str) else (html.text if hasattr(html, 'text') else str(html))
+                asins = _extract_asins_from_html(raw_html, raw_html)
+                print(f"[AMAZON-DISCOVERY] {cat['name']} p{page_num}: {len(asins)} ASINs")
 
-            added = _save_tracked_asins(asins, source=f"category:{cat['name']}")
-            total_new += added
-            print(f"[AMAZON-DISCOVERY] {cat['name']}: {added} new ASINs saved")
+                if len(asins) < 3:
+                    break  # Last page or empty — stop paginating
 
-            _random_delay(2, 5)
+                all_asins.update(asins)
+                added = _save_tracked_asins(asins, source=f"category:{cat['name']}")
+                cat_new += added
+                total_new += added
+
+                _random_delay(2, 4)
+
+            print(f"[AMAZON-DISCOVERY] {cat['name']}: {cat_new} new ASINs saved")
 
         except Exception as e:
             print(f"[AMAZON-ERROR] Discovery category {cat['name']}: {e}")
@@ -2107,7 +2108,8 @@ def _engine1_discovery():
                 print(f"[AMAZON-DISCOVERY] ✗ Failed to load bestseller {page['name']}")
                 continue
 
-            asins = _extract_asins_from_html(html, html)
+            raw_html = html if isinstance(html, str) else (html.text if hasattr(html, 'text') else str(html))
+            asins = _extract_asins_from_html(raw_html, raw_html)
             print(f"[AMAZON-DISCOVERY] Bestseller {page['name']}: found {len(asins)} ASINs")
             all_asins.update(asins)
 
