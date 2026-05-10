@@ -2194,8 +2194,11 @@ def _engine2_tracking(seen_asins=None):
 
             print(f"[AMAZON-TRACKING] {info['title'][:50]} | EGP {cp:,.0f} (was {op:,.0f}) = {discount}% off")
 
-            if discount < MIN_DISCOUNT:
-                print(f"[AMAZON-TRACKING] Skipping — discount {discount}% < {MIN_DISCOUNT}%")
+            # v9.3 TEST: Temporarily lowered from MIN_DISCOUNT to 20%
+            # Revert to MIN_DISCOUNT after confirming pipeline works
+            test_threshold = 20  # TEST VALUE — change back to MIN_DISCOUNT after test
+            if discount < test_threshold:
+                print(f"[AMAZON-TRACKING] Skipping — discount {discount}% < {test_threshold}% (TEST threshold)")
                 continue
 
             if not price_in_range(cp):
