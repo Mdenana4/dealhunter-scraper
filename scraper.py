@@ -1026,9 +1026,10 @@ def _parse_and_save_rapidapi_products(products, country, marketplace_country,
 
             cat = detect_category(title)
             print(f"    [{label}/{country}] [{disc}%] {title[:42]}...")
-            kb = check_price_history(
-                asin=asin, product_url=product_url, current_price=cp,
-                original_price=op, title=title, site=marketplace_country,
+            kb = _get_fraud_verdict(
+                source=marketplace_country, asin=asin,
+                current_price=cp, original_price=op,
+                title=title, product_url=product_url, site=marketplace_country,
             )
             time.sleep(0.5)
             deal = build_deal(
@@ -1039,6 +1040,10 @@ def _parse_and_save_rapidapi_products(products, country, marketplace_country,
                 kanbkam_result=kb, currency=currency,
             )
             save_deal(deal)
+            PriceHistoryAPI.request_tracking(
+                source=marketplace_country, asin=asin, title=title,
+                url=product_url, category=cat or "general",
+            )
             saved += 1
         except Exception:
             continue
@@ -1502,13 +1507,10 @@ def _scrape_amazon_deals_page(
             cat = detect_category(title)
 
             print(f"    [{discount}%] {title[:40]}...")
-            kb = check_price_history(
-                asin=asin,
-                product_url=product_url,
-                current_price=current_price,
-                original_price=original_price,
-                title=title,
-                site=marketplace_country,
+            kb = _get_fraud_verdict(
+                source=marketplace_country, asin=asin,
+                current_price=current_price, original_price=original_price,
+                title=title, product_url=product_url, site=marketplace_country,
             )
             time.sleep(1)
 
@@ -1529,6 +1531,10 @@ def _scrape_amazon_deals_page(
                 currency=currency,
             )
             save_deal(deal)
+            PriceHistoryAPI.request_tracking(
+                source=marketplace_country, asin=asin, title=title,
+                url=product_url, category=cat or "general",
+            )
             seen_asins_deals.add(asin)
             total += 1
             time.sleep(0.5)
@@ -1605,9 +1611,11 @@ def _scrape_amazon_region(
                     product_url = f"https://www.{base_domain}/dp/{asin}?language=en_US"
 
                     print(f"    [amz-api✓] {title[:40]} | {discount}% off")
-                    kb = check_price_history(asin=asin, product_url=product_url,
-                                             current_price=cp, original_price=op,
-                                             title=title, site=marketplace_country)
+                    kb = _get_fraud_verdict(
+                        source=marketplace_country, asin=asin,
+                        current_price=cp, original_price=op,
+                        title=title, product_url=product_url, site=marketplace_country,
+                    )
                     deal = build_deal(title=title, site=marketplace_country,
                                       site_display=site_display, category=cat,
                                       current_price=cp, original_price=op,
@@ -1616,6 +1624,10 @@ def _scrape_amazon_region(
                                       review_count=rc, asin=asin,
                                       kanbkam_result=kb, currency=currency)
                     save_deal(deal)
+                    PriceHistoryAPI.request_tracking(
+                        source=marketplace_country, asin=asin, title=title,
+                        url=product_url, category=cat or "general",
+                    )
                     total += 1
                     saved_this_keyword += 1
                     time.sleep(1)
@@ -1725,13 +1737,10 @@ def _scrape_amazon_region(
                         continue
 
                     print(f"    Checking: {title[:35]}...")
-                    kb = check_price_history(
-                        asin=asin,
-                        product_url=product_url,
-                        current_price=current_price,
-                        original_price=original_price,
-                        title=title,
-                        site=marketplace_country,
+                    kb = _get_fraud_verdict(
+                        source=marketplace_country, asin=asin,
+                        current_price=current_price, original_price=original_price,
+                        title=title, product_url=product_url, site=marketplace_country,
                     )
                     time.sleep(1)
 
@@ -1753,6 +1762,10 @@ def _scrape_amazon_region(
                     )
                     seen_asins.add(asin)
                     save_deal(deal)
+                    PriceHistoryAPI.request_tracking(
+                        source=marketplace_country, asin=asin, title=title,
+                        url=product_url, category=cat or "general",
+                    )
                     total += 1
                     saved_this_keyword += 1
                     time.sleep(0.5)
@@ -2561,8 +2574,9 @@ def _extract_products_from_search(html):
 
 def _verify_fraud(asin, current_price, original_price, title):
     """
-    Fraud verification — Tier 1 only (own DB).
-    Safqa/Kanbkam are handled by check_price_history() in the save block.
+    v11.1: Legacy Tier 1 fraud check using old products/{asin}/price_history schema.
+    New code uses _get_fraud_verdict() which calls System 1 (price_history DB) first,
+    with fallback to check_price_history() (Kanbkam/Safqa). Kept for compatibility.
     Returns: GENUINE, SUSPICIOUS, or FAKE
     """
     try:
@@ -2598,7 +2612,8 @@ def _verify_fraud(asin, current_price, original_price, title):
 
 def _compute_fake_score(history_result) -> float:
     """
-    v9.9: Compute fake_score (0.0-100.0) from check_price_history() result.
+    v11.1: Compute fake_score (0.0-100.0) from _get_fraud_verdict() result.
+    Works with both System 1 (own DB) and legacy Kanbkam/Safqa responses.
     0.0 = likely genuine    50.0 = uncertain    100.0 = likely fake
     """
     if not isinstance(history_result, dict):
@@ -2639,6 +2654,58 @@ def _compute_fake_score(history_result) -> float:
         score -= 5.0
 
     return max(0.0, min(100.0, round(score, 1)))
+
+
+def _get_fraud_verdict(source: str, asin: str, current_price: float, original_price: float, title: str = "", product_url: str = "", site: str = "") -> dict:
+    """
+    v11.1: Unified fraud verdict — System 1 (own DB) first, fallback to Kanbkam/Safqa.
+    All scraper engines call this instead of check_price_history() directly.
+    Returns a dict compatible with build_deal(kanbkam_result=...).
+    """
+    # ── Tier 1: System 1 (our own price history database) ──
+    try:
+        sys1 = PriceHistoryAPI.query_verdict(
+            source=source, asin=asin,
+            current_price=current_price, list_price=original_price, title=title,
+        )
+        verdict = sys1.get("verdict", "UNVERIFIED")
+        confidence = sys1.get("confidence", 0.0)
+
+        # If System 1 has a definitive answer, use it
+        if verdict in ("FAKE", "GENUINE") or confidence >= 0.5:
+            print(f"[FRAUD-VERDICT] System 1: {verdict} (conf={confidence:.2f}) for {source}_{asin}")
+            return sys1
+
+        # System 1 says UNVERIFIED or low confidence — fall through to external check
+        print(f"[FRAUD-VERDICT] System 1: {verdict} (conf={confidence:.2f}) — falling back to Kanbkam/Safqa")
+
+    except Exception as e:
+        print(f"[FRAUD-VERDICT] System 1 error: {e} — falling back")
+        sys1 = {"verdict": "UNVERIFIED", "fake_score": 50.0, "recommendation": "research_first", "confidence": 0.0, "trend": "stable", "reasons": [f"System 1 error: {e}"]}
+
+    # ── Tier 2: External APIs (Kanbkam + Safqa) ──
+    try:
+        ext = check_price_history(
+            asin=asin, product_url=product_url or "",
+            current_price=current_price, original_price=original_price,
+            title=title, site=site or source,
+        )
+        if isinstance(ext, dict) and ext.get("verdict") != "UNVERIFIED":
+            # Merge: keep System 1 structure, use external verdict
+            merged = sys1.copy()
+            merged["verdict"] = ext.get("verdict", "UNVERIFIED")
+            merged["fake_score"] = ext.get("fake_score", sys1.get("fake_score", 50.0))
+            merged["recommendation"] = ext.get("recommendation", sys1.get("recommendation", "research_first"))
+            merged["reasons"] = ext.get("reasons", sys1.get("reasons", [])) + ["Enhanced by external API"]
+            merged["confidence"] = max(sys1.get("confidence", 0.0), 0.4)
+            merged["source_used"] = ext.get("source_used", "kanbkam/safqa")
+            print(f"[FRAUD-VERDICT] External API: {merged['verdict']} for {source}_{asin}")
+            return merged
+    except Exception as e:
+        print(f"[FRAUD-VERDICT] External API error: {e}")
+
+    # Nothing worked — return System 1 UNVERIFIED
+    return sys1
 
 
 def _get_recommendation(fake_score: float) -> str:
@@ -2913,12 +2980,11 @@ def _scrape_jumia_disabled_placeholder():
                     if cat == "general":
                         cat = default_cat
 
-                    kb = check_price_history(
-                        product_url=product_url,
-                        current_price=current_price,
-                        original_price=original_price,
-                        title=title,
-                        site="jumia_eg"
+                    asin = product_url.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(product_url.encode()).hexdigest()
+                    kb = _get_fraud_verdict(
+                        source="jumia_eg", asin=asin,
+                        current_price=current_price, original_price=original_price,
+                        title=title, product_url=product_url, site="jumia_eg"
                     )
 
                     deal = build_deal(
@@ -2936,6 +3002,10 @@ def _scrape_jumia_disabled_placeholder():
                         kanbkam_result=kb
                     )
                     save_deal(deal)
+                    PriceHistoryAPI.request_tracking(
+                        source="jumia_eg", asin=asin, title=title,
+                        url=product_url, category=cat or "general",
+                    )
                     total += 1
 
                 except Exception:
@@ -3038,12 +3108,11 @@ def scrape_btech():
 
                     cat = detect_category(title) or default_cat
 
-                    kb = check_price_history(
-                        product_url=product_url,
-                        current_price=current_price,
-                        original_price=original_price,
-                        title=title,
-                        site="btech_eg"
+                    asin = product_url.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(product_url.encode()).hexdigest()
+                    kb = _get_fraud_verdict(
+                        source="btech_eg", asin=asin,
+                        current_price=current_price, original_price=original_price,
+                        title=title, product_url=product_url, site="btech_eg"
                     )
 
                     deal = build_deal(
@@ -3059,6 +3128,10 @@ def scrape_btech():
                         kanbkam_result=kb
                     )
                     save_deal(deal)
+                    PriceHistoryAPI.request_tracking(
+                        source="btech_eg", asin=asin, title=title,
+                        url=product_url, category=cat or "general",
+                    )
                     total += 1
 
                 except Exception:
@@ -3188,12 +3261,11 @@ def scrape_carrefour():
 
                 cat = detect_category(title) or default_cat
 
-                kb = check_price_history(
-                    product_url=product_url,
-                    current_price=current_price,
-                    original_price=original_price,
-                    title=title,
-                    site="carrefour_eg"
+                asin = code or hashlib.md5(product_url.encode()).hexdigest()
+                kb = _get_fraud_verdict(
+                    source="carrefour_eg", asin=asin,
+                    current_price=current_price, original_price=original_price,
+                    title=title, product_url=product_url, site="carrefour_eg"
                 )
 
                 deal = build_deal(
@@ -3211,6 +3283,10 @@ def scrape_carrefour():
                     kanbkam_result=kb
                 )
                 save_deal(deal)
+                PriceHistoryAPI.request_tracking(
+                    source="carrefour_eg", asin=asin, title=title,
+                    url=product_url, category=cat or "general",
+                )
                 total += 1
 
             except Exception:
@@ -3294,13 +3370,21 @@ def scrape_sharaf_dg():
                             purl = "https://www.sharafdg.com" + purl
                         img = item.get("image", item.get("imageUrl", ""))
                         cat = detect_category(title) or default_cat
-                        kb = check_price_history(product_url=purl, current_price=cp,
-                                                 original_price=op, title=title, site="sharaf_dg_eg")
+                        asin = purl.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(purl.encode()).hexdigest()
+                        kb = _get_fraud_verdict(
+                            source="sharaf_dg_eg", asin=asin,
+                            current_price=cp, original_price=op,
+                            title=title, product_url=purl, site="sharaf_dg_eg"
+                        )
                         deal = build_deal(title=title, site="sharaf_dg_eg",
                                           site_display="Sharaf DG Egypt", category=cat,
                                           current_price=cp, original_price=op, discount=disc,
                                           image_url=img, product_url=purl, kanbkam_result=kb)
                         save_deal(deal)
+                        PriceHistoryAPI.request_tracking(
+                            source="sharaf_dg_eg", asin=asin, title=title,
+                            url=purl, category=cat or "general",
+                        )
                         total += 1
                     except Exception:
                         continue
@@ -3356,12 +3440,11 @@ def scrape_sharaf_dg():
 
                     cat = detect_category(title) or default_cat
 
-                    kb = check_price_history(
-                        product_url=product_url,
-                        current_price=current_price,
-                        original_price=original_price,
-                        title=title,
-                        site="sharaf_dg_eg"
+                    asin = product_url.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(product_url.encode()).hexdigest()
+                    kb = _get_fraud_verdict(
+                        source="sharaf_dg_eg", asin=asin,
+                        current_price=current_price, original_price=original_price,
+                        title=title, product_url=product_url, site="sharaf_dg_eg"
                     )
 
                     deal = build_deal(
@@ -3377,6 +3460,10 @@ def scrape_sharaf_dg():
                         kanbkam_result=kb
                     )
                     save_deal(deal)
+                    PriceHistoryAPI.request_tracking(
+                        source="sharaf_dg_eg", asin=asin, title=title,
+                        url=product_url, category=cat or "general",
+                    )
                     total += 1
 
                 except Exception:
@@ -3475,13 +3562,16 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
         for item in items:
             try:
                 src = item.get("_source", item)
+                sku = src.get("sku") or src.get("product_id") or src.get("id") or ""
                 parsed = _process_noon_item(src, default_cat, region_path, currency)
                 if not parsed:
                     continue
                 title, cp, op, disc, img, purl, rating, rc, cat = parsed
-                kb = check_price_history(product_url=purl, current_price=cp,
-                                         original_price=op, title=title,
-                                         site=marketplace_country)
+                kb = _get_fraud_verdict(
+                    source=marketplace_country, asin=sku,
+                    current_price=cp, original_price=op,
+                    title=title, product_url=purl, site=marketplace_country,
+                )
                 deal = build_deal(title=title, site=marketplace_country,
                                   site_display=site_display, category=cat,
                                   current_price=cp, original_price=op,
@@ -3489,6 +3579,10 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                                   rating=rating, review_count=rc,
                                   kanbkam_result=kb, currency=currency)
                 save_deal(deal)
+                PriceHistoryAPI.request_tracking(
+                    source=marketplace_country, asin=sku, title=title,
+                    url=purl, category=cat or "general",
+                )
                 count += 1
             except Exception:
                 continue
@@ -3601,15 +3695,23 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
             img_el = p.find("img")
             img = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
             cat = detect_category(title) or default_cat
-            kb = check_price_history(product_url=purl, current_price=cp,
-                                     original_price=op, title=title,
-                                     site=marketplace_country)
+            _sku_m = re.search(r'/[A-Za-z0-9]{5,}/p/', href)
+            _sku = _sku_m.group(0).split("/p/")[0].strip("/") if _sku_m else ""
+            kb = _get_fraud_verdict(
+                source=marketplace_country, asin=_sku,
+                current_price=cp, original_price=op,
+                title=title, product_url=purl, site=marketplace_country,
+            )
             deal = build_deal(title=title, site=marketplace_country,
                               site_display=site_display, category=cat,
                               current_price=cp, original_price=op,
                               discount=disc, image_url=img, product_url=purl,
                               kanbkam_result=kb, currency=currency)
             save_deal(deal)
+            PriceHistoryAPI.request_tracking(
+                source=marketplace_country, asin=_sku, title=title,
+                url=purl, category=cat or "general",
+            )
             saved += 1
         except Exception:
             continue
@@ -3788,15 +3890,21 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
 
                 img_el = container.find("img")
                 img = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
-                kb = check_price_history(product_url=purl, current_price=cp,
-                                         original_price=op, title=title,
-                                         site=marketplace_country)
+                kb = _get_fraud_verdict(
+                    source=marketplace_country, asin=_sku,
+                    current_price=cp, original_price=op,
+                    title=title, product_url=purl, site=marketplace_country,
+                )
                 deal = build_deal(title=title, site=marketplace_country,
                                   site_display=site_display, category=cat,
                                   current_price=cp, original_price=op,
                                   discount=disc, image_url=img, product_url=purl,
                                   kanbkam_result=kb, currency=currency)
                 save_deal(deal)
+                PriceHistoryAPI.request_tracking(
+                    source=marketplace_country, asin=_sku, title=title,
+                    url=purl, category=cat or "general",
+                )
                 saved += 1
                 _link_saved = True
                 break
@@ -4030,9 +4138,11 @@ def scrape_hyperone():
                     image_url = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
                     cat       = detect_category(title) or default_cat
 
-                    kb = check_price_history(
-                        product_url=product_url, current_price=current_price,
-                        original_price=original_price, title=title, site="hyperone_eg"
+                    asin = product_url.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(product_url.encode()).hexdigest()
+                    kb = _get_fraud_verdict(
+                        source="hyperone_eg", asin=asin,
+                        current_price=current_price, original_price=original_price,
+                        title=title, product_url=product_url, site="hyperone_eg"
                     )
 
                     deal = build_deal(
@@ -4042,6 +4152,10 @@ def scrape_hyperone():
                         image_url=image_url, product_url=product_url, kanbkam_result=kb
                     )
                     save_deal(deal)
+                    PriceHistoryAPI.request_tracking(
+                        source="hyperone_eg", asin=asin, title=title,
+                        url=product_url, category=cat or "general",
+                    )
                     total += 1
 
                 except Exception:
@@ -4115,9 +4229,11 @@ def scrape_sahla():
                                 rc     = int(item.get("reviews_count", item.get("review_count", 0)) or 0) or None
                                 cat    = detect_category(title)
 
-                                kb = check_price_history(
-                                    product_url=purl, current_price=cp,
-                                    original_price=op, title=title, site="sahla_eg"
+                                asin = str(pid) or hashlib.md5(purl.encode()).hexdigest()
+                                kb = _get_fraud_verdict(
+                                    source="sahla_eg", asin=asin,
+                                    current_price=cp, original_price=op,
+                                    title=title, product_url=purl, site="sahla_eg"
                                 )
 
                                 deal = build_deal(
@@ -4127,6 +4243,10 @@ def scrape_sahla():
                                     rating=rating, review_count=rc, kanbkam_result=kb
                                 )
                                 save_deal(deal)
+                                PriceHistoryAPI.request_tracking(
+                                    source="sahla_eg", asin=asin, title=title,
+                                    url=purl, category=cat or "general",
+                                )
                                 total += 1
                             except Exception:
                                 continue
@@ -4187,9 +4307,11 @@ def scrape_sahla():
                         img    = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
                         cat    = detect_category(title)
 
-                        kb = check_price_history(
-                            product_url=purl, current_price=cp,
-                            original_price=op, title=title, site="sahla_eg"
+                        asin = purl.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(purl.encode()).hexdigest()
+                        kb = _get_fraud_verdict(
+                            source="sahla_eg", asin=asin,
+                            current_price=cp, original_price=op,
+                            title=title, product_url=purl, site="sahla_eg"
                         )
 
                         deal = build_deal(
@@ -4198,6 +4320,10 @@ def scrape_sahla():
                             discount=disc, image_url=img, product_url=purl, kanbkam_result=kb
                         )
                         save_deal(deal)
+                        PriceHistoryAPI.request_tracking(
+                            source="sahla_eg", asin=asin, title=title,
+                            url=purl, category=cat or "general",
+                        )
                         total += 1
                     except Exception:
                         continue
@@ -4292,9 +4418,11 @@ def scrape_custom_sources():
                         img    = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
                         cat    = detect_category(title)
 
-                        kb = check_price_history(
-                            product_url=purl, current_price=cp,
-                            original_price=op, title=title, site=site_id
+                        asin = purl.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(purl.encode()).hexdigest()
+                        kb = _get_fraud_verdict(
+                            source=site_id, asin=asin,
+                            current_price=cp, original_price=op,
+                            title=title, product_url=purl, site=site_id
                         )
 
                         deal = build_deal(
@@ -4303,6 +4431,10 @@ def scrape_custom_sources():
                             discount=disc, image_url=img, product_url=purl, kanbkam_result=kb
                         )
                         save_deal(deal)
+                        PriceHistoryAPI.request_tracking(
+                            source=site_id, asin=asin, title=title,
+                            url=purl, category=cat or "general",
+                        )
                         total += 1
                         products_found += 1
                     except Exception:
@@ -4711,7 +4843,7 @@ def _purge_bad_deals():
 
 
 if __name__ == "__main__":
-    print("DealHunter Egypt Scraper v11.0 — System 1 (Price History) + System 2 (Deal Discovery)")
+    print("DealHunter Egypt Scraper v11.1 — All engines on System 1 + Kanbkam/Safqa fallback")
     print(f"Stores: Amazon EG/AE/SA + Noon EG/AE/SA + Jumia + B.Tech + Carrefour + Sharaf DG + HyperOne + Sahla")
     print(f"Fake check: System 1 (own price-history database) — Kanbkam + Safqa DEPRECATED")
 
