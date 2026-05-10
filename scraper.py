@@ -2231,14 +2231,23 @@ def _engine2_tracking(seen_asins=None):
 
                 print(f"[AMAZON-FRAUD] Final verdict: {kb_verdict} — saving deal")
 
+                # v9.9: Compute real fake_score from Kanbkam+Safya result
+                fake_score = _compute_fake_score(kb_dict)
+                trend = kb_dict.get("trend", "stable") if isinstance(kb_dict, dict) else "stable"
+                print(f"  [ANALYTICS] trend={trend} fake_score={fake_score:.1f} recommendation=buy_now")
+
                 # ─── SAVE DEAL ───
+                # v9.9: Inject computed fake_score into kanbkam result
+                kb_result = kb_dict if isinstance(kb_dict, dict) else {"verdict": kb_verdict}
+                kb_result["fake_score"] = fake_score
+
                 deal = build_deal(
                     title=title, site="amazon_eg", site_display="Amazon Egypt",
                     category=cat_name, current_price=cp, original_price=op,
                     discount=discount, image_url=prod.get("image_url", ""),
                     product_url=product_url, rating=prod.get("rating", 0.0),
                     review_count=None, asin=asin,
-                    kanbkam_result=kb_dict if isinstance(kb_dict, dict) else {"verdict": kb_verdict},
+                    kanbkam_result=kb_result,
                     currency="EGP",
                 )
                 save_deal(deal)
@@ -2536,6 +2545,51 @@ def _verify_fraud(asin, current_price, original_price, title):
         print(f"[AMAZON-FRAUD] Tier 1 failed: {e}")
 
     return "SUSPICIOUS"
+
+
+def _compute_fake_score(history_result) -> float:
+    """
+    v9.9: Compute fake_score (0.0-100.0) from check_price_history() result.
+    0.0 = likely genuine    50.0 = uncertain    100.0 = likely fake
+    """
+    if not isinstance(history_result, dict):
+        return 50.0
+
+    score = 50.0
+
+    # Kanbkam verdict weight
+    kanbkam = history_result.get("verdict", "UNVERIFIED")
+    if kanbkam == "FAKE":
+        score = 100.0
+    elif kanbkam == "SUSPICIOUS":
+        score = 70.0
+    elif kanbkam == "GENUINE":
+        score = 10.0
+    elif kanbkam == "UNVERIFIED":
+        score = 50.0
+
+    # Safqa result weight
+    safqa = history_result.get("safqa", "")
+    if safqa and safqa != "not found":
+        safqa_price = history_result.get("safqa_price", 0)
+        current_price = history_result.get("current_price", 0)
+        if safqa_price > 0 and current_price > 0:
+            diff = abs(safqa_price - current_price) / current_price
+            if diff > 0.3:  # >30% price mismatch
+                score = max(score, 80.0)
+            else:
+                score = min(score, 20.0)  # Safqa confirms price
+    else:
+        score += 5.0  # No Safqa data = slight uncertainty
+
+    # Trend signal
+    trend = history_result.get("trend", "stable")
+    if trend == "rising":
+        score += 5.0
+    elif trend == "falling":
+        score -= 5.0
+
+    return max(0.0, min(100.0, round(score, 1)))
 
 
 # ═══════════════════════════════════════════════════════════════
