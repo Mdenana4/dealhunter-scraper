@@ -51,6 +51,8 @@ COPY fake_checker.py .
 COPY safqa_browser.py .
 COPY price_tracker.py .
 COPY scraper_health.py .
+COPY price_history_system.py .      # v11: System 1 — price history database
+COPY price_history_api.py .         # v11: System 1 API for scraper integration
 COPY start.sh .
 RUN chmod +x start.sh
 

@@ -14,7 +14,17 @@ from datetime import datetime, timezone
 from typing import Any
 from bs4 import BeautifulSoup
 from firebase_admin import firestore
-from scraper import fetch_with_scraperapi
+
+# Lazy import of fetch_with_scraperapi to avoid circular import:
+# scraper.py imports price_history_api → price_history_system → scraper (not fully initialized yet)
+_fetch_with_scraperapi = None
+
+def _get_fetch():
+    global _fetch_with_scraperapi
+    if _fetch_with_scraperapi is None:
+        from scraper import fetch_with_scraperapi
+        _fetch_with_scraperapi = fetch_with_scraperapi
+    return _fetch_with_scraperapi
 
 db = firestore.client()
 
@@ -176,7 +186,7 @@ class PriceSnapshotCollector:
         elif source.startswith("jumia"): url = f"https://{domain}/product/{asin}"
         else: url = f"https://{domain}/dp/{asin}"
         try:
-            resp = fetch_with_scraperapi(url, render_js=True, country=self._country(source))
+            resp = _get_fetch()(url, render_js=True, country=self._country(source))
             if not resp or resp.status_code != 200 or len(resp.text) < 2000: return None
             if source.startswith("amazon"): ex = self._extract_amazon(resp.text)
             elif source.startswith("noon"): ex = self._extract_noon(resp.text)
@@ -357,7 +367,7 @@ class PriceHistoryScheduler:
             kw = cmap.get("amazon", "")
             if not kw: continue
             try:
-                resp = fetch_with_scraperapi(f"https://{domain}/s?k={kw}&s=price-desc-rank", render_js=True, country=cc)
+                resp = _get_fetch()(f"https://{domain}/s?k={kw}&s=price-desc-rank", render_js=True, country=cc)
                 if resp and resp.status_code == 200: new_all += [a for a in self._mpl.discover_from_category_pages(source, cat, resp.text) if a not in new_all]
                 time.sleep(1)
             except Exception as e: _log(f"cat crawl error {source}/{cat}: {e}")
@@ -365,7 +375,7 @@ class PriceHistoryScheduler:
             path = cmap.get("amazon", "")
             if not path: continue
             try:
-                resp = fetch_with_scraperapi(f"https://{domain}{path}", render_js=True, country=cc)
+                resp = _get_fetch()(f"https://{domain}{path}", render_js=True, country=cc)
                 if resp and resp.status_code == 200: new_all += [a for a in self._mpl.discover_from_bestseller_pages(source, cat, resp.text) if a not in new_all]
                 time.sleep(1)
             except Exception as e: _log(f"best crawl error {source}/{cat}: {e}")
