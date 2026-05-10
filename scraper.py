@@ -2202,21 +2202,18 @@ def _engine2_tracking(seen_asins=None):
                 if fraud_result == "FAKE":
                     continue
 
+                # v9.5: Use fraud_result directly — _verify_fraud() already checked Safqa/Kanbkam
+                # Removed duplicate check_price_history() to avoid double Safqa calls
                 cat_name = detect_category(title)
                 product_url = f"https://www.amazon.eg/dp/{asin}?language=en_US"
-
-                kb_result = check_price_history(
-                    asin=asin, product_url=product_url,
-                    current_price=cp, original_price=op,
-                    title=title, site="amazon_eg",
-                )
 
                 deal = build_deal(
                     title=title, site="amazon_eg", site_display="Amazon Egypt",
                     category=cat_name, current_price=cp, original_price=op,
                     discount=discount, image_url=prod.get("image_url", ""),
                     product_url=product_url, rating=prod.get("rating", 0.0),
-                    review_count=None, asin=asin, kanbkam_result=kb_result,
+                    review_count=None, asin=asin,
+                    kanbkam_result=fraud_result,  # From _verify_fraud() — already checked Safqa
                     currency="EGP",
                 )
                 save_deal(deal)
