@@ -1774,8 +1774,53 @@ def _scrape_amazon_region(
     return total
 
 
+def _test_scrapedo_geocode():
+    """TEST: Check if scrape.do Amazon API supports geocode=EG. Logs result only."""
+    print("\n[AMAZON-TEST] Testing scrape.do Amazon API geocode=EG...")
+    try:
+        url = (
+            f"https://api.scrape.do/plugin/amazon/search"
+            f"?token={SCRAPEDO_TOKEN}"
+            f"&query=iphone"
+            f"&geocode=EG"
+            f"&super=true"
+        )
+        print(f"[AMAZON-TEST] URL: {url[:60]}...")
+        resp = requests.get(url, timeout=30)
+        print(f"[AMAZON-TEST] HTTP Status: {resp.status_code}")
+        print(f"[AMAZON-TEST] Response length: {len(resp.text)} bytes")
+        if resp.status_code == 200:
+            try:
+                data = resp.json()
+                products = data.get("products", []) if isinstance(data, dict) else []
+                print(f"[AMAZON-TEST] Products found: {len(products)}")
+                if products:
+                    print(f"[AMAZON-TEST] First product: {products[0].get('name', 'N/A')[:50]}")
+                    print(f"[AMAZON-TEST] ✓ geocode=EG WORKS — structured API is usable!")
+                else:
+                    print(f"[AMAZON-TEST] ⚠ 200 OK but no products — check response format")
+                    print(f"[AMAZON-TEST] Response preview: {str(data)[:200]}")
+            except Exception as e:
+                print(f"[AMAZON-TEST] ⚠ 200 OK but not JSON: {e}")
+                print(f"[AMAZON-TEST] Raw preview: {resp.text[:300]}")
+        elif resp.status_code == 400:
+            print(f"[AMAZON-TEST] ✗ HTTP 400 — geocode=EG NOT SUPPORTED")
+            print(f"[AMAZON-TEST] Must use HTML scraping instead of structured API")
+        elif resp.status_code == 401:
+            print(f"[AMAZON-TEST] ✗ HTTP 401 — token invalid or expired")
+        elif resp.status_code == 403:
+            print(f"[AMAZON-TEST] ✗ HTTP 403 — plan doesn't include Amazon API")
+        else:
+            print(f"[AMAZON-TEST] ✗ HTTP {resp.status_code} — unexpected")
+            print(f"[AMAZON-TEST] Response: {resp.text[:200]}")
+    except Exception as e:
+        print(f"[AMAZON-TEST] ✗ Request failed: {type(e).__name__}: {e}")
+    print("[AMAZON-TEST] Test complete.\n")
+
+
 def scrape_amazon():
     """Amazon Egypt — deals page only. Keyword scan DISABLED to save credits."""
+    _test_scrapedo_geocode()  # TEST: geocode=EG support
     deals_total, seen = _scrape_amazon_deals_page()
     # v8: Keyword scan disabled — scrape.do returns HTTP 502 for all keywords.
     # Only run if explicitly enabled via AMAZON_KEYWORD_ENABLED=true
