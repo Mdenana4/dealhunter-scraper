@@ -1364,7 +1364,7 @@ def _scrape_amazon_deals_page(
     debug_counts["dp-links"] = len(_dp_links)
 
     # Strategy 7: ASINs in raw HTML
-    _html_asins = set(re.findall(r'["']/dp/([A-Z0-9]{10})["']', html_raw, re.I))
+    _html_asins = set(re.findall(r"/dp/([A-Z0-9]{10})", html_raw, re.I))
     debug_counts["html-asins"] = len(_html_asins)
 
     # Strategy 8: deal cards
