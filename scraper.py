@@ -23,6 +23,8 @@ from dotenv import load_dotenv
 from fake_checker import check_price_history
 from price_tracker import record_price as _pt_record, get_triggered_alerts as _pt_alerts
 from scraper_health import health as _health
+from price_history_api import PriceHistoryAPI  # v11.0: System 1 integration
+from price_history_system import start_price_history_system  # v11.0: Start System 1 scheduler
 
 load_dotenv()
 
@@ -2250,46 +2252,37 @@ def _engine2_tracking(seen_asins=None):
                     print(f"[AMAZON-FRAUD] BLOCKED FAKE deal — not saving ASIN {asin}")
                     continue
 
-                # ─── FRAUD VERIFICATION (single call) ───
-                # v9.8: check_price_history() handles BOTH Safqa + Kanbkam internally.
-                # My direct check_safqa() call was causing 3× browser launches per product.
-                # Now only ONE call: check_price_history() → which calls Safqa once internally.
+                # ─── FRAUD VERIFICATION: System 1 (own price history database) ───
+                # v11.0: Replaced Kanbkam/Safqa with System 1 — our own price history database.
+                # System 1 proactively collects price snapshots and detects fake discounts
+                # using real historical data instead of external APIs.
                 cat_name = detect_category(title)
                 product_url = f"https://www.amazon.eg/dp/{asin}?language=en_US"
 
-                # ─── SAFQA + KANBKAM (single check_price_history call) ───
-                kb_dict = check_price_history(
-                    asin=asin, product_url=product_url,
-                    current_price=cp, original_price=op,
-                    title=title, site="amazon_eg",
+                # ─── SYSTEM 1: Query verdict from price history database ───
+                sys1_result = PriceHistoryAPI.query_verdict(
+                    source="amazon_eg", asin=asin,
+                    current_price=cp, list_price=op, title=title,
                 )
 
-                # ─── FRAUD CHECK #2: Kanbkam verdict ───
-                kb_verdict = "UNVERIFIED"
-                if isinstance(kb_dict, dict):
-                    kb_verdict = kb_dict.get("verdict", "UNVERIFIED")
-                elif isinstance(kb_dict, str):
-                    kb_verdict = kb_dict
-
+                # ─── FRAUD CHECK #2: System 1 verdict ───
+                kb_verdict = sys1_result.get("verdict", "UNVERIFIED")
                 if kb_verdict == "FAKE":
-                    print(f"[AMAZON-FRAUD] BLOCKED FAKE deal — Kanbkam FAKE for ASIN {asin}")
+                    print(f"[AMAZON-FRAUD] BLOCKED FAKE deal — System 1 FAKE for ASIN {asin}")
                     continue
 
                 print(f"[AMAZON-FRAUD] Final verdict: {kb_verdict} — saving deal")
 
-                # v9.9: Compute real fake_score from Kanbkam+Safya result
-                # v10.0: recommendation is now score-based, not hardcoded buy_now
-                fake_score = _compute_fake_score(kb_dict)
-                trend = kb_dict.get("trend", "stable") if isinstance(kb_dict, dict) else "stable"
-                recommendation = _get_recommendation(fake_score)
+                # v11.0: Use System 1's computed fake_score and recommendation
+                fake_score = sys1_result.get("fake_score", 50.0)
+                trend = sys1_result.get("trend", "stable")
+                recommendation = sys1_result.get("recommendation", "research_first")
                 print(f"  [ANALYTICS] trend={trend} fake_score={fake_score:.1f} recommendation={recommendation}")
 
                 # ─── SAVE DEAL ───
-                # v9.9: Inject computed fake_score into kanbkam result
-                # v10.0: Also inject score-based recommendation
-                kb_result = kb_dict if isinstance(kb_dict, dict) else {"verdict": kb_verdict}
-                kb_result["fake_score"] = fake_score
-                kb_result["recommendation"] = recommendation
+                # v11.0: Use System 1 result as kanbkam_result for backward compat
+                kb_result = sys1_result.copy()
+                kb_result["verdict"] = kb_verdict
 
                 deal = build_deal(
                     title=title, site="amazon_eg", site_display="Amazon Egypt",
@@ -2306,6 +2299,12 @@ def _engine2_tracking(seen_asins=None):
 
                 if fraud_result in ("GENUINE", "SUSPICIOUS"):
                     print(f"[AMAZON-NOTIFY] Deal saved — ASIN={asin} discount={discount}%")
+                    # v11.0: Tell System 1 to track this product
+                    PriceHistoryAPI.request_tracking(
+                        source="amazon_eg", asin=asin, title=title,
+                        url=f"https://www.amazon.eg/dp/{asin}?language=en_US",
+                        category=cat_name or "general",
+                    )
 
                 _random_delay(2, 5)
 
@@ -4712,9 +4711,16 @@ def _purge_bad_deals():
 
 
 if __name__ == "__main__":
-    print("DealHunter Egypt Scraper v7 FIXED")
+    print("DealHunter Egypt Scraper v11.0 — System 1 (Price History) + System 2 (Deal Discovery)")
     print(f"Stores: Amazon EG/AE/SA + Noon EG/AE/SA + Jumia + B.Tech + Carrefour + Sharaf DG + HyperOne + Sahla")
-    print(f"Fake check: Kanbkam (fixed URL) + Safqa (rebuilt)")
+    print(f"Fake check: System 1 (own price-history database) — Kanbkam + Safqa DEPRECATED")
+
+    # v11.0: Start System 1 (price history database) — independent background thread
+    try:
+        start_price_history_system()
+    except Exception as e:
+        print(f"[WARN] System 1 (price history) failed to start: {e}")
+        print(f"[WARN] Deal scraper will continue without price-history fraud detection")
     print(f"Min discount: {MIN_DISCOUNT}% | Interval: {INTERVAL} min")
     if MIN_PRICE > 0 or MAX_PRICE < 9999999:
         print(f"Price filter: EGP {MIN_PRICE:,.0f} – EGP {MAX_PRICE:,.0f}")
