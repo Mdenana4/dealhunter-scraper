@@ -1765,15 +1765,16 @@ def _scrape_amazon_region(
 
 
 def scrape_amazon():
-    """Amazon Egypt — deals page first; if 0 products, fall back to structured API scan."""
+    """Amazon Egypt — deals page only. Keyword scan DISABLED to save credits."""
     deals_total, seen = _scrape_amazon_deals_page()
-    # If HTML deals page is blocked (0 products), force the structured API keyword scan
-    # so Amazon Egypt always produces deals regardless of AMAZON_KEYWORD_ENABLED flag.
-    force = (deals_total == 0)
-    if force:
-        print(f"\n[AMAZON/EG] Deals page blocked (0) → forcing structured API scan as fallback")
-    kw_total = _scrape_amazon_region(skip_asins=seen, force_api_scan=force)
-    return deals_total + kw_total
+    # v8: Keyword scan disabled — scrape.do returns HTTP 502 for all keywords.
+    # Only run if explicitly enabled via AMAZON_KEYWORD_ENABLED=true
+    if AMAZON_KEYWORD_ENABLED:
+        print(f"\n[AMAZON/EG] Keyword scan ENABLED — running (~54 credits)")
+        kw_total = _scrape_amazon_region(skip_asins=seen, force_api_scan=False)
+        return deals_total + kw_total
+    print(f"  [AMAZON/EG] Keyword scan DISABLED — saving ~54 credits/cycle")
+    return deals_total
 
 def scrape_amazon_ae():
     """Amazon UAE — DEAL DISCOVERY SUSPENDED. Price history continues via price_tracker.py."""
