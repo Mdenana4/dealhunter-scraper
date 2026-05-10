@@ -2197,29 +2197,57 @@ def _engine2_tracking(seen_asins=None):
 
                 print(f"[AMAZON-TRACKING] {title[:50]}... | EGP {cp:,.0f} (was {op:,.0f}) = {discount}% off")
 
+                # ─── FRAUD CHECK #1: Own DB ───
                 fraud_result = _verify_fraud(asin, cp, op, title)
                 print(f"[AMAZON-FRAUD] ASIN {asin}: {fraud_result}")
                 if fraud_result == "FAKE":
+                    print(f"[AMAZON-FRAUD] BLOCKED FAKE deal — not saving ASIN {asin}")
                     continue
 
-                # v9.6: Call check_price_history() to get proper dict for build_deal()
-                # _verify_fraud() no longer calls Safqa — this is the ONLY Safqa call per deal
+                # ─── SAFQA CHECK (once per deal) ───
                 cat_name = detect_category(title)
                 product_url = f"https://www.amazon.eg/dp/{asin}?language=en_US"
 
-                kb_result = check_price_history(
+                # v9.7: Call Safqa directly ONCE instead of through check_price_history()
+                # This avoids duplicate Safqa calls from nested check_price_history()
+                safqa_price = None
+                try:
+                    from safqa_browser import check_safqa
+                    safqa_dict = check_safqa(asin=asin, title=title)
+                    if safqa_dict and safqa_dict.get("found"):
+                        safqa_price = safqa_dict.get("lowest_price")
+                        print(f"[AMAZON-FRAUD] Safqa price: EGP {safqa_price:,.0f}")
+                except Exception as e:
+                    print(f"[AMAZON-FRAUD] Safqa error: {e}")
+
+                # ─── KANBKAM CHECK (separate from Safqa) ───
+                kb_dict = check_price_history(
                     asin=asin, product_url=product_url,
                     current_price=cp, original_price=op,
                     title=title, site="amazon_eg",
                 )
 
+                # ─── FRAUD CHECK #2: Kanbkam verdict ───
+                kb_verdict = "UNVERIFIED"
+                if isinstance(kb_dict, dict):
+                    kb_verdict = kb_dict.get("verdict", "UNVERIFIED")
+                elif isinstance(kb_dict, str):
+                    kb_verdict = kb_dict
+
+                if kb_verdict == "FAKE":
+                    print(f"[AMAZON-FRAUD] BLOCKED FAKE deal — Kanbkam FAKE for ASIN {asin}")
+                    continue
+
+                print(f"[AMAZON-FRAUD] Final verdict: {kb_verdict} — saving deal")
+
+                # ─── SAVE DEAL ───
                 deal = build_deal(
                     title=title, site="amazon_eg", site_display="Amazon Egypt",
                     category=cat_name, current_price=cp, original_price=op,
                     discount=discount, image_url=prod.get("image_url", ""),
                     product_url=product_url, rating=prod.get("rating", 0.0),
                     review_count=None, asin=asin,
-                    kanbkam_result=kb_result,  # Proper dict from check_price_history()
+                    kanbkam_result=kb_dict if isinstance(kb_dict, dict) else {"verdict": kb_verdict},
                     currency="EGP",
                 )
                 save_deal(deal)
