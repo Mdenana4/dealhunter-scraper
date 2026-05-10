@@ -26,7 +26,16 @@ def _get_fetch():
         _fetch_with_scraperapi = fetch_with_scraperapi
     return _fetch_with_scraperapi
 
-db = firestore.client()
+# Lazy Firestore client — Firebase isn't initialized when this module is imported
+# (scraper.py initializes Firebase AFTER importing price_history_api)
+_db = None
+
+def _get_db():
+    global _db
+    if _db is None:
+        from firebase_admin import firestore
+        _db = firestore.client()
+    return _db
 
 def _log(msg: str) -> None:
     print(f"[PRICE-HISTORY] {msg}", flush=True)
@@ -102,7 +111,7 @@ class MasterProductList:
         return asins
 
     def _ref(self, source: str, asin: str):
-        return db.collection("price_history").document(self._doc_id(source, asin))
+        return _get_db().collection("price_history").document(self._doc_id(source, asin))
 
     def discover_from_category_pages(self, source: str, category: str, html: str) -> list[str]:
         new = [a for a in self._extract_asins(html) if not self._ref(source, a).get().exists]
@@ -127,7 +136,7 @@ class MasterProductList:
         return True
 
     def get_active_products(self, source: str | None = None) -> list[dict]:
-        q = db.collection("price_history")
+        q = _get_db().collection("price_history")
         if source:
             q = q.where(filter=firestore.FieldFilter("source", "==", source))
         return [d.to_dict() for d in q.where(filter=firestore.FieldFilter("is_active", "==", True)).stream()]
@@ -197,8 +206,8 @@ class PriceSnapshotCollector:
                     "discount_percent": ex["discount_percent"], "seller": ex["seller"], "fulfillment": ex["fulfillment"],
                     "scraped_at": firestore.SERVER_TIMESTAMP, "is_deal": ex["discount_percent"] >= 40, "in_stock": ex["in_stock"]}
             pid = f"{source}_{asin}"
-            db.collection("price_history").document(pid).collection("snapshots").document().set(snap)
-            try: db.collection("price_history").document(pid).update({"snapshots_count": firestore.Increment(1), "last_updated": firestore.SERVER_TIMESTAMP})
+            _get_db().collection("price_history").document(pid).collection("snapshots").document().set(snap)
+            try: _get_db().collection("price_history").document(pid).update({"snapshots_count": firestore.Increment(1), "last_updated": firestore.SERVER_TIMESTAMP})
             except Exception: pass
             return snap
         except Exception as e:
@@ -253,7 +262,7 @@ class FakeDiscountAnalyzer:
 
     def analyze_product(self, product_id: str) -> dict[str, Any]:
         try:
-            snaps = (db.collection("price_history").document(product_id).collection("snapshots")
+            snaps = (_get_db().collection("price_history").document(product_id).collection("snapshots")
                      .order_by("scraped_at").stream())
             prices: list[float] = []
             deals40 = 0
@@ -346,7 +355,7 @@ class PriceHistoryScheduler:
                 try:
                     pid = f"{prod['source']}_{prod['asin']}"
                     r = self._analyzer.analyze_product(pid)
-                    db.collection("price_history").document(pid).update({
+                    _get_db().collection("price_history").document(pid).update({
                         "thirty_day_avg": r.get("thirty_day_avg"), "ninety_day_low": r.get("ninety_day_low"),
                         "ninety_day_high": r.get("ninety_day_high"), "times_discounted_40plus": r.get("times_discounted_40plus", 0),
                         "latest_verdict": r["verdict"], "latest_fake_score": r["fake_score"],
@@ -392,14 +401,14 @@ class PriceHistoryScheduler:
 
     def _get_last_run(self) -> datetime | None:
         try:
-            snap = db.collection("price_history").document("__system").get()
+            snap = _get_db().collection("price_history").document("__system").get()
             if snap.exists and (ts := (snap.to_dict() or {}).get("last_run")):
                 return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts
         except Exception: pass
         return None
 
     def _set_last_run(self) -> None:
-        try: db.collection("price_history").document("__system").set({"last_run": firestore.SERVER_TIMESTAMP, "updated_by": "price_history_system"}, merge=True)
+        try: _get_db().collection("price_history").document("__system").set({"last_run": firestore.SERVER_TIMESTAMP, "updated_by": "price_history_system"}, merge=True)
         except Exception as e: _log(f"set_last_run error: {e}")
 
 # ─── 6. MODULE-LEVEL CONVENIENCE ─────────────────────────────────────────────
