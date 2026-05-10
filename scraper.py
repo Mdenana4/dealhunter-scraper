@@ -1892,11 +1892,11 @@ def _save_tracked_asins(new_asins, source="discovery"):
 def _get_tracked_asins(limit=50):
     """Get ASINs to track from Firestore."""
     try:
+        # Single-field query (auto-indexed) — filter/sort in Python
         docs = (
             db.collection("asin_tracking")
             .where("enabled", "==", True)
-            .order_by("last_checked")
-            .limit(limit)
+            .limit(limit * 2)  # Get extra to account for filtering
             .stream()
         )
         asins = []
@@ -1905,8 +1905,11 @@ def _get_tracked_asins(limit=50):
             asins.append({
                 "asin": d.get("asin"),
                 "doc_id": doc.id,
+                "last_checked": d.get("last_checked") or "",
             })
-        return asins
+        # Sort by last_checked in Python (None first = never checked)
+        asins.sort(key=lambda x: x["last_checked"] or "0")
+        return asins[:limit]
     except Exception as e:
         print(f"[AMAZON-ERROR] Failed to get tracked ASINs: {e}")
         return []
@@ -1975,10 +1978,10 @@ def _random_delay(min_sec=2, max_sec=8):
 
 def _fetch_amazon_html(url, render_js=False):
     """Fetch Amazon page with full proxy cascade. Logs credits used."""
-    global _scrape_do_exhausted, _SCRAPERAPI_EXHAUSTED
+    global _scrapedo_dead, _SCRAPERAPI_EXHAUSTED
 
     # Try 1: scrape.do
-    if SCRAPEDO_TOKEN and not _scrape_do_exhausted:
+    if SCRAPEDO_TOKEN and not _scrapedo_dead:
         try:
             api_url = f"https://api.scrape.do/?token={SCRAPEDO_TOKEN}&url={url}"
             if render_js:
@@ -1993,7 +1996,7 @@ def _fetch_amazon_html(url, render_js=False):
                 _record_request(success=True)
                 return resp.text
             elif resp.status_code in (401, 403):
-                _scrape_do_exhausted = True
+                _scrapedo_dead = True
                 print(f"[AMAZON-BLOCK] scrape.do auth failed — marking dead")
             elif resp.status_code == 503:
                 _record_request(success=False)
