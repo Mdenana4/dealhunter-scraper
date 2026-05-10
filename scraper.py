@@ -2232,14 +2232,18 @@ def _engine2_tracking(seen_asins=None):
                 print(f"[AMAZON-FRAUD] Final verdict: {kb_verdict} — saving deal")
 
                 # v9.9: Compute real fake_score from Kanbkam+Safya result
+                # v10.0: recommendation is now score-based, not hardcoded buy_now
                 fake_score = _compute_fake_score(kb_dict)
                 trend = kb_dict.get("trend", "stable") if isinstance(kb_dict, dict) else "stable"
-                print(f"  [ANALYTICS] trend={trend} fake_score={fake_score:.1f} recommendation=buy_now")
+                recommendation = _get_recommendation(fake_score)
+                print(f"  [ANALYTICS] trend={trend} fake_score={fake_score:.1f} recommendation={recommendation}")
 
                 # ─── SAVE DEAL ───
                 # v9.9: Inject computed fake_score into kanbkam result
+                # v10.0: Also inject score-based recommendation
                 kb_result = kb_dict if isinstance(kb_dict, dict) else {"verdict": kb_verdict}
                 kb_result["fake_score"] = fake_score
+                kb_result["recommendation"] = recommendation
 
                 deal = build_deal(
                     title=title, site="amazon_eg", site_display="Amazon Egypt",
@@ -2590,6 +2594,26 @@ def _compute_fake_score(history_result) -> float:
         score -= 5.0
 
     return max(0.0, min(100.0, round(score, 1)))
+
+
+def _get_recommendation(fake_score: float) -> str:
+    """
+    v10.0: Convert fake_score (0.0-100.0) to user-facing recommendation.
+    0-25  = buy_now        (confirmed genuine)
+    25-45 = good_deal      (likely OK, limited data)
+    45-65 = research_first (uncertain, check before buying)
+    65-85 = wait           (suspicious discount pattern)
+    85+   = avoid          (likely fake inflated price)
+    """
+    if fake_score < 25.0:
+        return "buy_now"
+    if fake_score < 45.0:
+        return "good_deal"
+    if fake_score < 65.0:
+        return "research_first"
+    if fake_score < 85.0:
+        return "wait"
+    return "avoid"
 
 
 # ═══════════════════════════════════════════════════════════════
