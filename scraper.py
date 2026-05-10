@@ -2202,10 +2202,16 @@ def _engine2_tracking(seen_asins=None):
                 if fraud_result == "FAKE":
                     continue
 
-                # v9.5: Use fraud_result directly — _verify_fraud() already checked Safqa/Kanbkam
-                # Removed duplicate check_price_history() to avoid double Safqa calls
+                # v9.6: Call check_price_history() to get proper dict for build_deal()
+                # _verify_fraud() no longer calls Safqa — this is the ONLY Safqa call per deal
                 cat_name = detect_category(title)
                 product_url = f"https://www.amazon.eg/dp/{asin}?language=en_US"
+
+                kb_result = check_price_history(
+                    asin=asin, product_url=product_url,
+                    current_price=cp, original_price=op,
+                    title=title, site="amazon_eg",
+                )
 
                 deal = build_deal(
                     title=title, site="amazon_eg", site_display="Amazon Egypt",
@@ -2213,7 +2219,7 @@ def _engine2_tracking(seen_asins=None):
                     discount=discount, image_url=prod.get("image_url", ""),
                     product_url=product_url, rating=prod.get("rating", 0.0),
                     review_count=None, asin=asin,
-                    kanbkam_result=fraud_result,  # From _verify_fraud() — already checked Safqa
+                    kanbkam_result=kb_result,  # Proper dict from check_price_history()
                     currency="EGP",
                 )
                 save_deal(deal)
@@ -2478,12 +2484,11 @@ def _extract_products_from_search(html):
 
 def _verify_fraud(asin, current_price, original_price, title):
     """
-    Three-tier fraud verification.
+    Fraud verification — Tier 1 only (own DB).
+    Safqa/Kanbkam are handled by check_price_history() in the save block.
     Returns: GENUINE, SUSPICIOUS, or FAKE
     """
-    # Tier 1: Own price history database
     try:
-        # Get historical data from price_tracker
         docs = (
             db.collection("products").document(asin)
             .collection("price_history")
@@ -2497,12 +2502,10 @@ def _verify_fraud(asin, current_price, original_price, title):
             hist_high = max(prices)
             hist_low = min(prices)
 
-            # FAKE: claimed list price >50% higher than historical high
             if original_price > hist_high * 1.5 and hist_high > 0:
-                print(f"[AMAZON-FRAUD] FAKE — claimed list_price={original_price} historical_high={hist_high}")
+                print(f"[AMAZON-FRAUD] FAKE — list_price={original_price} vs historical_high={hist_high}")
                 return "FAKE"
 
-            # GENUINE: price within 5% of historical low
             if current_price <= hist_low * 1.05 and hist_low > 0:
                 print(f"[AMAZON-FRAUD] GENUINE — price {current_price} at historical low {hist_low}")
                 return "GENUINE"
@@ -2511,35 +2514,8 @@ def _verify_fraud(asin, current_price, original_price, title):
             return "SUSPICIOUS"
 
     except Exception as e:
-        print(f"[AMAZON-FRAUD] Tier 1 (own DB) failed: {e}")
+        print(f"[AMAZON-FRAUD] Tier 1 failed: {e}")
 
-    # Tier 2: Safqa (silent, backend only)
-    try:
-        from safqa_browser import check_safqa
-        result = check_safqa(asin=asin, title=title)
-        if result and result.get("found"):
-            safqa_price = result.get("lowest_price", 0)
-            if safqa_price > 0:
-                if current_price <= safqa_price * 1.05:
-                    return "GENUINE"
-                elif current_price > safqa_price * 1.5:
-                    return "FAKE"
-    except Exception:
-        pass  # Safqa is optional
-
-    # Tier 3: Kanbkam (silent, backend only)
-    try:
-        kb_result = check_price_history(
-            asin=asin, product_url=f"https://www.amazon.eg/dp/{asin}",
-            current_price=current_price, original_price=original_price,
-            title=title, site="amazon_eg",
-        )
-        if kb_result == "FAKE":
-            return "FAKE"
-    except Exception:
-        pass  # Kanbkam is optional
-
-    # No data = SUSPICIOUS
     return "SUSPICIOUS"
 
 
