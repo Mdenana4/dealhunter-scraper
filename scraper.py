@@ -2141,8 +2141,8 @@ def _engine1_discovery():
 
 def _engine2_tracking(seen_asins=None):
     """
-    Engine #2: Check prices on tracked ASINs.
-    Runs every cycle (60 minutes).
+    Engine #2: Scrape pct-off search pages to find CURRENTLY discounted products.
+    Extracts deals directly from search results where discounts are confirmed.
     """
     print(f"\n[AMAZON-TRACKING] === Engine #2: Tracking Starting ===")
 
@@ -2153,112 +2153,90 @@ def _engine2_tracking(seen_asins=None):
         print("[AMAZON-TRACKING] Skipped — anti-block pause active")
         return 0
 
-    # Get ASINs to track
-    tracked = _get_tracked_asins(limit=30)
-    if not tracked:
-        print("[AMAZON-TRACKING] No tracked ASINs — run Engine #1 first")
-        return 0
-
-    print(f"[AMAZON-TRACKING] Checking {len(tracked)} ASINs")
+    tracking_categories = [
+        {"name": "Electronics",    "url": "https://www.amazon.eg/s?k=electronics&pct-off=40-&language=en_US"},
+        {"name": "Smartphones",    "url": "https://www.amazon.eg/s?k=smartphone&pct-off=40-&language=en_US"},
+        {"name": "Headphones",     "url": "https://www.amazon.eg/s?k=headphones&pct-off=40-&language=en_US"},
+        {"name": "Laptops",        "url": "https://www.amazon.eg/s?k=laptop&pct-off=40-&language=en_US"},
+    ]
 
     deals_found = 0
     total_checked = 0
 
-    for item in tracked:
-        asin = item.get("asin")
-        if not asin or asin in seen_asins:
-            continue
-
+    for cat in tracking_categories:
         try:
-            print(f"[AMAZON-TRACKING] Checking ASIN: {asin}")
+            if not _check_anti_block():
+                break
 
-            url = f"https://www.amazon.eg/dp/{asin}?language=en_US"
-            html = _fetch_amazon_html(url, render_js=True)
-
+            print(f"[AMAZON-TRACKING] Checking category: {cat['name']}")
+            html = _fetch_amazon_html(cat["url"])
             if not html:
-                print(f"[AMAZON-TRACKING] ✗ Failed to load {asin}")
                 continue
 
-            # Extract product info
-            info = _extract_product_info(html, asin)
-            if not info:
-                print(f"[AMAZON-TRACKING] ✗ No product info for {asin}")
-                continue
+            products = _extract_products_from_search(html)
+            print(f"[AMAZON-TRACKING] {cat['name']}: {len(products)} products")
 
-            total_checked += 1
-            _update_asin_checked(asin)
+            for prod in products:
+                asin = prod.get("asin", "")
+                if not asin or asin in seen_asins:
+                    continue
 
-            cp = info.get("current_price", 0)
-            op = info.get("original_price", 0)
-            discount = info.get("discount", 0)
+                cp = prod.get("current_price", 0)
+                op = prod.get("original_price", 0)
+                discount = prod.get("discount", 0)
+                title = prod.get("title", "")
 
-            print(f"[AMAZON-TRACKING] {info['title'][:50]} | EGP {cp:,.0f} (was {op:,.0f}) = {discount}% off")
+                total_checked += 1
 
-            # v9.3 TEST: Temporarily lowered from MIN_DISCOUNT to 20%
-            # Revert to MIN_DISCOUNT after confirming pipeline works
-            test_threshold = 20  # TEST VALUE — change back to MIN_DISCOUNT after test
-            if discount < test_threshold:
-                print(f"[AMAZON-TRACKING] Skipping — discount {discount}% < {test_threshold}% (TEST threshold)")
-                continue
+                if discount < MIN_DISCOUNT:
+                    continue
+                if not price_in_range(cp):
+                    continue
+                if not title or len(title.split()) < 3:
+                    continue
 
-            if not price_in_range(cp):
-                print(f"[AMAZON-TRACKING] Skipping — price {cp} out of range")
-                continue
+                print(f"[AMAZON-TRACKING] {title[:50]}... | EGP {cp:,.0f} (was {op:,.0f}) = {discount}% off")
 
-            # ─── FRAUD VERIFICATION ───
-            fraud_result = _verify_fraud(asin, cp, op, info["title"])
-            print(f"[AMAZON-FRAUD] ASIN {asin}: {fraud_result}")
+                fraud_result = _verify_fraud(asin, cp, op, title)
+                print(f"[AMAZON-FRAUD] ASIN {asin}: {fraud_result}")
+                if fraud_result == "FAKE":
+                    continue
 
-            if fraud_result == "FAKE":
-                print(f"[AMAZON-FRAUD] FAKE deal filtered — no notification sent")
-                continue
+                cat_name = detect_category(title)
+                product_url = f"https://www.amazon.eg/dp/{asin}?language=en_US"
 
-            # ─── SAVE DEAL ───
-            cat = detect_category(info["title"])
-            product_url = f"https://www.amazon.eg/dp/{asin}?language=en_US"
+                kb_result = check_price_history(
+                    asin=asin, product_url=product_url,
+                    current_price=cp, original_price=op,
+                    title=title, site="amazon_eg",
+                )
 
-            kb_result = check_price_history(
-                asin=asin,
-                product_url=product_url,
-                current_price=cp,
-                original_price=op,
-                title=info["title"],
-                site="amazon_eg",
-            )
+                deal = build_deal(
+                    title=title, site="amazon_eg", site_display="Amazon Egypt",
+                    category=cat_name, current_price=cp, original_price=op,
+                    discount=discount, image_url=prod.get("image_url", ""),
+                    product_url=product_url, rating=prod.get("rating", 0.0),
+                    review_count=None, asin=asin, kanbkam_result=kb_result,
+                    currency="EGP",
+                )
+                save_deal(deal)
+                seen_asins.add(asin)
+                deals_found += 1
 
-            deal = build_deal(
-                title=info["title"],
-                site="amazon_eg",
-                site_display="Amazon Egypt",
-                category=cat,
-                current_price=cp,
-                original_price=op,
-                discount=discount,
-                image_url=info.get("image_url", ""),
-                product_url=product_url,
-                rating=info.get("rating", 0.0),
-                review_count=None,
-                asin=asin,
-                kanbkam_result=kb_result,
-                currency="EGP",
-            )
-            save_deal(deal)
-            seen_asins.add(asin)
-            deals_found += 1
+                if fraud_result in ("GENUINE", "SUSPICIOUS"):
+                    print(f"[AMAZON-NOTIFY] Deal saved — ASIN={asin} discount={discount}%")
 
-            if fraud_result in ("GENUINE", "SUSPICIOUS"):
-                print(f"[AMAZON-NOTIFY] Deal saved — ASIN={asin} discount={discount}%")
-            else:
-                print(f"[AMAZON-NOTIFY] Deal saved (no notify) — ASIN={asin}")
+                _random_delay(2, 5)
 
-            _random_delay(3, 8)
+            _random_delay(3, 6)
 
         except Exception as e:
-            print(f"[AMAZON-ERROR] Tracking ASIN {asin}: {e}")
+            print(f"[AMAZON-ERROR] Tracking {cat['name']}: {e}")
             continue
 
-    print(f"[AMAZON-TRACKING] === Engine #2 Complete: {deals_found} deals from {total_checked} checked ===")
+    print(f"[AMAZON-TRACKING] === Engine #2 Complete: {deals_found} deals ===")
     return deals_found
+
 
 
 def _extract_product_info(html, asin):
@@ -2353,6 +2331,152 @@ def _extract_product_info(html, asin):
     except Exception as e:
         print(f"[AMAZON-ERROR] Product info extraction failed for {asin}: {e}")
         return None
+
+
+def _extract_products_from_search(html):
+    """
+    Extract full product info from Amazon search result page HTML.
+    Returns list of dicts with: asin, title, current_price, original_price,
+    discount, image_url, rating
+    """
+    from bs4 import BeautifulSoup
+    import re
+
+    soup = BeautifulSoup(html, "lxml")
+    products = []
+
+    # Find all product containers using multiple strategies
+    containers = []
+
+    # Strategy 1: div[data-asin] with data-component-type
+    for div in soup.find_all("div", attrs={"data-asin": True}):
+        asin = div.get("data-asin", "").strip()
+        if asin and len(asin) == 10:
+            containers.append(div)
+
+    # Strategy 2: s-result-item
+    if not containers:
+        containers = soup.find_all("div", class_=re.compile(r"s-result-item", re.I))
+
+    # Strategy 3: s-card-container
+    if not containers:
+        containers = soup.find_all("div", class_=re.compile(r"s-card-container", re.I))
+
+    # Strategy 4: widget containers
+    if not containers:
+        containers = soup.find_all("div", class_=re.compile(r"s-widget-container", re.I))
+
+    seen_asins = set()
+    for container in containers:
+        try:
+            # ASIN
+            asin = container.get("data-asin", "").strip()
+            if not asin or len(asin) != 10 or asin in seen_asins:
+                continue
+            seen_asins.add(asin)
+
+            # Skip sponsored
+            if container.get("data-component-type") == "sp-sponsored-result":
+                continue
+
+            # Title
+            title = ""
+            title_el = (
+                container.find("h2") or
+                container.find("span", class_="a-size-medium") or
+                container.find("span", class_="a-size-base-plus") or
+                container.find("a", class_="a-link-normal")
+            )
+            if title_el:
+                title = title_el.get_text(strip=True)
+
+            if not title or len(title.split()) < 3:
+                continue
+
+            # Current price
+            current_price = 0.0
+            price_el = container.find("span", class_="a-price-whole")
+            if price_el:
+                text = price_el.get_text(strip=True).replace(",", "")
+                try:
+                    current_price = float(text)
+                except ValueError:
+                    pass
+
+            if current_price <= 0:
+                # Try a-offscreen in price block
+                price_block = container.find("span", class_=re.compile(r"a-price", re.I))
+                if price_block:
+                    offscreen = price_block.find("span", class_="a-offscreen")
+                    if offscreen:
+                        text = offscreen.get_text(strip=True)
+                        m = re.search(r'[\d,]+\.?\d*', text.replace(",", ""))
+                        if m:
+                            try:
+                                current_price = float(m.group())
+                            except ValueError:
+                                pass
+
+            if current_price <= 0:
+                continue
+
+            # Original price (list price)
+            original_price = current_price
+            list_block = container.find("span", class_="a-price a-text-price")
+            if list_block:
+                list_offscreen = list_block.find("span", class_="a-offscreen")
+                if list_offscreen:
+                    text = list_offscreen.get_text(strip=True)
+                    m = re.search(r'[\d,]+\.?\d*', text.replace(",", ""))
+                    if m:
+                        try:
+                            original_price = float(m.group())
+                        except ValueError:
+                            pass
+
+            # Discount from badge
+            discount = 0
+            badge_el = container.find("span", class_="a-badge-text")
+            if badge_el:
+                badge_text = badge_el.get_text(strip=True)
+                nums = re.findall(r'\d+', badge_text)
+                if nums:
+                    discount = int(nums[0])
+
+            # If no badge discount, calculate from prices
+            if discount == 0 and original_price > current_price > 0:
+                discount = int(((original_price - current_price) / original_price) * 100)
+
+            # Image
+            image_url = ""
+            img_el = container.find("img", class_="s-image")
+            if img_el:
+                image_url = img_el.get("src", "") or img_el.get("data-src", "")
+
+            # Rating
+            rating = 0.0
+            rating_el = container.find("span", class_="a-icon-alt")
+            if rating_el:
+                try:
+                    rating_text = rating_el.get_text(strip=True)
+                    rating = float(rating_text.split(" ")[0])
+                except (ValueError, IndexError):
+                    pass
+
+            products.append({
+                "asin": asin,
+                "title": title,
+                "current_price": current_price,
+                "original_price": original_price if original_price > current_price else current_price,
+                "discount": discount,
+                "image_url": image_url,
+                "rating": rating,
+            })
+
+        except Exception:
+            continue
+
+    return products
 
 
 def _verify_fraud(asin, current_price, original_price, title):
