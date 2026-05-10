@@ -783,7 +783,8 @@ def _notify_new_deals(deals: list) -> None:
                 notification=messaging.Notification(
                     title=title_text,
                     body=body_text,
-                    image_url=img if img else None,
+                    # v10.2: image support requires AndroidNotification.image
+                    # (not Notification.image_url which doesn't exist in Python SDK)
                 ),
                 data={
                     "type":           "new_deals",
@@ -793,6 +794,7 @@ def _notify_new_deals(deals: list) -> None:
                     "site":           str(best["site"]),
                     "title":          title,
                     "price":          str(price),
+                    "image_url":      img,  # Pass image via data payload instead
                 },
                 android=messaging.AndroidConfig(
                     priority="high",
