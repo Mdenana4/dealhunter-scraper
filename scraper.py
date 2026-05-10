@@ -1827,21 +1827,25 @@ _credit_stats = {"scrape_do": 0, "scraperapi": 0, "direct": 0}
 
 def _should_run_discovery():
     """Check if discovery should run based on interval."""
-    try:
-        doc = db.collection("scraper_state").document("engine1_last_run").get()
-        if doc.exists:
-            last_run = doc.to_dict().get("timestamp")
-            if last_run:
-                from datetime import datetime
-                last = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
-                hours_since = (datetime.now(timezone.utc) - last).total_seconds() / 3600
-                print(f"[AMAZON-DISCOVERY] Last discovery run: {hours_since:.1f}h ago (interval: {ENGINE1_INTERVAL_HOURS}h)")
-                return hours_since >= ENGINE1_INTERVAL_HOURS
-        print(f"[AMAZON-DISCOVERY] No previous run — starting fresh")
-        return True
-    except Exception as e:
-        print(f"[AMAZON-ERROR] Engine1 schedule check failed: {e}")
-        return True
+    # v9.2: Temporarily force-run every cycle until we confirm ASINs are found.
+    # Change 'return True' to the commented block below to re-enable 4h interval.
+    return True  # FORCED: run every cycle during testing
+    # --- UNCOMMENT BELOW TO RE-ENABLE 4-HOUR INTERVAL ---
+    # try:
+    #     doc = db.collection("scraper_state").document("engine1_last_run").get()
+    #     if doc.exists:
+    #         last_run = doc.to_dict().get("timestamp")
+    #         if last_run:
+    #             from datetime import datetime
+    #             last = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
+    #             hours_since = (datetime.now(timezone.utc) - last).total_seconds() / 3600
+    #             print(f"[AMAZON-DISCOVERY] Last discovery run: {hours_since:.1f}h ago (interval: {ENGINE1_INTERVAL_HOURS}h)")
+    #             return hours_since >= ENGINE1_INTERVAL_HOURS
+    #     print(f"[AMAZON-DISCOVERY] No previous run — starting fresh")
+    #     return True
+    # except Exception as e:
+    #     print(f"[AMAZON-ERROR] Engine1 schedule check failed: {e}")
+    #     return True
 
 
 def _extract_asins_from_html(html_text, html_raw):
