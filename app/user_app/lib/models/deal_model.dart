@@ -12,8 +12,9 @@ class DealModel {
   final String productUrl;
   final String category;
   final double rating;
-  final String verdict;   // GENUINE | FAKE | SUSPICIOUS
+  final String verdict;        // GENUINE | FAKE | SUSPICIOUS
   final double fakeScore;
+  final String recommendation; // buy_now | good_deal | research_first | wait | avoid
   final double confidence;
   final List<String> fraudReasons;
 
@@ -33,6 +34,7 @@ class DealModel {
     required this.rating,
     required this.verdict,
     required this.fakeScore,
+    required this.recommendation,
     required this.confidence,
     required this.fraudReasons,
   });
@@ -57,6 +59,7 @@ class DealModel {
       rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
       verdict: json['verdict'] as String? ?? 'SUSPICIOUS',
       fakeScore: (json['fake_score'] as num?)?.toDouble() ?? 50.0,
+      recommendation: json['recommendation'] as String? ?? 'research_first',
       confidence: (json['confidence'] as num?)?.toDouble() ?? 50.0,
       fraudReasons: (json['fraud_reasons'] as List?)
               ?.map((e) => e.toString())
