@@ -368,7 +368,9 @@ class PriceHistoryScheduler:
         _log(f"=== Cycle done in {elapsed/60:.1f}min | new={total_new} analyzed={analyzed} ===")
 
     def _discovery_crawl(self, source: str) -> int:
-        if not source.startswith("amazon"): return 0
+        # Skip amazon_eg — scraper's Engine #1 already crawls it and calls request_tracking()
+        # Keep amazon_ae/sa — those sources are disabled in scraper, so System 1 must discover
+        if source == "amazon_eg" or not source.startswith("amazon"): return 0
         new_all: list[str] = []
         domain = SOURCES[source]["domain"]
         cc = source.split("_")[-1]
