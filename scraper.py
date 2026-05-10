@@ -2204,23 +2204,14 @@ def _engine2_tracking(seen_asins=None):
                     print(f"[AMAZON-FRAUD] BLOCKED FAKE deal — not saving ASIN {asin}")
                     continue
 
-                # ─── SAFQA CHECK (once per deal) ───
+                # ─── FRAUD VERIFICATION (single call) ───
+                # v9.8: check_price_history() handles BOTH Safqa + Kanbkam internally.
+                # My direct check_safqa() call was causing 3× browser launches per product.
+                # Now only ONE call: check_price_history() → which calls Safqa once internally.
                 cat_name = detect_category(title)
                 product_url = f"https://www.amazon.eg/dp/{asin}?language=en_US"
 
-                # v9.7: Call Safqa directly ONCE instead of through check_price_history()
-                # This avoids duplicate Safqa calls from nested check_price_history()
-                safqa_price = None
-                try:
-                    from safqa_browser import check_safqa
-                    safqa_dict = check_safqa(asin=asin, title=title)
-                    if safqa_dict and safqa_dict.get("found"):
-                        safqa_price = safqa_dict.get("lowest_price")
-                        print(f"[AMAZON-FRAUD] Safqa price: EGP {safqa_price:,.0f}")
-                except Exception as e:
-                    print(f"[AMAZON-FRAUD] Safqa error: {e}")
-
-                # ─── KANBKAM CHECK (separate from Safqa) ───
+                # ─── SAFQA + KANBKAM (single check_price_history call) ───
                 kb_dict = check_price_history(
                     asin=asin, product_url=product_url,
                     current_price=cp, original_price=op,
