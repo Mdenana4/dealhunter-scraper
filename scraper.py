@@ -764,31 +764,46 @@ def _notify_new_deals(deals: list) -> None:
 
         best   = qualifying[0]
         count  = len(qualifying)
-        title_text = f"🔥 {count} New Deal{'s' if count > 1 else ''} — {best['site_display'] or best['site']}"
+        price  = best.get("current_price", 0)
+        disc   = best.get("discount_percent", 0)
+        title  = best.get("title", "")[:40]
+        img    = best.get("image_url", "")
+
+        # v10.1: Arabic + emoji FCM notifications (Kansas-style)
         if count == 1:
-            body_text = f"{best['title'][:60]} — {best['discount_percent']}% OFF"
+            title_text = f"🔥👀 صفقة جديدة على {best['site_display'] or best['site']}!"
+            body_text  = f"{title} بـ {price:,.0f} جنيه 😏 ({disc}% خصم)"
         else:
-            body_text = (
-                f"Best: {best['title'][:40]} {best['discount_percent']}% OFF"
-                f" (+{count - 1} more)"
-            )
+            title_text = f"🔥👀 {count} صفقات جديدة على {best['site_display'] or best['site']}!"
+            body_text  = f"أفضلها: {title} بـ {price:,.0f} جنيه ({disc}% خصم) +{count - 1} أخرى"
 
         try:
-            msg_id = messaging.send(messaging.Message(
+            msg = messaging.Message(
                 topic=topic,
                 notification=messaging.Notification(
                     title=title_text,
                     body=body_text,
+                    image_url=img if img else None,
                 ),
                 data={
                     "type":           "new_deals",
                     "count":          str(count),
-                    "best_discount":  str(best["discount_percent"]),
+                    "best_discount":  str(disc),
                     "best_deal_id":   str(best["deal_id"]),
                     "site":           str(best["site"]),
+                    "title":          title,
+                    "price":          str(price),
                 },
-                android=messaging.AndroidConfig(priority="high"),
-            ))
+                android=messaging.AndroidConfig(
+                    priority="high",
+                    notification=messaging.AndroidNotification(
+                        channel_id="deal_alerts",
+                        sound="default",
+                        click_action="FLUTTER_NOTIFICATION_CLICK",
+                    ),
+                ),
+            )
+            msg_id = messaging.send(msg)
             print(f"  [FCM-DEALS] ✓ Sent to {topic}: {count} deals, best {best['discount_percent']}% — msg_id={msg_id}")
         except Exception as fcm_err:
             # Log the full error so Railway logs show the root cause
