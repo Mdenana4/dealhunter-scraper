@@ -1332,45 +1332,61 @@ def _scrape_amazon_deals_page(
         return 0, seen_asins_deals
 
     soup = BeautifulSoup(resp.content, "lxml")
+    html_text = soup.get_text(" ", strip=True)
+    html_raw = str(soup)
 
-    # v8: Debug — log what selectors find so we can diagnose
+    # v8.1: Aggressive multi-strategy product extraction
     debug_counts = {}
 
-    # Strategy 1: data-asin divs (traditional Amazon search results)
-    _all_asin = [p for p in soup.find_all("div", attrs={"data-asin": True})
-                 if p.get("data-asin", "").strip()]
+    # Strategy 1: Any element with data-asin (div, span, a, etc.)
+    _all_asin = [p for p in soup.find_all(attrs={"data-asin": True})
+                 if p.get("data-asin", "").strip() and len(p.get("data-asin", "").strip()) == 10]
     debug_counts["data-asin"] = len(_all_asin)
 
-    # Strategy 2: s-result-item class (common on search pages)
+    # Strategy 2: s-result-item containers
     _s_result = soup.find_all("div", class_=re.compile(r"s-result-item", re.I))
-    debug_counts["s-result-item"] = len(_s_result)
+    debug_counts["s-result"] = len(_s_result)
 
-    # Strategy 3: s-card-container (newer Amazon layout)
-    _s_card = soup.find_all("div", class_=re.compile(r"s-card-container", re.I))
-    debug_counts["s-card-container"] = len(_s_card)
+    # Strategy 3: s-card-container / sg-col-inner
+    _s_card = soup.find_all("div", class_=re.compile(r"s-card-container|sg-col-inner", re.I))
+    debug_counts["s-card/sg-col"] = len(_s_card)
 
-    # Strategy 4: Direct component type
-    _comp_type = soup.find_all("div", attrs={"data-component-type": "s-search-result"})
-    debug_counts["data-component-type"] = len(_comp_type)
+    # Strategy 4: component type
+    _comp_type = soup.find_all(attrs={"data-component-type": "s-search-result"})
+    debug_counts["comp-type"] = len(_comp_type)
 
-    # Strategy 5: Product links — find /dp/ links, walk up to parent container
+    # Strategy 5: widget containers
+    _widgets = soup.find_all("div", class_=re.compile(r"s-widget-container", re.I))
+    debug_counts["widgets"] = len(_widgets)
+
+    # Strategy 6: /dp/ product links
     _dp_links = soup.find_all("a", href=re.compile(r"/dp/[A-Z0-9]{10}", re.I))
     debug_counts["dp-links"] = len(_dp_links)
 
-    # Strategy 6: Deal cards
+    # Strategy 7: ASINs in raw HTML
+    _html_asins = set(re.findall(r'["']/dp/([A-Z0-9]{10})["']', html_raw, re.I))
+    debug_counts["html-asins"] = len(_html_asins)
+
+    # Strategy 8: deal cards
     _deal_cards = (
         soup.find_all("div", attrs={"data-testid": "deal-card"}) or
-        soup.find_all("div", class_=re.compile(r"DealCard|deal-card|dealCard", re.I))
+        soup.find_all("div", class_=re.compile(r"DealCard|deal-card", re.I))
     )
     debug_counts["deal-cards"] = len(_deal_cards)
 
     print(f"  Selector debug: {debug_counts}")
 
-    # v8: If we only have /dp/ links, build product list from those
-    if _dp_links and not (
-        _all_asin or _s_result or _s_card or _comp_type or _deal_cards
-    ):
-        print(f"  Using /dp/ link extraction: {len(_dp_links)} links found")
+    # Pick best product list
+    products = (
+        [p for p in _all_asin if p.get("data-component-type") == "s-search-result"] or
+        _comp_type or
+        [p for p in _all_asin if p.find("h2")] or
+        _s_result or _s_card or _widgets or _all_asin or _deal_cards
+    )
+
+    # Fallback 1: /dp/ links
+    if not products and _dp_links:
+        print(f"  Using /dp/ link extraction: {len(_dp_links)} links")
         asin_map = {}
         for link in _dp_links:
             href = link.get("href", "")
@@ -1381,25 +1397,19 @@ def _scrape_amazon_deals_page(
                     asin_map[asin] = link
         if asin_map:
             products = list(asin_map.values())
-            print(f"  Extracted {len(products)} unique ASINs from /dp/ links")
-        else:
-            products = []
-    else:
-        # Pick the best product list from DOM selectors
-        products = (
-            [p for p in _all_asin if p.get("data-component-type") == "s-search-result"] or
-            _comp_type or
-            [p for p in _all_asin if p.find("h2")] or
-            _s_result or
-            _s_card or
-            _all_asin or
-            _deal_cards
-        )
+            print(f"  Extracted {len(products)} unique ASINs")
+
+    # Fallback 2: raw HTML ASINs
+    if not products and _html_asins:
+        print(f"  Using raw HTML ASIN extraction: {len(_html_asins)} ASINs")
+        for asin in _html_asins:
+            stub = soup.new_tag("div")
+            stub.attrs["data-asin"] = asin
+            products.append(stub)
 
     if not products:
-        body_text = soup.get_text(" ", strip=True)[:300]
-        print(f"  Deals page: 0 products — all selectors empty. Preview: {body_text!r}")
-        _log_scraper_error(f"amazon_{country_code}", url, "0 products — all selectors empty")
+        print(f"  Deals page: 0 products. Preview: {html_text[:200]!r}")
+        _log_scraper_error(f"amazon_{country_code}", url, "0 products — all selectors failed")
         return 0, seen_asins_deals
 
     print(f"  Deals page: {len(products)} product divs")
