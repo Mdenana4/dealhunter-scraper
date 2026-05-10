@@ -1774,62 +1774,737 @@ def _scrape_amazon_region(
     return total
 
 
-def _test_scrapedo_geocode():
-    """TEST: Check if scrape.do Amazon API supports geocode=EG. Logs result only."""
-    print("\n[AMAZON-TEST] Testing scrape.do Amazon API geocode=EG...")
+
+#
+# ENGINE #1: DISCOVERY — Find new discounted ASINs
+# ENGINE #2: TRACKING — Monitor prices on known ASINs
+#
+# HTML-based adaptation (geocode=EG returns HTTP 400 from scrape.do structured API)
+#
+
+import requests
+import time
+import random
+import re
+import os
+from datetime import datetime, timezone
+
+# ─── CONFIGURATION ───
+ENGINE1_DISCOVERY_ENABLED = os.getenv("ENGINE1_DISCOVERY_ENABLED", "true").lower() == "true"
+ENGINE2_TRACKING_ENABLED  = os.getenv("ENGINE2_TRACKING_ENABLED", "true").lower() == "true"
+ENGINE1_INTERVAL_HOURS    = int(os.getenv("ENGINE1_INTERVAL_HOURS", 4))  # Run every N hours
+
+# Category search URLs with pct-off=40- filter
+_DISCOVERY_CATEGORIES = [
+    {"name": "Electronics",     "url": "https://www.amazon.eg/s?k=electronics&pct-off=40-&language=en_US"},
+    {"name": "Smartphones",     "url": "https://www.amazon.eg/s?k=smartphone&pct-off=40-&language=en_US"},
+    {"name": "Laptops",         "url": "https://www.amazon.eg/s?k=laptop&pct-off=40-&language=en_US"},
+    {"name": "Headphones",      "url": "https://www.amazon.eg/s?k=headphones&pct-off=40-&language=en_US"},
+    {"name": "TVs",             "url": "https://www.amazon.eg/s?k=television&pct-off=40-&language=en_US"},
+    {"name": "Gaming",          "url": "https://www.amazon.eg/s?k=gaming&pct-off=40-&language=en_US"},
+    {"name": "Home & Kitchen",  "url": "https://www.amazon.eg/s?k=home+kitchen&pct-off=40-&language=en_US"},
+    {"name": "Beauty",          "url": "https://www.amazon.eg/s?k=beauty&pct-off=40-&language=en_US"},
+]
+
+# Bestseller pages
+_BESTSELLER_PAGES = [
+    {"name": "Electronics",     "url": "https://www.amazon.eg/gp/bestsellers/electronics?language=en_US"},
+    {"name": "Fashion",         "url": "https://www.amazon.eg/gp/bestsellers/fashion?language=en_US"},
+    {"name": "Beauty",          "url": "https://www.amazon.eg/gp/bestsellers/beauty?language=en_US"},
+    {"name": "Home",            "url": "https://www.amazon.eg/gp/bestsellers/home?language=en_US"},
+    {"name": "Automotive",      "url": "https://www.amazon.eg/gp/bestsellers/automotive?language=en_US"},
+]
+
+# Anti-block state
+_amazon_block_until = 0       # Timestamp to resume after block
+_amazon_fail_count  = 0       # Failed requests this cycle
+_amazon_total_count = 0       # Total requests this cycle
+_amazon_paused      = False   # Circuit breaker
+
+# Credit counter
+_credit_stats = {"scrape_do": 0, "scraperapi": 0, "direct": 0}
+
+
+def _should_run_discovery():
+    """Check if discovery should run based on interval."""
     try:
-        url = (
-            f"https://api.scrape.do/plugin/amazon/search"
-            f"?token={SCRAPEDO_TOKEN}"
-            f"&query=iphone"
-            f"&geocode=EG"
-            f"&super=true"
-        )
-        print(f"[AMAZON-TEST] URL: {url[:60]}...")
-        resp = requests.get(url, timeout=30)
-        print(f"[AMAZON-TEST] HTTP Status: {resp.status_code}")
-        print(f"[AMAZON-TEST] Response length: {len(resp.text)} bytes")
-        if resp.status_code == 200:
-            try:
-                data = resp.json()
-                products = data.get("products", []) if isinstance(data, dict) else []
-                print(f"[AMAZON-TEST] Products found: {len(products)}")
-                if products:
-                    print(f"[AMAZON-TEST] First product: {products[0].get('name', 'N/A')[:50]}")
-                    print(f"[AMAZON-TEST] ✓ geocode=EG WORKS — structured API is usable!")
-                else:
-                    print(f"[AMAZON-TEST] ⚠ 200 OK but no products — check response format")
-                    print(f"[AMAZON-TEST] Response preview: {str(data)[:200]}")
-            except Exception as e:
-                print(f"[AMAZON-TEST] ⚠ 200 OK but not JSON: {e}")
-                print(f"[AMAZON-TEST] Raw preview: {resp.text[:300]}")
-        elif resp.status_code == 400:
-            print(f"[AMAZON-TEST] ✗ HTTP 400 — geocode=EG NOT SUPPORTED")
-            print(f"[AMAZON-TEST] Must use HTML scraping instead of structured API")
-        elif resp.status_code == 401:
-            print(f"[AMAZON-TEST] ✗ HTTP 401 — token invalid or expired")
-        elif resp.status_code == 403:
-            print(f"[AMAZON-TEST] ✗ HTTP 403 — plan doesn't include Amazon API")
-        else:
-            print(f"[AMAZON-TEST] ✗ HTTP {resp.status_code} — unexpected")
-            print(f"[AMAZON-TEST] Response: {resp.text[:200]}")
+        doc = db.collection("scraper_state").document("engine1_last_run").get()
+        if doc.exists:
+            last_run = doc.to_dict().get("timestamp")
+            if last_run:
+                from datetime import datetime
+                last = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
+                hours_since = (datetime.now(timezone.utc) - last).total_seconds() / 3600
+                print(f"[AMAZON-DISCOVERY] Last discovery run: {hours_since:.1f}h ago (interval: {ENGINE1_INTERVAL_HOURS}h)")
+                return hours_since >= ENGINE1_INTERVAL_HOURS
+        print(f"[AMAZON-DISCOVERY] No previous run — starting fresh")
+        return True
     except Exception as e:
-        print(f"[AMAZON-TEST] ✗ Request failed: {type(e).__name__}: {e}")
-    print("[AMAZON-TEST] Test complete.\n")
+        print(f"[AMAZON-ERROR] Engine1 schedule check failed: {e}")
+        return True
+
+
+def _extract_asins_from_html(html_text, html_raw):
+    """Extract ASINs from Amazon HTML using multiple strategies."""
+    asins = set()
+
+    # Strategy 1: /dp/ASIN links
+    dp_matches = re.findall(r'/dp/([A-Z0-9]{10})', html_raw, re.I)
+    asins.update(m.upper() for m in dp_matches)
+
+    # Strategy 2: data-asin attributes
+    asin_matches = re.findall(r'data-asin="([A-Z0-9]{10})"', html_raw, re.I)
+    asins.update(m.upper() for m in asin_matches)
+
+    # Strategy 3: ASIN in URL parameters
+    param_matches = re.findall(r'[?&]asin=([A-Z0-9]{10})', html_raw, re.I)
+    asins.update(m.upper() for m in param_matches)
+
+    # Strategy 4: /gp/product/ASIN
+    gp_matches = re.findall(r'/gp/product/([A-Z0-9]{10})', html_raw, re.I)
+    asins.update(m.upper() for m in gp_matches)
+
+    return asins
+
+
+def _save_tracked_asins(new_asins, source="discovery"):
+    """Save ASINs to Firestore tracking collection."""
+    added = 0
+    for asin in new_asins:
+        try:
+            ref = db.collection("asin_tracking").document(asin)
+            doc = ref.get()
+            if not doc.exists:
+                ref.set({
+                    "asin": asin,
+                    "source": source,
+                    "discovered_at": datetime.now(timezone.utc).isoformat(),
+                    "last_checked": None,
+                    "check_count": 0,
+                    "enabled": True,
+                })
+                added += 1
+        except Exception as e:
+            print(f"[AMAZON-ERROR] Failed to save ASIN {asin}: {e}")
+    return added
+
+
+def _get_tracked_asins(limit=50):
+    """Get ASINs to track from Firestore."""
+    try:
+        docs = (
+            db.collection("asin_tracking")
+            .where("enabled", "==", True)
+            .order_by("last_checked")
+            .limit(limit)
+            .stream()
+        )
+        asins = []
+        for doc in docs:
+            d = doc.to_dict()
+            asins.append({
+                "asin": d.get("asin"),
+                "doc_id": doc.id,
+            })
+        return asins
+    except Exception as e:
+        print(f"[AMAZON-ERROR] Failed to get tracked ASINs: {e}")
+        return []
+
+
+def _update_asin_checked(asin):
+    """Update last_checked timestamp for an ASIN."""
+    try:
+        ref = db.collection("asin_tracking").document(asin)
+        doc = ref.get()
+        if doc.exists:
+            d = doc.to_dict()
+            ref.update({
+                "last_checked": datetime.now(timezone.utc).isoformat(),
+                "check_count": d.get("check_count", 0) + 1,
+            })
+    except Exception as e:
+        print(f"[AMAZON-ERROR] Failed to update ASIN {asin}: {e}")
+
+
+def _check_anti_block():
+    """Check if we should pause due to anti-block rules."""
+    global _amazon_paused, _amazon_fail_count, _amazon_total_count
+
+    now = time.time()
+
+    # Resume after pause
+    if _amazon_paused and now >= _amazon_block_until:
+        print("[AMAZON-BLOCK] Pause complete — resuming Amazon requests")
+        _amazon_paused = False
+        _amazon_fail_count = 0
+        _amazon_total_count = 0
+        return True
+
+    if _amazon_paused:
+        remaining = int(_amazon_block_until - now)
+        print(f"[AMAZON-BLOCK] Amazon paused — {remaining}s remaining")
+        return False
+
+    # Circuit breaker: >50% failure rate
+    if _amazon_total_count > 0:
+        fail_rate = _amazon_fail_count / _amazon_total_count
+        if fail_rate > 0.5 and _amazon_total_count >= 5:
+            _amazon_paused = True
+            _amazon_block_until = now + 900  # 15 minutes
+            print(f"[AMAZON-BLOCK] Critical failure rate: {fail_rate:.0%} — pausing 15min")
+            return False
+
+    return True
+
+
+def _record_request(success=True):
+    """Record request result for anti-block monitoring."""
+    global _amazon_fail_count, _amazon_total_count
+    _amazon_total_count += 1
+    if not success:
+        _amazon_fail_count += 1
+
+
+def _random_delay(min_sec=2, max_sec=8):
+    """Random delay between requests."""
+    delay = random.uniform(min_sec, max_sec)
+    time.sleep(delay)
+    return delay
+
+
+def _fetch_amazon_html(url, render_js=False):
+    """Fetch Amazon page with full proxy cascade. Logs credits used."""
+    global _scrape_do_exhausted, _SCRAPERAPI_EXHAUSTED
+
+    # Try 1: scrape.do
+    if SCRAPEDO_TOKEN and not _scrape_do_exhausted:
+        try:
+            api_url = f"https://api.scrape.do/?token={SCRAPEDO_TOKEN}&url={url}"
+            if render_js:
+                api_url += "&render=true"
+            api_url += "&super=true"  # Always residential
+
+            resp = requests.get(api_url, timeout=45)
+            _credit_stats["scrape_do"] += 1
+            print(f"[AMAZON-CREDIT] scrape.do +1 (total: {_credit_stats['scrape_do']})")
+
+            if resp.status_code == 200 and len(resp.text) > 5000:
+                _record_request(success=True)
+                return resp.text
+            elif resp.status_code in (401, 403):
+                _scrape_do_exhausted = True
+                print(f"[AMAZON-BLOCK] scrape.do auth failed — marking dead")
+            elif resp.status_code == 503:
+                _record_request(success=False)
+                print(f"[AMAZON-BLOCK] scrape.do 503 — possible CAPTCHA")
+            else:
+                _record_request(success=False)
+        except Exception as e:
+            _record_request(success=False)
+            print(f"[AMAZON-ERROR] scrape.do fetch failed: {e}")
+
+    # Try 2: ScraperAPI
+    if SCRAPER_API_KEY and not _SCRAPERAPI_EXHAUSTED:
+        try:
+            api_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={url}&country_code=eg"
+            if render_js:
+                api_url += "&render=true"
+
+            resp = requests.get(api_url, timeout=45)
+            _credit_stats["scraperapi"] += 1
+            print(f"[AMAZON-CREDIT] ScraperAPI +1 (total: {_credit_stats['scraperapi']})")
+
+            if resp.status_code == 200 and len(resp.text) > 5000:
+                _record_request(success=True)
+                return resp.text
+            elif resp.status_code == 503:
+                _record_request(success=False)
+                print(f"[AMAZON-BLOCK] ScraperAPI 503")
+            else:
+                _record_request(success=False)
+        except Exception as e:
+            _record_request(success=False)
+            print(f"[AMAZON-ERROR] ScraperAPI fetch failed: {e}")
+
+    # Try 3: Direct
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.0",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+        resp = requests.get(url, headers=headers, timeout=30)
+        _credit_stats["direct"] += 1
+
+        if resp.status_code == 200 and len(resp.text) > 5000:
+            _record_request(success=True)
+            return resp.text
+        else:
+            _record_request(success=False)
+    except Exception as e:
+        _record_request(success=False)
+        print(f"[AMAZON-ERROR] Direct fetch failed: {e}")
+
+    return None
+
+
+# ═══════════════════════════════════════════════════════════════
+# ENGINE #1: DISCOVERY
+# ═══════════════════════════════════════════════════════════════
+
+def _engine1_discovery():
+    """
+    Engine #1: Discover new discounted ASINs from category pages.
+    Runs every ENGINE1_INTERVAL_HOURS.
+    """
+    print(f"\n[AMAZON-DISCOVERY] === Engine #1: Discovery Starting ===")
+    print(f"[AMAZON-DISCOVERY] Categories: {len(_DISCOVERY_CATEGORIES)}, Bestsellers: {len(_BESTSELLER_PAGES)}")
+
+    if not _check_anti_block():
+        print("[AMAZON-DISCOVERY] Skipped — anti-block pause active")
+        return 0
+
+    total_new = 0
+    all_asins = set()
+
+    # ─── Category Pages ───
+    for cat in _DISCOVERY_CATEGORIES:
+        try:
+            print(f"[AMAZON-DISCOVERY] Scraping category: {cat['name']}")
+            html = _fetch_amazon_html(cat["url"])
+            if not html:
+                print(f"[AMAZON-DISCOVERY] ✗ Failed to load {cat['name']}")
+                continue
+
+            asins = _extract_asins_from_html(html, html)
+            print(f"[AMAZON-DISCOVERY] {cat['name']}: found {len(asins)} ASINs")
+            all_asins.update(asins)
+
+            added = _save_tracked_asins(asins, source=f"category:{cat['name']}")
+            total_new += added
+            print(f"[AMAZON-DISCOVERY] {cat['name']}: {added} new ASINs saved")
+
+            _random_delay(2, 5)
+
+        except Exception as e:
+            print(f"[AMAZON-ERROR] Discovery category {cat['name']}: {e}")
+            continue
+
+    # ─── Bestseller Pages ───
+    for page in _BESTSELLER_PAGES:
+        try:
+            print(f"[AMAZON-DISCOVERY] Scraping bestseller: {page['name']}")
+            html = _fetch_amazon_html(page["url"])
+            if not html:
+                print(f"[AMAZON-DISCOVERY] ✗ Failed to load bestseller {page['name']}")
+                continue
+
+            asins = _extract_asins_from_html(html, html)
+            print(f"[AMAZON-DISCOVERY] Bestseller {page['name']}: found {len(asins)} ASINs")
+            all_asins.update(asins)
+
+            added = _save_tracked_asins(asins, source=f"bestseller:{page['name']}")
+            total_new += added
+            print(f"[AMAZON-DISCOVERY] Bestseller {page['name']}: {added} new ASINs saved")
+
+            _random_delay(2, 5)
+
+        except Exception as e:
+            print(f"[AMAZON-ERROR] Discovery bestseller {page['name']}: {e}")
+            continue
+
+    # Record last run time
+    try:
+        db.collection("scraper_state").document("engine1_last_run").set({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "asins_found": len(all_asins),
+            "new_saved": total_new,
+        })
+    except Exception as e:
+        print(f"[AMAZON-ERROR] Failed to record Engine1 run: {e}")
+
+    print(f"[AMAZON-DISCOVERY] === Engine #1 Complete: {total_new} new ASINs saved ===")
+    return total_new
+
+
+# ═══════════════════════════════════════════════════════════════
+# ENGINE #2: TRACKING
+# ═══════════════════════════════════════════════════════════════
+
+def _engine2_tracking(seen_asins=None):
+    """
+    Engine #2: Check prices on tracked ASINs.
+    Runs every cycle (60 minutes).
+    """
+    print(f"\n[AMAZON-TRACKING] === Engine #2: Tracking Starting ===")
+
+    if seen_asins is None:
+        seen_asins = set()
+
+    if not _check_anti_block():
+        print("[AMAZON-TRACKING] Skipped — anti-block pause active")
+        return 0
+
+    # Get ASINs to track
+    tracked = _get_tracked_asins(limit=30)
+    if not tracked:
+        print("[AMAZON-TRACKING] No tracked ASINs — run Engine #1 first")
+        return 0
+
+    print(f"[AMAZON-TRACKING] Checking {len(tracked)} ASINs")
+
+    deals_found = 0
+    total_checked = 0
+
+    for item in tracked:
+        asin = item.get("asin")
+        if not asin or asin in seen_asins:
+            continue
+
+        try:
+            print(f"[AMAZON-TRACKING] Checking ASIN: {asin}")
+
+            url = f"https://www.amazon.eg/dp/{asin}?language=en_US"
+            html = _fetch_amazon_html(url, render_js=True)
+
+            if not html:
+                print(f"[AMAZON-TRACKING] ✗ Failed to load {asin}")
+                continue
+
+            # Extract product info
+            info = _extract_product_info(html, asin)
+            if not info:
+                print(f"[AMAZON-TRACKING] ✗ No product info for {asin}")
+                continue
+
+            total_checked += 1
+            _update_asin_checked(asin)
+
+            cp = info.get("current_price", 0)
+            op = info.get("original_price", 0)
+            discount = info.get("discount", 0)
+
+            print(f"[AMAZON-TRACKING] {info['title'][:50]} | EGP {cp:,.0f} (was {op:,.0f}) = {discount}% off")
+
+            if discount < MIN_DISCOUNT:
+                print(f"[AMAZON-TRACKING] Skipping — discount {discount}% < {MIN_DISCOUNT}%")
+                continue
+
+            if not price_in_range(cp):
+                print(f"[AMAZON-TRACKING] Skipping — price {cp} out of range")
+                continue
+
+            # ─── FRAUD VERIFICATION ───
+            fraud_result = _verify_fraud(asin, cp, op, info["title"])
+            print(f"[AMAZON-FRAUD] ASIN {asin}: {fraud_result}")
+
+            if fraud_result == "FAKE":
+                print(f"[AMAZON-FRAUD] FAKE deal filtered — no notification sent")
+                continue
+
+            # ─── SAVE DEAL ───
+            cat = detect_category(info["title"])
+            product_url = f"https://www.amazon.eg/dp/{asin}?language=en_US"
+
+            kb_result = check_price_history(
+                asin=asin,
+                product_url=product_url,
+                current_price=cp,
+                original_price=op,
+                title=info["title"],
+                site="amazon_eg",
+            )
+
+            deal = build_deal(
+                title=info["title"],
+                site="amazon_eg",
+                site_display="Amazon Egypt",
+                category=cat,
+                current_price=cp,
+                original_price=op,
+                discount=discount,
+                image_url=info.get("image_url", ""),
+                product_url=product_url,
+                rating=info.get("rating", 0.0),
+                review_count=None,
+                asin=asin,
+                kanbkam_result=kb_result,
+                currency="EGP",
+            )
+            save_deal(deal)
+            seen_asins.add(asin)
+            deals_found += 1
+
+            if fraud_result in ("GENUINE", "SUSPICIOUS"):
+                print(f"[AMAZON-NOTIFY] Deal saved — ASIN={asin} discount={discount}%")
+            else:
+                print(f"[AMAZON-NOTIFY] Deal saved (no notify) — ASIN={asin}")
+
+            _random_delay(3, 8)
+
+        except Exception as e:
+            print(f"[AMAZON-ERROR] Tracking ASIN {asin}: {e}")
+            continue
+
+    print(f"[AMAZON-TRACKING] === Engine #2 Complete: {deals_found} deals from {total_checked} checked ===")
+    return deals_found
+
+
+def _extract_product_info(html, asin):
+    """Extract product info from Amazon product page HTML."""
+    info = {
+        "title": "",
+        "current_price": 0.0,
+        "original_price": 0.0,
+        "discount": 0,
+        "image_url": "",
+        "rating": 0.0,
+    }
+
+    try:
+        # Title
+        title_match = re.search(r'<span[^>]*id="productTitle"[^>]*>(.*?)</span>', html, re.S)
+        if title_match:
+            info["title"] = re.sub(r'<[^>]+>', '', title_match.group(1)).strip()
+
+        if not info["title"]:
+            # Try meta title
+            meta_match = re.search(r'<title>(.*?)</title>', html, re.I)
+            if meta_match:
+                info["title"] = meta_match.group(1).replace("Amazon.eg:", "").replace(": Buy Online", "").strip()
+
+        # Price extraction
+        # Current price: a-price-whole or a-offscreen in price block
+        price_patterns = [
+            r'<span[^>]*class="a-price-whole"[^>]*>([\d,]+)',
+            r'<span[^>]*class="a-offscreen"[^>]*>([\d,]+\.?\d*)',
+            r'"price":\s*"([\d,]+\.?\d*)"',
+            r'"priceAmount":\s*([\d.]+)',
+        ]
+        for pat in price_patterns:
+            m = re.search(pat, html, re.I)
+            if m:
+                try:
+                    info["current_price"] = float(m.group(1).replace(",", ""))
+                    break
+                except ValueError:
+                    continue
+
+        # Original price / list price
+        list_patterns = [
+            r'<span[^>]*class="a-price a-text-price"[^>]*>.*?<span[^>]*class="a-offscreen"[^>]*>([\d,]+\.?\d*)',
+            r'"listPrice":\s*"([\d,]+\.?\d*)"',
+            r'"wasPrice":\s*"([\d,]+\.?\d*)"',
+        ]
+        for pat in list_patterns:
+            m = re.search(pat, html, re.S | re.I)
+            if m:
+                try:
+                    info["original_price"] = float(m.group(1).replace(",", ""))
+                    break
+                except ValueError:
+                    continue
+
+        # If no list price found, use current as original
+        if info["original_price"] <= 0:
+            info["original_price"] = info["current_price"]
+
+        # Calculate discount
+        if info["original_price"] > info["current_price"] > 0:
+            info["discount"] = int(((info["original_price"] - info["current_price"]) / info["original_price"]) * 100)
+
+        # Image
+        img_patterns = [
+            r'"hiRes":"(https://[^"]+images-amazon[^"]*)"',
+            r'"large":"(https://[^"]+images-amazon[^"]*)"',
+            r'id="landingImage"[^>]*src="(https://[^"]+)"',
+        ]
+        for pat in img_patterns:
+            m = re.search(pat, html, re.I)
+            if m:
+                info["image_url"] = m.group(1)
+                break
+
+        # Rating
+        rating_match = re.search(r'"ratingValue":\s*"?([\d.]+)"?', html)
+        if rating_match:
+            try:
+                info["rating"] = float(rating_match.group(1))
+            except ValueError:
+                pass
+
+        # Validate
+        if not info["title"] or info["current_price"] <= 0:
+            return None
+
+        return info
+
+    except Exception as e:
+        print(f"[AMAZON-ERROR] Product info extraction failed for {asin}: {e}")
+        return None
+
+
+def _verify_fraud(asin, current_price, original_price, title):
+    """
+    Three-tier fraud verification.
+    Returns: GENUINE, SUSPICIOUS, or FAKE
+    """
+    # Tier 1: Own price history database
+    try:
+        # Get historical data from price_tracker
+        docs = (
+            db.collection("products").document(asin)
+            .collection("price_history")
+            .order_by("timestamp", direction="DESCENDING")
+            .limit(30)
+            .stream()
+        )
+        prices = [d.to_dict().get("price", 0) for d in docs if d.to_dict().get("price", 0) > 0]
+
+        if prices:
+            hist_high = max(prices)
+            hist_low = min(prices)
+
+            # FAKE: claimed list price >50% higher than historical high
+            if original_price > hist_high * 1.5 and hist_high > 0:
+                print(f"[AMAZON-FRAUD] FAKE — claimed list_price={original_price} historical_high={hist_high}")
+                return "FAKE"
+
+            # GENUINE: price within 5% of historical low
+            if current_price <= hist_low * 1.05 and hist_low > 0:
+                print(f"[AMAZON-FRAUD] GENUINE — price {current_price} at historical low {hist_low}")
+                return "GENUINE"
+
+            print(f"[AMAZON-FRAUD] SUSPICIOUS — price {current_price} in range [{hist_low}, {hist_high}]")
+            return "SUSPICIOUS"
+
+    except Exception as e:
+        print(f"[AMAZON-FRAUD] Tier 1 (own DB) failed: {e}")
+
+    # Tier 2: Safqa (silent, backend only)
+    try:
+        from safqa_browser import check_safqa
+        result = check_safqa(asin=asin, title=title)
+        if result and result.get("found"):
+            safqa_price = result.get("lowest_price", 0)
+            if safqa_price > 0:
+                if current_price <= safqa_price * 1.05:
+                    return "GENUINE"
+                elif current_price > safqa_price * 1.5:
+                    return "FAKE"
+    except Exception:
+        pass  # Safqa is optional
+
+    # Tier 3: Kanbkam (silent, backend only)
+    try:
+        kb_result = check_price_history(
+            asin=asin, product_url=f"https://www.amazon.eg/dp/{asin}",
+            current_price=current_price, original_price=original_price,
+            title=title, site="amazon_eg",
+        )
+        if kb_result == "FAKE":
+            return "FAKE"
+    except Exception:
+        pass  # Kanbkam is optional
+
+    # No data = SUSPICIOUS
+    return "SUSPICIOUS"
+
+
+# ═══════════════════════════════════════════════════════════════
+# MAIN ENTRY POINT (replaces old scrape_amazon)
+# ═══════════════════════════════════════════════════════════════
+
+def scrape_amazon():
+    """
+    Two-Engine Amazon Egypt System:
+    - Engine #1: Discovery (every 4h) — finds new discounted ASINs
+    - Engine #2: Tracking (every cycle) — checks prices on known ASINs
+    - Falls back to deals page if both engines fail
+    """
+    print("\n[AMAZON/EG] === Two-Engine System Starting ===")
+    total_deals = 0
+    seen_asins = set()
+
+    # ─── Engine #1: Discovery ───
+    if ENGINE1_DISCOVERY_ENABLED and _should_run_discovery():
+        new_asins = _engine1_discovery()
+        print(f"[AMAZON-DISCOVERY] {new_asins} new ASINs added to tracking")
+    else:
+        print(f"[AMAZON-DISCOVERY] Skipped (enabled={ENGINE1_DISCOVERY_ENABLED})")
+
+    # ─── Engine #2: Tracking ───
+    if ENGINE2_TRACKING_ENABLED:
+        tracking_deals = _engine2_tracking(seen_asins=seen_asins)
+        total_deals += tracking_deals
+        print(f"[AMAZON-TRACKING] {tracking_deals} deals from tracking")
+    else:
+        print(f"[AMAZON-TRACKING] Skipped (enabled={ENGINE2_TRACKING_ENABLED})")
+
+    # ─── Fallback: Deals page (if engines produced nothing) ───
+    if total_deals == 0:
+        print(f"[AMAZON/EG] Engines produced 0 deals — trying deals page fallback")
+        deals_total, seen = _scrape_amazon_deals_page()
+        if deals_total > 0:
+            print(f"[AMAZON/EG] Deals page fallback: {deals_total} deals")
+            total_deals += deals_total
+            seen_asins.update(seen)
+
+    # ─── Credit Report ───
+    print(f"[AMAZON-CREDIT] Credits used this cycle:")
+    for service, count in _credit_stats.items():
+        if count > 0:
+            print(f"  {service}: {count}")
+
+    print(f"[AMAZON/EG] === Done. {total_deals} total deals ===")
+    return total_deals
+
 
 
 def scrape_amazon():
-    """Amazon Egypt — deals page only. Keyword scan DISABLED to save credits."""
-    _test_scrapedo_geocode()  # TEST: geocode=EG support
-    deals_total, seen = _scrape_amazon_deals_page()
-    # v8: Keyword scan disabled — scrape.do returns HTTP 502 for all keywords.
-    # Only run if explicitly enabled via AMAZON_KEYWORD_ENABLED=true
-    if AMAZON_KEYWORD_ENABLED:
-        print(f"\n[AMAZON/EG] Keyword scan ENABLED — running (~54 credits)")
-        kw_total = _scrape_amazon_region(skip_asins=seen, force_api_scan=False)
-        return deals_total + kw_total
-    print(f"  [AMAZON/EG] Keyword scan DISABLED — saving ~54 credits/cycle")
-    return deals_total
+    """
+    Two-Engine Amazon Egypt System:
+    - Engine #1: Discovery (every 4h) — finds new discounted ASINs
+    - Engine #2: Tracking (every cycle) — checks prices on known ASINs
+    - Falls back to deals page if both engines fail
+    """
+    print("\n[AMAZON/EG] === Two-Engine System Starting ===")
+    total_deals = 0
+    seen_asins = set()
+
+    # ─── Engine #1: Discovery ───
+    if ENGINE1_DISCOVERY_ENABLED and _should_run_discovery():
+        new_asins = _engine1_discovery()
+        print(f"[AMAZON-DISCOVERY] {new_asins} new ASINs added to tracking")
+    else:
+        print(f"[AMAZON-DISCOVERY] Skipped (enabled={ENGINE1_DISCOVERY_ENABLED})")
+
+    # ─── Engine #2: Tracking ───
+    if ENGINE2_TRACKING_ENABLED:
+        tracking_deals = _engine2_tracking(seen_asins=seen_asins)
+        total_deals += tracking_deals
+        print(f"[AMAZON-TRACKING] {tracking_deals} deals from tracking")
+    else:
+        print(f"[AMAZON-TRACKING] Skipped (enabled={ENGINE2_TRACKING_ENABLED})")
+
+    # ─── Fallback: Deals page (if engines produced nothing) ───
+    if total_deals == 0:
+        print(f"[AMAZON/EG] Engines produced 0 deals — trying deals page fallback")
+        deals_total, seen = _scrape_amazon_deals_page()
+        if deals_total > 0:
+            print(f"[AMAZON/EG] Deals page fallback: {deals_total} deals")
+            total_deals += deals_total
+            seen_asins.update(seen)
+
+    # ─── Credit Report ───
+    print(f"[AMAZON-CREDIT] Credits used this cycle:")
+    for service, count in _credit_stats.items():
+        if count > 0:
+            print(f"  {service}: {count}")
+
+    print(f"[AMAZON/EG] === Done. {total_deals} total deals ===")
+    return total_deals
 
 def scrape_amazon_ae():
     """Amazon UAE — DEAL DISCOVERY SUSPENDED. Price history continues via price_tracker.py."""
