@@ -216,7 +216,8 @@ def _update_product_analytics(
     }
 
     db.collection("products").document(doc_id).update(analytics)
-    print(f"  [ANALYTICS] trend={trend} fake_score={fake_score} recommendation={recommendation}")
+    # v9.9: [ANALYTICS] log moved to scraper.py _engine2_tracking() with real _compute_fake_score()
+    # to avoid duplicate output. Firestore analytics update above still runs.
 
 
 def make_product_doc_id(marketplace_country: str, product_id: str) -> str:
