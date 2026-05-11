@@ -268,15 +268,24 @@ class PriceSnapshotCollector:
             return None
 
     def collect_all_snapshots(self, source: str) -> dict[str, int]:
+        """Collect price snapshots for a source. Processes max 150 products per cycle
+        to fit within the 24h window. Prioritizes products with fewest snapshots."""
+        MAX_PER_CYCLE = 150
         prods = MasterProductList().get_active_products(source=source)
-        ok = failed = 0
-        for p in prods:
-            if not (asin := p.get("asin", "")): continue
+        # Sort: products with 0 snapshots first, then by last_updated (oldest first)
+        prods.sort(key=lambda p: (p.get("snapshots_count", 999), str(p.get("last_updated", ""))))
+        to_process = prods[:MAX_PER_CYCLE]
+        ok = failed = skipped = 0
+        total = len(prods)
+        _log(f"snapshots: {source} processing {len(to_process)}/{total} products")
+        for p in to_process:
+            if not (asin := p.get("asin", "")): skipped += 1; continue
+            if self._is_dead(f"{source}_{asin}"): skipped += 1; continue
             if self.collect_snapshot(source, asin): ok += 1
             else: failed += 1
             time.sleep(0.5)
-        _log(f"collect_all: {source} ok={ok} failed={failed}")
-        return {"ok": ok, "failed": failed}
+        _log(f"collect_all: {source} ok={ok} failed={failed} skipped={skipped} (processed {len(to_process)}/{total})")
+        return {"ok": ok, "failed": failed, "skipped": skipped, "total": total}
 
     @staticmethod
     def _extract_noon(html: str) -> dict[str, Any]:
@@ -571,7 +580,9 @@ class PriceHistoryScheduler:
         except Exception as e: _log(f"analytics cycle error: {e}")
         self._set_last_run()
         elapsed = (datetime.now(timezone.utc) - t0).total_seconds()
-        _log(f"=== Cycle done in {elapsed/60:.1f}min | discovered={total_new} snapshots={snap_summary} analyzed={analyzed} ===")
+        total_snap_ok = sum(s.get('ok', 0) for s in snap_summary.values())
+        total_snap_fail = sum(s.get('failed', 0) for s in snap_summary.values())
+        _log(f"=== Cycle done in {elapsed/60:.1f}min | discovered={total_new} snapshots_ok={total_snap_ok} snapshots_fail={total_snap_fail} analyzed={analyzed} ===")
 
     def _discovery_crawl(self, source: str) -> int:
         # Skip amazon_eg — scraper's Engine #1 already crawls it and calls request_tracking()
