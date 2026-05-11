@@ -201,9 +201,14 @@ class PriceSnapshotCollector:
     def _mark_dead(self, product_id: str) -> None:
         self._dead[product_id] = datetime.now(timezone.utc)
 
+    _COUNTRY_MAP: dict[str, str] = {
+        "eg": "eg", "ae": "ae", "sa": "ae",  # Saudi uses UAE geocode (scrape.do SA unsupported)
+    }
+
     @staticmethod
     def _country(source: str) -> str:
-        return source.split("_")[-1]
+        cc = source.split("_")[-1]
+        return PriceTracker._COUNTRY_MAP.get(cc, cc)
 
     @staticmethod
     def _extract_amazon(html: str) -> dict[str, Any]:
