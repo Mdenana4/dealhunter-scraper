@@ -51,6 +51,7 @@ SOURCES: dict[str, dict[str, str]] = {
     "noon_sa":   {"name": "Noon Saudi", "domain": "noon.com/saudi-en", "currency": "SAR"},
     "jumia_eg":  {"name": "Jumia Egypt", "domain": "www.jumia.com.eg", "currency": "EGP"},
 }
+_COUNTRY_CODES: dict[str, str] = {"eg": "eg", "ae": "ae", "sa": "ae"}  # Saudi uses UAE geocode (scrape.do SA unsupported)
 
 DEAL_CATEGORIES: dict[str, dict[str, str]] = {
     "electronics": {"amazon": "electronics", "noon": "electronics", "jumia": "electronics"},
@@ -201,14 +202,10 @@ class PriceSnapshotCollector:
     def _mark_dead(self, product_id: str) -> None:
         self._dead[product_id] = datetime.now(timezone.utc)
 
-    _COUNTRY_MAP: dict[str, str] = {
-        "eg": "eg", "ae": "ae", "sa": "ae",  # Saudi uses UAE geocode (scrape.do SA unsupported)
-    }
-
     @staticmethod
     def _country(source: str) -> str:
         cc = source.split("_")[-1]
-        return PriceTracker._COUNTRY_MAP.get(cc, cc)
+        return _COUNTRY_CODES.get(cc, cc)
 
     @staticmethod
     def _extract_amazon(html: str) -> dict[str, Any]:
