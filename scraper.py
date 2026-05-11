@@ -446,13 +446,14 @@ def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False,
             params["waitSelector"] = wait_selector
         if custom_wait:
             params["customWait"] = str(custom_wait)
-        # v10.1: Let requests handle gzip automatically — fixes sporadic
-        # "incorrect header check" errors with stream=True + manual decompress.
+        # v11.2: Request uncompressed responses — scrape.do's gzip is
+        # intermittently corrupted ("Error -3 while decompressing data").
+        # Slightly larger payloads, but eliminates decompression failures.
         resp = requests.get(
             "https://api.scrape.do",
             params=params,
             timeout=60,
-            headers={"Accept-Encoding": "gzip, deflate"},
+            headers={"Accept-Encoding": "identity"},  # No compression
             allow_redirects=True,
         )
         if resp.status_code in (401, 403):
