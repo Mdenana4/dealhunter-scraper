@@ -685,6 +685,169 @@ def tracker_delete_alert(alert_id):
         return _pt_error(str(e), 500)
 
 
+# ── Price-history routes (System 1 data) ───────────────────────────────────
+# These endpoints expose the richer price_history collection to the Flutter app.
+# Document IDs are "{source}_{asin}".  Subcollection: snapshots/
+
+@app.route("/api/v1/price-history/product/<source>/<asin>")
+def ph_product(source, asin):
+    """
+    Full product analytics from System 1's price_history collection.
+
+    Returns metadata + all analytics fields:
+      thirty_day_avg, ninety_day_low, ninety_day_high,
+      times_discounted_40plus, latest_verdict, latest_fake_score,
+      latest_recommendation, trend, snapshots_count, …
+    """
+    doc_id = f"{source}_{asin}"
+    try:
+        doc = db.collection("price_history").document(doc_id).get()
+        if not doc.exists:
+            return _pt_error("Product not found in price history", 404)
+
+        data = doc.to_dict() or {}
+        # Build a clean product payload with all analytics fields
+        product = {
+            "source": data.get("source", source),
+            "asin": data.get("asin", asin),
+            "title": data.get("title", ""),
+            "url": data.get("url", ""),
+            "category": data.get("category", ""),
+            "first_seen": data.get("first_seen"),
+            "last_updated": data.get("last_updated"),
+            "is_active": data.get("is_active", True),
+            "snapshots_count": data.get("snapshots_count", 0),
+            "thirty_day_avg": data.get("thirty_day_avg"),
+            "ninety_day_low": data.get("ninety_day_low"),
+            "ninety_day_high": data.get("ninety_day_high"),
+            "times_discounted_40plus": data.get("times_discounted_40plus", 0),
+            "latest_verdict": data.get("latest_verdict", "UNVERIFIED"),
+            "latest_fake_score": data.get("latest_fake_score"),
+            "latest_recommendation": data.get("latest_recommendation", ""),
+            "trend": data.get("trend", "stable"),
+        }
+        return jsonify({
+            "success": True,
+            "product": _sanitize_json(_serialize_ts(product)),
+        })
+    except Exception as e:
+        print(f"[ERROR] ph_product {doc_id}: {e}", flush=True)
+        return _pt_error(str(e), 500)
+
+
+@app.route("/api/v1/price-history/snapshots/<source>/<asin>")
+def ph_snapshots(source, asin):
+    """
+    Chronological price snapshots for charting.
+
+    Query params:
+      days   int, look-back window, default 90
+      limit  int, max results, default 200
+
+    Returns raw snapshot data sorted by scraped_at ascending (oldest first).
+    """
+    doc_id = f"{source}_{asin}"
+    days   = request.args.get("days", 90, type=int)
+    limit  = min(request.args.get("limit", 200, type=int), 1000)
+
+    try:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        snaps_ref = (
+            db.collection("price_history")
+            .document(doc_id)
+            .collection("snapshots")
+            .where(
+                filter=firestore.FieldFilter("scraped_at", ">=", cutoff)
+            )
+            .order_by("scraped_at", direction=firestore.Query.ASCENDING)
+            .limit(limit)
+        )
+        docs = list(snaps_ref.stream())
+
+        snapshots = []
+        for d in docs:
+            row = d.to_dict() or {}
+            snapshots.append({
+                "current_price": row.get("current_price"),
+                "list_price": row.get("list_price"),
+                "discount_percent": row.get("discount_percent"),
+                "seller": row.get("seller", ""),
+                "fulfillment": row.get("fulfillment", ""),
+                "scraped_at": row.get("scraped_at"),
+                "is_deal": row.get("is_deal", False),
+                "in_stock": row.get("in_stock", True),
+                "currency": row.get("currency", "EGP"),
+            })
+
+        return jsonify({
+            "success": True,
+            "source": source,
+            "asin": asin,
+            "days": days,
+            "count": len(snapshots),
+            "snapshots": _sanitize_json(_serialize_ts(snapshots)),
+        })
+    except Exception as e:
+        print(f"[ERROR] ph_snapshots {doc_id}: {e}", flush=True)
+        return _pt_error(str(e), 500)
+
+
+@app.route("/api/v1/price-history/trend/<source>/<asin>")
+def ph_trend(source, asin):
+    """
+    Condensed trend analysis for quick display.
+
+    Returns: thirty_day_avg, ninety_day_low, ninety_day_high, trend,
+             latest_verdict, latest_fake_score, latest_recommendation,
+             times_discounted_40plus, snapshots_count, price_change_pct.
+    """
+    doc_id = f"{source}_{asin}"
+    try:
+        doc = db.collection("price_history").document(doc_id).get()
+        if not doc.exists:
+            return _pt_error("Product not found in price history", 404)
+
+        data = doc.to_dict() or {}
+        ninety_low = data.get("ninety_day_low")
+        current_price = data.get("current_price")
+
+        # Calculate price_change_pct: 90d low → current
+        price_change_pct = None
+        if ninety_low and current_price and ninety_low > 0:
+            try:
+                price_change_pct = round(
+                    ((float(current_price) - float(ninety_low))
+                     / float(ninety_low)) * 100, 2
+                )
+            except (TypeError, ValueError):
+                price_change_pct = None
+
+        trend_data = {
+            "source": data.get("source", source),
+            "asin": data.get("asin", asin),
+            "title": data.get("title", ""),
+            "thirty_day_avg": data.get("thirty_day_avg"),
+            "ninety_day_low": ninety_low,
+            "ninety_day_high": data.get("ninety_day_high"),
+            "trend": data.get("trend", "stable"),
+            "latest_verdict": data.get("latest_verdict", "UNVERIFIED"),
+            "latest_fake_score": data.get("latest_fake_score"),
+            "latest_recommendation": data.get("latest_recommendation", ""),
+            "times_discounted_40plus": data.get("times_discounted_40plus", 0),
+            "snapshots_count": data.get("snapshots_count", 0),
+            "current_price": current_price,
+            "price_change_pct": price_change_pct,
+            "last_updated": data.get("last_updated"),
+        }
+        return jsonify({
+            "success": True,
+            "trend": _sanitize_json(_serialize_ts(trend_data)),
+        })
+    except Exception as e:
+        print(f"[ERROR] ph_trend {doc_id}: {e}", flush=True)
+        return _pt_error(str(e), 500)
+
+
 # ── Auth helpers ────────────────────────────────────────────────────────────
 
 def _verify_firebase_token(required=True):
