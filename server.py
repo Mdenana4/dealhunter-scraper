@@ -2983,6 +2983,57 @@ def log_slow_requests(response):
         _log_event('error', 'api', f'HTTP {response.status_code} on {request.method} {request.path}')
     return response
 
+# ── Price History Stats ────────────────────────────────────────────────────
+_price_history_stats_cache = {'data': None, 'at': 0}
+_PH_STATS_TTL = 300  # 5 min cache
+
+@app.route('/api/v1/admin/price-history-stats')
+def price_history_stats():
+    """Return Firestore price_history collection statistics.
+    Cached for 5 minutes to avoid heavy Firestore reads."""
+    global _price_history_stats_cache
+    now = time.time()
+    if _price_history_stats_cache['data'] and (now - _price_history_stats_cache['at']) < _PH_STATS_TTL:
+        return jsonify(_price_history_stats_cache['data'])
+
+    try:
+        products_ref = db.collection('price_history').document('products').collection('products')
+        # If the path above is wrong, try the flat structure
+        docs = list(db.collection('price_history').stream())
+
+        total_products = len(docs)
+        source_counts = {}
+        snapshot_counts = {}
+        total_snapshots = 0
+        products_with_snapshots = 0
+
+        for doc in docs[:5000]:  # cap at 5000 to avoid timeout
+            d = doc.to_dict() or {}
+            src = d.get('source', 'unknown')
+            sc = d.get('snapshots_count', 0)
+            source_counts[src] = source_counts.get(src, 0) + 1
+            if sc > 0:
+                snapshot_counts[src] = snapshot_counts.get(src, 0) + sc
+                total_snapshots += sc
+                products_with_snapshots += 1
+
+        result = {
+            'total_products': total_products,
+            'products_with_snapshots': products_with_snapshots,
+            'total_snapshots_across_all': total_snapshots,
+            'sources': {src: {
+                'products': source_counts.get(src, 0),
+                'snapshots': snapshot_counts.get(src, 0),
+                'avg_snapshots_per_product': round(snapshot_counts.get(src, 0) / max(source_counts.get(src, 1), 1), 2)
+            } for src in set(list(source_counts.keys()) + list(snapshot_counts.keys()))},
+            'sample_products': {doc.id: (doc.to_dict() or {}).get('snapshots_count', 0)
+                               for doc in docs[:10]}
+        }
+        _price_history_stats_cache = {'data': result, 'at': now}
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 print("Starting...")
 _load_shops()
 
