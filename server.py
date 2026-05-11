@@ -3043,6 +3043,49 @@ def price_history_stats():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/v1/test-notification', methods=['POST', 'GET'])
+def test_notification():
+    """Send a test FCM notification to tier_free topic.
+    Call with ?topic=tier_free or ?token=<FCM_TOKEN>"""
+    topic = request.args.get('topic', 'tier_free')
+    token = request.args.get('token', '')
+    try:
+        if token:
+            msg = messaging.Message(
+                token=token,
+                notification=messaging.Notification(
+                    title="🔔 DealHunter Test",
+                    body="If you see this, FCM notifications are working!"
+                ),
+                android=messaging.AndroidConfig(
+                    priority="high",
+                    notification=messaging.AndroidNotification(
+                        channel_id="deal_alerts",
+                        sound="default",
+                    ),
+                ),
+            )
+        else:
+            msg = messaging.Message(
+                topic=topic,
+                notification=messaging.Notification(
+                    title="🔔 DealHunter Test",
+                    body="If you see this, FCM topic notifications are working!"
+                ),
+                android=messaging.AndroidConfig(
+                    priority="high",
+                    notification=messaging.AndroidNotification(
+                        channel_id="deal_alerts",
+                        sound="default",
+                    ),
+                ),
+            )
+        msg_id = messaging.send(msg)
+        return jsonify({"success": True, "msg_id": msg_id, "target": token or topic})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 print("Starting...")
 _load_shops()
 
