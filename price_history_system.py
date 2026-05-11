@@ -49,7 +49,7 @@ SOURCES: dict[str, dict[str, str]] = {
     "noon_eg":   {"name": "Noon Egypt", "domain": "noon.com/egypt-en", "currency": "EGP"},
     "noon_ae":   {"name": "Noon UAE", "domain": "noon.com/uae-en", "currency": "AED"},
     "noon_sa":   {"name": "Noon Saudi", "domain": "noon.com/saudi-en", "currency": "SAR"},
-    "jumia_eg":  {"name": "Jumia Egypt", "domain": "jumia.com.eg", "currency": "EGP"},
+    "jumia_eg":  {"name": "Jumia Egypt", "domain": "www.jumia.com.eg", "currency": "EGP"},
 }
 
 DEAL_CATEGORIES: dict[str, dict[str, str]] = {
@@ -544,9 +544,17 @@ class PriceHistoryScheduler:
         for src in SOURCES:
             try: total_new += self._discovery_crawl(src)
             except Exception as e: _log(f"discovery error {src}: {e}")
+        snap_summary: dict[str, dict] = {}
         for src in SOURCES:
-            try: self._collector.collect_all_snapshots(src)
-            except Exception as e: _log(f"snapshot error {src}: {e}")
+            try:
+                active_count = len(self._mpl.get_active_products(source=src))
+                _log(f"snapshots: {src} has {active_count} active products")
+                result = self._collector.collect_all_snapshots(src)
+                snap_summary[src] = result
+                _log(f"snapshots: {src} ok={result.get('ok', 0)} failed={result.get('failed', 0)}")
+            except Exception as e:
+                _log(f"snapshot error {src}: {e}")
+                snap_summary[src] = {"ok": 0, "failed": 0}
         analyzed = 0
         try:
             for prod in self._mpl.get_active_products():
@@ -563,7 +571,7 @@ class PriceHistoryScheduler:
         except Exception as e: _log(f"analytics cycle error: {e}")
         self._set_last_run()
         elapsed = (datetime.now(timezone.utc) - t0).total_seconds()
-        _log(f"=== Cycle done in {elapsed/60:.1f}min | new={total_new} analyzed={analyzed} ===")
+        _log(f"=== Cycle done in {elapsed/60:.1f}min | discovered={total_new} snapshots={snap_summary} analyzed={analyzed} ===")
 
     def _discovery_crawl(self, source: str) -> int:
         # Skip amazon_eg — scraper's Engine #1 already crawls it and calls request_tracking()
