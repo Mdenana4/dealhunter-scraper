@@ -153,6 +153,28 @@ def check_scraper_control():
 # Cache disabled sources for the duration of each cycle (re-read each cycle)
 _disabled_sources: set = set()
 
+# Dead ASINs cache — ASINs that returned HTTP 502, skipped for 24h to save credits
+# Format: {asin: timestamp_when_marked_dead}
+_dead_asins: dict[str, datetime] = {}
+_DEAD_ASIN_TTL_HOURS = 24
+
+def _is_dead_asin(asin: str) -> bool:
+    """Check if an ASIN was marked dead within the last 24 hours."""
+    if not asin:
+        return False
+    ts = _dead_asins.get(asin)
+    if not ts:
+        return False
+    if datetime.now(timezone.utc) - ts > timedelta(hours=_DEAD_ASIN_TTL_HOURS):
+        del _dead_asins[asin]
+        return False
+    return True
+
+def _mark_dead_asin(asin: str) -> None:
+    """Mark an ASIN as dead (returned HTTP 502) — won't be retried for 24h."""
+    if asin:
+        _dead_asins[asin] = datetime.now(timezone.utc)
+
 def load_disabled_sources():
     """Read disabled source keys from Firestore scraper_control/disabled_sources."""
     global _disabled_sources
@@ -4684,6 +4706,13 @@ def _recheck_expired_deals():
             if not product_url:
                 continue
 
+            # Extract ASIN from product URL for dead-product cache
+            asin = data.get("asin", "")
+            if not asin and "/dp/" in product_url:
+                asin = product_url.split("/dp/")[-1].split("?")[0].split("#")[0]
+            if _is_dead_asin(asin):
+                continue  # skip known-dead products for 24h
+
             try:
                 # Up to 2 attempts per deal: scrapedo first, scraperapi as retry
                 resp = fetch_with_scrapedo(product_url, render_js=False, country="eg")
@@ -4734,6 +4763,8 @@ def _recheck_expired_deals():
                             print(f"  [RECHECK] Still live: {data.get('title','')[:40]} | {disc}% off")
                 else:
                     consecutive_failures[site] = consecutive_failures.get(site, 0) + 1
+                    if asin:
+                        _mark_dead_asin(asin)  # HTTP 502 or blocked — don't retry for 24h
 
                 if not still_live:
                     db.collection("deals").document(d.id).update({
@@ -4745,6 +4776,8 @@ def _recheck_expired_deals():
 
             except Exception as re_err:
                 consecutive_failures[site] = consecutive_failures.get(site, 0) + 1
+                if asin:
+                    _mark_dead_asin(asin)
                 print(f"  [RECHECK] Error for {d.id[:16]}: {re_err}")
 
             time.sleep(1)
