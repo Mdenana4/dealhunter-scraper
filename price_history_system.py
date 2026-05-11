@@ -78,6 +78,9 @@ DEAL_CATEGORIES: dict[str, dict[str, str]] = {
     "grocery": {"amazon": "grocery", "noon": "grocery", "jumia": "grocery"},
 }
 
+# Sources suspended in scraper — skip discovery AND snapshot collection to save credits
+SUSPENDED_SOURCES: set[str] = {"amazon_ae", "amazon_sa", "noon_eg", "noon_ae", "noon_sa", "jumia_eg"}
+
 BESTSELLER_CATEGORIES: dict[str, dict[str, str]] = {
     "electronics": {"amazon": "/gp/bestsellers/electronics"}, "fashion": {"amazon": "/gp/bestsellers/fashion"},
     "beauty": {"amazon": "/gp/bestsellers/beauty"}, "home_kitchen": {"amazon": "/gp/bestsellers/home"},
@@ -347,6 +350,9 @@ class PriceHistoryScheduler:
             try: total_new += self._discovery_crawl(src)
             except Exception as e: _log(f"discovery error {src}: {e}")
         for src in SOURCES:
+            if src in SUSPENDED_SOURCES:
+                _log(f"snapshots skipped: {src} (suspended)")
+                continue
             try: self._collector.collect_all_snapshots(src)
             except Exception as e: _log(f"snapshot error {src}: {e}")
         analyzed = 0
@@ -369,8 +375,8 @@ class PriceHistoryScheduler:
 
     def _discovery_crawl(self, source: str) -> int:
         # Skip amazon_eg — scraper's Engine #1 already crawls it and calls request_tracking()
-        # Keep amazon_ae/sa — those sources are disabled in scraper, so System 1 must discover
-        if source == "amazon_eg" or not source.startswith("amazon"): return 0
+        # Skip suspended sources — their product pages fail (HTTP 502) wasting credits
+        if source == "amazon_eg" or source in SUSPENDED_SOURCES: return 0
         new_all: list[str] = []
         domain = SOURCES[source]["domain"]
         cc = source.split("_")[-1]
