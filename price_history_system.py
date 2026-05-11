@@ -299,13 +299,13 @@ class PriceSnapshotCollector:
         # ── Current price: try multiple data-qa selectors ──
         cp = 0.0
         for qa in ("price-now", "selling-price", "product-price", "price", "offerPrice"):
-            if (el := soup.find(attrs={"data-qa": qa})) and (m := _re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
+            if (el := soup.find(attrs={"data-qa": qa})) and (m := re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
                 try: cp = float(m.group().replace(",", "")); break
                 except ValueError: continue
         # Fallback: class-based search
         if cp <= 0:
             for cls in ("priceNow", "sellingPrice", "Price_amount__", "-prc"):
-                if (el := soup.find(class_=_re.compile(cls))) and (m := _re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
+                if (el := soup.find(class_=re.compile(cls))) and (m := re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
                     try: cp = float(m.group().replace(",", "")); break
                     except ValueError: continue
         # Fallback: <script> JSON-LD
@@ -322,12 +322,12 @@ class PriceSnapshotCollector:
         # ── List / old price ──
         lp = cp
         for qa in ("price-was", "product-old-price", "old-price", "original-price", "listPrice"):
-            if (el := soup.find(attrs={"data-qa": qa})) and (m := _re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
+            if (el := soup.find(attrs={"data-qa": qa})) and (m := re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
                 try: lp = float(m.group().replace(",", "")); break
                 except ValueError: continue
         # Fallback: <del> / <s> tags
         if lp <= cp and (del_el := soup.find("del") or soup.find("s")):
-            if (m := _re.search(r"[\d,.]+", del_el.get_text(strip=True).replace(",", ""))):
+            if (m := re.search(r"[\d,.]+", del_el.get_text(strip=True).replace(",", ""))):
                 try: lp = float(m.group().replace(",", ""))
                 except ValueError: pass
         # JSON-LD fallback for list price
@@ -353,7 +353,7 @@ class PriceSnapshotCollector:
                 break
         if not seller:
             for cls in ("Seller_name__", "seller-info", "merchant"):
-                if el := soup.find(class_=_re.compile(cls, _re.I)):
+                if el := soup.find(class_=re.compile(cls, re.I)):
                     seller = el.get_text(strip=True)[:60]
                     break
         ftype = "FBN" if "FBN" in html.upper() or "noon" in html.lower()[:50000] else "Merchant"
@@ -378,7 +378,7 @@ class PriceSnapshotCollector:
         cp = 0.0
         # Class-based selectors (most reliable on Jumia)
         for cls_pat in (r"\bprc\b", r"-fs\d{2,}", r"special-price", r"current-price", r"product-price", r"\bprice\b"):
-            if (el := soup.find(class_=_re.compile(cls_pat))) and (m := _re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
+            if (el := soup.find(class_=re.compile(cls_pat))) and (m := re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
                 try: cp = float(m.group().replace(",", "")); break
                 except ValueError: continue
         # Data attribute fallbacks
@@ -402,20 +402,20 @@ class PriceSnapshotCollector:
         lp = cp
         # <del> / <s> tags
         if (del_el := soup.find("del") or soup.find("s")):
-            if (m := _re.search(r"[\d,.]+", del_el.get_text(strip=True).replace(",", ""))):
+            if (m := re.search(r"[\d,.]+", del_el.get_text(strip=True).replace(",", ""))):
                 try: lp = float(m.group().replace(",", ""))
                 except ValueError: pass
         # Old-price class
         if lp <= cp:
             for cls_pat in (r"\bold\b", r"old-price", r"was-price", r"previous-price", r"-l[tb]\b"):
-                if (el := soup.find(class_=_re.compile(cls_pat))) and (m := _re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
+                if (el := soup.find(class_=re.compile(cls_pat))) and (m := re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
                     try: lp = float(m.group().replace(",", "")); break
                     except ValueError: continue
         # Percentage badge
         if lp <= cp:
-            for el in soup.find_all(string=_re.compile(r"\d+%\s*off", _re.I)):
+            for el in soup.find_all(string=re.compile(r"\d+%\s*off", re.I)):
                 try:
-                    pct = int(_re.search(r"\d+", el).group())
+                    pct = int(re.search(r"\d+", el).group())
                     if pct > 0: lp = round(cp / (1 - pct / 100))
                     break
                 except (ValueError, AttributeError): continue
@@ -426,7 +426,7 @@ class PriceSnapshotCollector:
         # ── Seller ──
         seller = ""
         for cls_pat in (r"seller", r"merchant", r"brand"):
-            if el := soup.find(class_=_re.compile(cls_pat, _re.I)):
+            if el := soup.find(class_=re.compile(cls_pat, re.I)):
                 txt = el.get_text(strip=True)
                 if txt: seller = txt[:60]; break
         # Jumia official / marketplace
