@@ -534,32 +534,66 @@ class PriceHistoryScheduler:
 
     def _discovery_crawl(self, source: str) -> int:
         # Skip amazon_eg — scraper's Engine #1 already crawls it and calls request_tracking()
-        # System 1 still discovers amazon_ae/sa + noon/jumia on its own schedule
         if source == "amazon_eg": return 0
+
+        # Determine source type for correct keywords + URLs
+        if source.startswith("amazon"): platform, kw_key = "amazon", "amazon"
+        elif source.startswith("noon"):  platform, kw_key = "noon", "noon"
+        elif source.startswith("jumia"): platform, kw_key = "jumia", "jumia"
+        else: platform, kw_key = "amazon", "amazon"
+
         new_all: list[str] = []
         domain = SOURCES[source]["domain"]
         cc = source.split("_")[-1]
+
+        # ── Deal category pages ──
         for cat, cmap in DEAL_CATEGORIES.items():
-            kw = cmap.get("amazon", "")
+            kw = cmap.get(kw_key, "")
             if not kw: continue
             try:
-                resp = _get_fetch()(f"https://{domain}/s?k={kw}&s=price-desc-rank", render_js=True, country=cc)
-                if resp and resp.status_code == 200: new_all += [a for a in self._mpl.discover_from_category_pages(source, cat, resp.text) if a not in new_all]
+                # Build search URL per platform
+                if platform == "amazon":
+                    url = f"https://{domain}/s?k={kw}&s=price-desc-rank"
+                elif platform == "noon":
+                    url = f"https://www.{domain}/search?q={kw}&sort[by]=price&sort[dir]=desc"
+                elif platform == "jumia":
+                    url = f"https://{domain}/{kw}?sort=discountPercent&type=lowest-price"
+                else: url = f"https://{domain}/s?k={kw}"
+
+                resp = _get_fetch()(url, render_js=True, country=cc)
+                if resp and resp.status_code == 200:
+                    new_all += [a for a in self._mpl.discover_from_category_pages(source, cat, resp.text) if a not in new_all]
                 time.sleep(1)
             except Exception as e: _log(f"cat crawl error {source}/{cat}: {e}")
-        for cat, cmap in BESTSELLER_CATEGORIES.items():
-            path = cmap.get("amazon", "")
-            if not path: continue
-            try:
-                resp = _get_fetch()(f"https://{domain}{path}", render_js=True, country=cc)
-                if resp and resp.status_code == 200: new_all += [a for a in self._mpl.discover_from_bestseller_pages(source, cat, resp.text) if a not in new_all]
-                time.sleep(1)
-            except Exception as e: _log(f"best crawl error {source}/{cat}: {e}")
+
+        # ── Bestseller pages (Amazon only — we only have Amazon bestseller paths) ──
+        if platform == "amazon":
+            for cat, cmap in BESTSELLER_CATEGORIES.items():
+                path = cmap.get("amazon", "")
+                if not path: continue
+                try:
+                    resp = _get_fetch()(f"https://{domain}{path}", render_js=True, country=cc)
+                    if resp and resp.status_code == 200:
+                        new_all += [a for a in self._mpl.discover_from_bestseller_pages(source, cat, resp.text) if a not in new_all]
+                    time.sleep(1)
+                except Exception as e: _log(f"best crawl error {source}/{cat}: {e}")
+
+        # ── Add discovered products ──
         added = 0
         for asin in new_all:
             try:
-                if self._mpl.add_product(source, asin, "", f"https://{domain}/dp/{asin}", "unknown", "discovery_crawl"): added += 1
+                # Build product URL per platform
+                if platform == "noon":
+                    product_url = f"https://www.{domain}/product/{asin}"
+                elif platform == "jumia":
+                    # Jumia URLs need the product slug — use a generic pattern
+                    product_url = f"https://{domain}/generic-{asin}.html"
+                else:
+                    product_url = f"https://{domain}/dp/{asin}"
+                if self._mpl.add_product(source, asin, "", product_url, cat if 'cat' in dir() else "unknown", "discovery_crawl"):
+                    added += 1
             except Exception as e: _log(f"add error {source}_{asin}: {e}")
+        _log(f"discovery: {source} added={added} (platform={platform})")
         return added
 
     def is_due(self) -> bool:
