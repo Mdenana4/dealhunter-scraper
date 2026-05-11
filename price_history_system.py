@@ -52,6 +52,7 @@ SOURCES: dict[str, dict[str, str]] = {
     "jumia_eg":  {"name": "Jumia Egypt", "domain": "www.jumia.com.eg", "currency": "EGP"},
 }
 _COUNTRY_CODES: dict[str, str] = {"eg": "eg", "ae": "ae", "sa": "ae"}  # Saudi uses UAE geocode (scrape.do SA unsupported)
+SUSPENDED_SOURCES: set[str] = {"amazon_sa"}  # Skip discovery + snapshots for failing sources
 
 DEAL_CATEGORIES: dict[str, dict[str, str]] = {
     "electronics": {"amazon": "electronics", "noon": "electronics", "jumia": "electronics"},
@@ -269,9 +270,17 @@ class PriceSnapshotCollector:
             _log(f"snap error {pid}: {e}")
             return None
 
+    # Source-level backoff: tracks fail rate and increases delay for failing sources
+    _backoff_delays: dict[str, float] = {}
+    _FAIL_RATE_THRESHOLD = 0.50  # If >50% fail, increase delay
+    _BASE_DELAY = 0.5
+    _MAX_DELAY = 8.0
+    _DELAY_MULTIPLIER = 2.0
+
     def collect_all_snapshots(self, source: str) -> dict[str, int]:
         """Collect price snapshots for a source. Processes max 150 products per cycle
-        to fit within the 24h window. Prioritizes products with fewest snapshots."""
+        to fit within the 24h window. Prioritizes products with fewest snapshots.
+        Includes automatic backoff: if fail rate >50%, doubles the inter-request delay."""
         MAX_PER_CYCLE = 150
         prods = MasterProductList().get_active_products(source=source)
         # Sort: products with 0 snapshots first, then by last_updated (oldest first)
@@ -279,13 +288,28 @@ class PriceSnapshotCollector:
         to_process = prods[:MAX_PER_CYCLE]
         ok = failed = skipped = 0
         total = len(prods)
-        _log(f"snapshots: {source} processing {len(to_process)}/{total} products")
+        # Get current delay (may be increased from previous backoff)
+        delay = SnapshotCollector._backoff_delays.get(source, SnapshotCollector._BASE_DELAY)
+        _log(f"snapshots: {source} processing {len(to_process)}/{total} products (delay={delay}s)")
         for p in to_process:
             if not (asin := p.get("asin", "")): skipped += 1; continue
             if self._is_dead(f"{source}_{asin}"): skipped += 1; continue
             if self.collect_snapshot(source, asin): ok += 1
             else: failed += 1
-            time.sleep(0.5)
+            time.sleep(delay)
+        # Backoff logic: if fail rate exceeds threshold, increase delay for next cycle
+        processed = ok + failed
+        if processed > 10:  # Only adjust if we have enough samples
+            fail_rate = failed / processed
+            if fail_rate > SnapshotCollector._FAIL_RATE_THRESHOLD:
+                new_delay = min(delay * SnapshotCollector._DELAY_MULTIPLIER, SnapshotCollector._MAX_DELAY)
+                SnapshotCollector._backoff_delays[source] = new_delay
+                _log(f"collect_all: {source} fail_rate={fail_rate:.0%} — BACKOFF delay {delay}s -> {new_delay}s")
+            elif fail_rate < 0.20 and delay > SnapshotCollector._BASE_DELAY:
+                # Recovery: if fail rate drops below 20%, gradually reduce delay
+                new_delay = max(delay / SnapshotCollector._DELAY_MULTIPLIER, SnapshotCollector._BASE_DELAY)
+                SnapshotCollector._backoff_delays[source] = new_delay
+                _log(f"collect_all: {source} fail_rate={fail_rate:.0%} — RECOVER delay {delay}s -> {new_delay}s")
         _log(f"collect_all: {source} ok={ok} failed={failed} skipped={skipped} (processed {len(to_process)}/{total})")
         return {"ok": ok, "failed": failed, "skipped": skipped, "total": total}
 
@@ -553,10 +577,17 @@ class PriceHistoryScheduler:
         _log(f"=== Cycle start {t0.isoformat()} ===")
         total_new = 0
         for src in SOURCES:
+            if src in SUSPENDED_SOURCES:
+                _log(f"discovery: {src} SUSPENDED — skipping")
+                continue
             try: total_new += self._discovery_crawl(src)
             except Exception as e: _log(f"discovery error {src}: {e}")
         snap_summary: dict[str, dict] = {}
         for src in SOURCES:
+            if src in SUSPENDED_SOURCES:
+                _log(f"snapshots: {src} SUSPENDED — skipping")
+                snap_summary[src] = {"ok": 0, "failed": 0, "skipped": 0, "total": 0}
+                continue
             try:
                 active_count = len(self._mpl.get_active_products(source=src))
                 _log(f"snapshots: {src} has {active_count} active products")
