@@ -2997,25 +2997,26 @@ def price_history_stats():
         return jsonify(_price_history_stats_cache['data'])
 
     try:
-        products_ref = db.collection('price_history').document('products').collection('products')
-        # If the path above is wrong, try the flat structure
-        docs = list(db.collection('price_history').stream())
-
-        total_products = len(docs)
         source_counts = {}
         snapshot_counts = {}
+        total_products = 0
         total_snapshots = 0
         products_with_snapshots = 0
+        sample_products = {}
 
-        for doc in docs[:5000]:  # cap at 5000 to avoid timeout
+        # Stream all docs (no cap) — generator doesn't load all into memory
+        for doc in db.collection('price_history').stream():
             d = doc.to_dict() or {}
             src = d.get('source', 'unknown')
             sc = d.get('snapshots_count', 0)
             source_counts[src] = source_counts.get(src, 0) + 1
+            total_products += 1
             if sc > 0:
                 snapshot_counts[src] = snapshot_counts.get(src, 0) + sc
                 total_snapshots += sc
                 products_with_snapshots += 1
+            if len(sample_products) < 10:
+                sample_products[doc.id] = sc
 
         result = {
             'total_products': total_products,
@@ -3025,9 +3026,9 @@ def price_history_stats():
                 'products': source_counts.get(src, 0),
                 'snapshots': snapshot_counts.get(src, 0),
                 'avg_snapshots_per_product': round(snapshot_counts.get(src, 0) / max(source_counts.get(src, 1), 1), 2)
-            } for src in set(list(source_counts.keys()) + list(snapshot_counts.keys()))},
-            'sample_products': {doc.id: (doc.to_dict() or {}).get('snapshots_count', 0)
-                               for doc in docs[:10]}
+            } for src in sorted(source_counts.keys())},
+            'sample_products': sample_products,
+            'cached': False
         }
         _price_history_stats_cache = {'data': result, 'at': now}
         return jsonify(result)
