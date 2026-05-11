@@ -9,8 +9,8 @@ Usage:
     start_price_history_system()   # called once from scraper.py main()
 """
 from __future__ import annotations
-import re, threading, time
-from datetime import datetime, timezone
+import json, re, threading, time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from bs4 import BeautifulSoup
 from firebase_admin import firestore
@@ -246,14 +246,159 @@ class PriceSnapshotCollector:
         return {"ok": ok, "failed": failed}
 
     @staticmethod
-    def _extract_noon(_html: str) -> dict[str, Any]:
-        """TODO: Implement Noon product-page price extraction."""
-        return {"current_price": 0.0, "list_price": 0.0, "discount_percent": 0, "seller": "", "fulfillment": "", "in_stock": True}
+    def _extract_noon(html: str) -> dict[str, Any]:
+        """Extract price data from Noon product page HTML.
+        Uses multiple fallback selectors to handle different Noon page layouts."""
+        out: dict[str, Any] = {"current_price": 0.0, "list_price": 0.0, "discount_percent": 0, "seller": "", "fulfillment": "FBN", "in_stock": True}
+        if not html or len(html) < 1000:
+            return out
+        soup = BeautifulSoup(html, "html.parser")
+
+        # ── Current price: try multiple data-qa selectors ──
+        cp = 0.0
+        for qa in ("price-now", "selling-price", "product-price", "price", "offerPrice"):
+            if (el := soup.find(attrs={"data-qa": qa})) and (m := _re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
+                try: cp = float(m.group().replace(",", "")); break
+                except ValueError: continue
+        # Fallback: class-based search
+        if cp <= 0:
+            for cls in ("priceNow", "sellingPrice", "Price_amount__", "-prc"):
+                if (el := soup.find(class_=_re.compile(cls))) and (m := _re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
+                    try: cp = float(m.group().replace(",", "")); break
+                    except ValueError: continue
+        # Fallback: <script> JSON-LD
+        if cp <= 0:
+            for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+                try:
+                    ld = json.loads(script.string or "")
+                    if isinstance(ld, dict) and ld.get("@type") == "Product" and (offer := ld.get("offers", {})):
+                        cp = float(offer.get("price", 0)) if isinstance(offer, dict) else 0.0
+                        if cp > 0: break
+                except Exception: continue
+        if cp <= 0: return out
+
+        # ── List / old price ──
+        lp = cp
+        for qa in ("price-was", "product-old-price", "old-price", "original-price", "listPrice"):
+            if (el := soup.find(attrs={"data-qa": qa})) and (m := _re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
+                try: lp = float(m.group().replace(",", "")); break
+                except ValueError: continue
+        # Fallback: <del> / <s> tags
+        if lp <= cp and (del_el := soup.find("del") or soup.find("s")):
+            if (m := _re.search(r"[\d,.]+", del_el.get_text(strip=True).replace(",", ""))):
+                try: lp = float(m.group().replace(",", ""))
+                except ValueError: pass
+        # JSON-LD fallback for list price
+        if lp <= cp:
+            for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+                try:
+                    ld = json.loads(script.string or "")
+                    if isinstance(ld, dict) and (offer := ld.get("offers", {})):
+                        lpp = float(offer.get("price", 0)) if isinstance(offer, dict) else 0.0
+                        # Some Noon pages list old price as highPrice
+                        hp = float(offer.get("highPrice", 0)) if isinstance(offer, dict) else 0.0
+                        if hp > lpp > 0: lp = hp; break
+                except Exception: continue
+        if lp < cp: lp = cp
+
+        disc = int(((lp - cp) / lp) * 100) if lp > cp > 0 else 0
+
+        # ── Seller / fulfillment ──
+        seller = ""
+        for qa in ("seller-name", "pdp-seller-name", "sold-by"):
+            if el := soup.find(attrs={"data-qa": qa}):
+                seller = el.get_text(strip=True)
+                break
+        if not seller:
+            for cls in ("Seller_name__", "seller-info", "merchant"):
+                if el := soup.find(class_=_re.compile(cls, _re.I)):
+                    seller = el.get_text(strip=True)[:60]
+                    break
+        ftype = "FBN" if "FBN" in html.upper() or "noon" in html.lower()[:50000] else "Merchant"
+
+        # ── Stock ──
+        oos_texts = ["out of stock", "sold out", "unavailable", "غير متوفر", "نفذت الكمية"]
+        page_text = soup.get_text(" ", strip=True).lower()
+        in_stock = not any(t in page_text for t in oos_texts)
+
+        return {**out, "current_price": round(cp, 2), "list_price": round(lp, 2), "discount_percent": disc, "seller": seller or "Noon", "fulfillment": ftype, "in_stock": in_stock}
 
     @staticmethod
-    def _extract_jumia(_html: str) -> dict[str, Any]:
-        """TODO: Implement Jumia product-page price extraction."""
-        return {"current_price": 0.0, "list_price": 0.0, "discount_percent": 0, "seller": "", "fulfillment": "", "in_stock": True}
+    def _extract_jumia(html: str) -> dict[str, Any]:
+        """Extract price data from Jumia product page HTML.
+        Uses multiple fallback selectors to handle different Jumia page layouts."""
+        out: dict[str, Any] = {"current_price": 0.0, "list_price": 0.0, "discount_percent": 0, "seller": "", "fulfillment": "", "in_stock": True}
+        if not html or len(html) < 1000:
+            return out
+        soup = BeautifulSoup(html, "html.parser")
+
+        # ── Current price ──
+        cp = 0.0
+        # Class-based selectors (most reliable on Jumia)
+        for cls_pat in (r"\bprc\b", r"-fs\d{2,}", r"special-price", r"current-price", r"product-price", r"\bprice\b"):
+            if (el := soup.find(class_=_re.compile(cls_pat))) and (m := _re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
+                try: cp = float(m.group().replace(",", "")); break
+                except ValueError: continue
+        # Data attribute fallbacks
+        if cp <= 0:
+            for el in soup.find_all(attrs={"data-price": True}):
+                try: cp = float(el["data-price"]); break
+                except (ValueError, KeyError): continue
+        # JSON-LD fallback
+        if cp <= 0:
+            for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+                try:
+                    ld = json.loads(script.string or "")
+                    if isinstance(ld, dict) and ld.get("@type") in ("Product", "Offer"):
+                        if (offer := ld.get("offers", {})) and isinstance(offer, dict):
+                            cp = float(offer.get("price", 0))
+                            if cp > 0: break
+                except Exception: continue
+        if cp <= 0: return out
+
+        # ── List / old price ──
+        lp = cp
+        # <del> / <s> tags
+        if (del_el := soup.find("del") or soup.find("s")):
+            if (m := _re.search(r"[\d,.]+", del_el.get_text(strip=True).replace(",", ""))):
+                try: lp = float(m.group().replace(",", ""))
+                except ValueError: pass
+        # Old-price class
+        if lp <= cp:
+            for cls_pat in (r"\bold\b", r"old-price", r"was-price", r"previous-price", r"-l[tb]\b"):
+                if (el := soup.find(class_=_re.compile(cls_pat))) and (m := _re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
+                    try: lp = float(m.group().replace(",", "")); break
+                    except ValueError: continue
+        # Percentage badge
+        if lp <= cp:
+            for el in soup.find_all(string=_re.compile(r"\d+%\s*off", _re.I)):
+                try:
+                    pct = int(_re.search(r"\d+", el).group())
+                    if pct > 0: lp = round(cp / (1 - pct / 100))
+                    break
+                except (ValueError, AttributeError): continue
+        if lp < cp: lp = cp
+
+        disc = int(((lp - cp) / lp) * 100) if lp > cp > 0 else 0
+
+        # ── Seller ──
+        seller = ""
+        for cls_pat in (r"seller", r"merchant", r"brand"):
+            if el := soup.find(class_=_re.compile(cls_pat, _re.I)):
+                txt = el.get_text(strip=True)
+                if txt: seller = txt[:60]; break
+        # Jumia official / marketplace
+        if "sold by jumia" in soup.get_text(" ", strip=True).lower()[:30000]:
+            seller = seller or "Jumia"
+            ftype = "Jumia"
+        else:
+            ftype = "Merchant"
+
+        # ── Stock ──
+        oos_texts = ["out of stock", "sold out", "unavailable", "currently unavailable", "غير متوفر"]
+        in_stock = not any(t in soup.get_text(" ", strip=True).lower() for t in oos_texts)
+
+        return {**out, "current_price": round(cp, 2), "list_price": round(lp, 2), "discount_percent": disc, "seller": seller or "Jumia", "fulfillment": ftype, "in_stock": in_stock}
 
 # ─── 4. FAKE-DISCOUNT ANALYZER ───────────────────────────────────────────────
 
