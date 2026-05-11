@@ -78,9 +78,6 @@ DEAL_CATEGORIES: dict[str, dict[str, str]] = {
     "grocery": {"amazon": "grocery", "noon": "grocery", "jumia": "grocery"},
 }
 
-# Sources suspended in scraper — skip discovery AND snapshot collection to save credits
-SUSPENDED_SOURCES: set[str] = {"amazon_ae", "amazon_sa", "noon_eg", "noon_ae", "noon_sa", "jumia_eg"}
-
 BESTSELLER_CATEGORIES: dict[str, dict[str, str]] = {
     "electronics": {"amazon": "/gp/bestsellers/electronics"}, "fashion": {"amazon": "/gp/bestsellers/fashion"},
     "beauty": {"amazon": "/gp/bestsellers/beauty"}, "home_kitchen": {"amazon": "/gp/bestsellers/home"},
@@ -155,6 +152,21 @@ class MasterProductList:
 
 class PriceSnapshotCollector:
     """Fetches product pages and saves price snapshots to Firestore."""
+    # Per-product dead cache: product_id → timestamp. Products that returned 502
+    # or other errors are skipped for 24h to avoid wasting proxy credits.
+    _dead: dict[str, datetime] = {}
+    _DEAD_TTL_HOURS = 24
+
+    def _is_dead(self, product_id: str) -> bool:
+        ts = self._dead.get(product_id)
+        if not ts: return False
+        if datetime.now(timezone.utc) - ts > timedelta(hours=self._DEAD_TTL_HOURS):
+            del self._dead[product_id]
+            return False
+        return True
+
+    def _mark_dead(self, product_id: str) -> None:
+        self._dead[product_id] = datetime.now(timezone.utc)
 
     @staticmethod
     def _country(source: str) -> str:
@@ -192,6 +204,8 @@ class PriceSnapshotCollector:
     def collect_snapshot(self, source: str, asin: str) -> dict | None:
         meta = SOURCES.get(source)
         if not meta: return None
+        pid = f"{source}_{asin}"
+        if self._is_dead(pid): return None
         domain = meta["domain"]
         if source.startswith("amazon"): url = f"https://{domain}/dp/{asin}"
         elif source.startswith("noon"): url = f"https://www.{domain}/product/{asin}"
@@ -199,7 +213,10 @@ class PriceSnapshotCollector:
         else: url = f"https://{domain}/dp/{asin}"
         try:
             resp = _get_fetch()(url, render_js=True, country=self._country(source))
-            if not resp or resp.status_code != 200 or len(resp.text) < 2000: return None
+            if not resp or resp.status_code != 200 or len(resp.text) < 2000:
+                if resp and resp.status_code in (404, 502, 503):
+                    self._mark_dead(pid)
+                return None
             if source.startswith("amazon"): ex = self._extract_amazon(resp.text)
             elif source.startswith("noon"): ex = self._extract_noon(resp.text)
             elif source.startswith("jumia"): ex = self._extract_jumia(resp.text)
@@ -208,13 +225,13 @@ class PriceSnapshotCollector:
             snap = {"current_price": ex["current_price"], "list_price": ex["list_price"], "currency": meta["currency"],
                     "discount_percent": ex["discount_percent"], "seller": ex["seller"], "fulfillment": ex["fulfillment"],
                     "scraped_at": firestore.SERVER_TIMESTAMP, "is_deal": ex["discount_percent"] >= 40, "in_stock": ex["in_stock"]}
-            pid = f"{source}_{asin}"
             _get_db().collection("price_history").document(pid).collection("snapshots").document().set(snap)
             try: _get_db().collection("price_history").document(pid).update({"snapshots_count": firestore.Increment(1), "last_updated": firestore.SERVER_TIMESTAMP})
             except Exception: pass
             return snap
         except Exception as e:
-            _log(f"snap error {source}_{asin}: {e}")
+            self._mark_dead(pid)
+            _log(f"snap error {pid}: {e}")
             return None
 
     def collect_all_snapshots(self, source: str) -> dict[str, int]:
@@ -350,9 +367,6 @@ class PriceHistoryScheduler:
             try: total_new += self._discovery_crawl(src)
             except Exception as e: _log(f"discovery error {src}: {e}")
         for src in SOURCES:
-            if src in SUSPENDED_SOURCES:
-                _log(f"snapshots skipped: {src} (suspended)")
-                continue
             try: self._collector.collect_all_snapshots(src)
             except Exception as e: _log(f"snapshot error {src}: {e}")
         analyzed = 0
@@ -375,8 +389,8 @@ class PriceHistoryScheduler:
 
     def _discovery_crawl(self, source: str) -> int:
         # Skip amazon_eg — scraper's Engine #1 already crawls it and calls request_tracking()
-        # Skip suspended sources — their product pages fail (HTTP 502) wasting credits
-        if source == "amazon_eg" or source in SUSPENDED_SOURCES: return 0
+        # System 1 still discovers amazon_ae/sa + noon/jumia on its own schedule
+        if source == "amazon_eg": return 0
         new_all: list[str] = []
         domain = SOURCES[source]["domain"]
         cc = source.split("_")[-1]
