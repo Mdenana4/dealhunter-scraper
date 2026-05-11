@@ -784,12 +784,20 @@ def mobile_get_deals():
                 if d.to_dict().get('site', '').endswith(f'_{country}')
             ]
 
-        # Source filter: amazon_ | noon_ | jumia_ prefix
+        # Source filter: handles both prefix ("amazon") and full match ("amazon_eg")
         if source:
-            all_docs = [
-                d for d in all_docs
-                if d.to_dict().get('site', '').startswith(f'{source}_')
-            ]
+            if '_' in source:
+                # Full marketplace_country like "amazon_eg" — exact match
+                all_docs = [
+                    d for d in all_docs
+                    if d.to_dict().get('site', '') == source
+                ]
+            else:
+                # Prefix like "amazon" — matches amazon_eg, amazon_ae, amazon_sa
+                all_docs = [
+                    d for d in all_docs
+                    if d.to_dict().get('site', '').startswith(f'{source}_')
+                ]
         def _disc_sort_key(doc):
             try:
                 return int(doc.to_dict().get('discount_percent') or 0)
