@@ -95,31 +95,64 @@ class MasterProductList:
     def _doc_id(source: str, asin: str) -> str:
         return f"{source}_{re.sub(r'[^A-Za-z0-9_-]', '_', asin.strip())[:80]}"
 
-    @staticmethod
-    def _extract_asins(html: str) -> list[str]:
+    def _extract_asins(self, html: str, source: str = "") -> list[str]:
+        """Extract product IDs from search/bestseller page HTML.
+        Platform-specific: Amazon (data-asin), Noon (/product/{sku}, /{sku}/p/),
+        Jumia (data-sku, article.prd)."""
         if not html or len(html) < 500:
             return []
         soup = BeautifulSoup(html, "html.parser")
-        asins: list[str] = []
-        for c in soup.find_all("div", attrs={"data-asin": True}):
-            a = c.get("data-asin", "").strip().upper()
-            if a and len(a) >= 8 and a not in asins:
-                asins.append(a)
-        for link in soup.find_all("a", href=re.compile(r"/dp/[A-Z0-9]{10}", re.I)):
-            if (m := re.search(r"/dp/([A-Z0-9]{10})", link.get("href", ""), re.I)) and (a := m.group(1).upper()) not in asins:
-                asins.append(a)
-        return asins
+        ids: list[str] = []
+        platform = "amazon"
+        if source.startswith("noon"): platform = "noon"
+        elif source.startswith("jumia"): platform = "jumia"
+
+        if platform == "amazon":
+            for c in soup.find_all("div", attrs={"data-asin": True}):
+                a = c.get("data-asin", "").strip().upper()
+                if a and len(a) >= 8 and a not in ids: ids.append(a)
+            for link in soup.find_all("a", href=re.compile(r"/dp/[A-Z0-9]{10}", re.I)):
+                if (m := re.search(r"/dp/([A-Z0-9]{10})", link.get("href", ""), re.I)) and (a := m.group(1).upper()) not in ids:
+                    ids.append(a)
+
+        elif platform == "noon":
+            for link in soup.find_all("a", href=re.compile(r"/product/[A-Za-z0-9_-]+", re.I)):
+                if (m := re.search(r"/product/([A-Za-z0-9_-]+)", link.get("href", ""), re.I)):
+                    sku = m.group(1).strip().upper()
+                    if sku and len(sku) >= 5 and sku not in ids: ids.append(sku)
+            for link in soup.find_all("a", href=re.compile(r"/[A-Za-z0-9]{5,}/p/", re.I)):
+                if (m := re.search(r"/([A-Za-z0-9]{5,})/p/", link.get("href", ""), re.I)):
+                    sku = m.group(1).strip().upper()
+                    if sku and sku not in ids: ids.append(sku)
+            for c in soup.find_all(attrs={"data-id": True}):
+                sku = c.get("data-id", "").strip().upper()
+                if sku and len(sku) >= 5 and sku not in ids: ids.append(sku)
+
+        elif platform == "jumia":
+            for c in soup.find_all(attrs={"data-sku": True}):
+                sku = c.get("data-sku", "").strip().upper()
+                if sku and len(sku) >= 3 and sku not in ids: ids.append(sku)
+            for c in soup.find_all("article", class_=re.compile(r"prd|product", re.I)):
+                for attr in ("data-sku", "data-id", "data-gtm-id"):
+                    sku = c.get(attr, "").strip().upper()
+                    if sku and len(sku) >= 3 and sku not in ids: ids.append(sku); break
+            for link in soup.find_all("a", href=re.compile(r"-[A-Z0-9]+\.html", re.I)):
+                if (m := re.search(r"-([A-Z0-9]+)\.html", link.get("href", ""), re.I)):
+                    sku = m.group(1).strip().upper()
+                    if sku and len(sku) >= 3 and sku not in ids: ids.append(sku)
+
+        return ids
 
     def _ref(self, source: str, asin: str):
         return _get_db().collection("price_history").document(self._doc_id(source, asin))
 
     def discover_from_category_pages(self, source: str, category: str, html: str) -> list[str]:
-        new = [a for a in self._extract_asins(html) if not self._ref(source, a).get().exists]
+        new = [a for a in self._extract_asins(html, source) if not self._ref(source, a).get().exists]
         _log(f"discover_cat: {source}/{category} new={len(new)}")
         return new
 
     def discover_from_bestseller_pages(self, source: str, category: str, html: str) -> list[str]:
-        new = [a for a in self._extract_asins(html) if not self._ref(source, a).get().exists]
+        new = [a for a in self._extract_asins(html, source) if not self._ref(source, a).get().exists]
         _log(f"discover_best: {source}/{category} new={len(new)}")
         return new
 
