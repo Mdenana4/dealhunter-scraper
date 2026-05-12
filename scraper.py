@@ -803,31 +803,14 @@ def _notify_new_deals(deals: list) -> None:
             body_text  = f"أفضلها: {title} بـ {price:,.0f} جنيه ({disc}% خصم) +{count - 1} أخرى"
 
         try:
+            # v11.2: Simplified notification format (matches test endpoint)
+            # Removed data payload and android config — these were causing
+            # delivery issues on some devices. Basic notification only.
             msg = messaging.Message(
                 topic=topic,
                 notification=messaging.Notification(
                     title=title_text,
                     body=body_text,
-                    # v10.2: image support requires AndroidNotification.image
-                    # (not Notification.image_url which doesn't exist in Python SDK)
-                ),
-                data={
-                    "type":           "new_deals",
-                    "count":          str(count),
-                    "best_discount":  str(disc),
-                    "best_deal_id":   str(best["deal_id"]),
-                    "site":           str(best["site"]),
-                    "title":          title,
-                    "price":          str(price),
-                    "image_url":      img,  # Pass image via data payload instead
-                },
-                android=messaging.AndroidConfig(
-                    priority="high",
-                    notification=messaging.AndroidNotification(
-                        channel_id="deal_alerts",
-                        sound="default",
-                        click_action="FLUTTER_NOTIFICATION_CLICK",
-                    ),
                 ),
             )
             msg_id = messaging.send(msg)
