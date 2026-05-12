@@ -327,30 +327,6 @@ def health():
         "safqa_token_preview": token[:20]+"..." if token else "NOT SET",
     }), 200
 
-@app.route('/api/debug/scraper-log')
-def scraper_log():
-    """Read scraper background process log from /tmp/scraper.log."""
-    lines = request.args.get('lines', '100')
-    try:
-        n = int(lines)
-    except ValueError:
-        n = 100
-    log_path = '/tmp/scraper.log'
-    if not os.path.exists(log_path):
-        return jsonify({"error": "Scraper log not found — scraper may not have started yet", "path": log_path}), 404
-    try:
-        with open(log_path, 'r', encoding='utf-8', errors='replace') as f:
-            all_lines = f.readlines()
-            tail = all_lines[-n:] if len(all_lines) > n else all_lines
-            return jsonify({
-                "path": log_path,
-                "total_lines": len(all_lines),
-                "showing_last": len(tail),
-                "log": "".join(tail)
-            })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 @app.route('/test-safqa')
 def test_safqa():
     """Test ssearch with BaByliss to confirm Safqa works."""
