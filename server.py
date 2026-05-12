@@ -3267,6 +3267,15 @@ def test_notification():
 print("Starting...")
 _load_shops()
 
+# v11.2: Start System 1 (price history scheduler) — background thread for snapshot collection
+# Previously only started when scraper.py ran directly, but on Railway we run via server.py
+try:
+    from price_history_system import start_price_history_system
+    start_price_history_system()
+    print("[OK] System 1 (price history) scheduler started")
+except Exception as e:
+    print(f"[WARN] System 1 (price history) failed to start: {e}")
+
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
