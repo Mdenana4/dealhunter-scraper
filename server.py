@@ -3267,6 +3267,18 @@ def test_notification():
 print("Starting...")
 _load_shops()
 
+@app.before_first_request
+def _start_system1():
+    """Start System 1 (price history) after Flask is fully initialized.
+    Runs only on first HTTP request — safe from circular imports."""
+    try:
+        from price_history_system import start_price_history_system
+        start_price_history_system()
+        print("[OK] System 1 (price history) started")
+    except Exception as e:
+        print(f"[WARN] System 1 failed to start: {e}")
+
+
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
