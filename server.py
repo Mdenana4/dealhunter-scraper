@@ -1833,6 +1833,21 @@ def price_history_log():
         return jsonify({"error": str(e)}), 500
 
 
+@app.before_first_request
+def _start_system_1():
+    """Start System 1 (price history scheduler) after Flask app is ready.
+    Runs in background thread — won't block requests."""
+    import threading
+    def _run():
+        try:
+            from price_history_system import start_price_history_system
+            start_price_history_system()
+            print("[OK] System 1 (price history) scheduler started")
+        except Exception as e:
+            print(f"[WARN] System 1 failed to start: {e}")
+    threading.Thread(target=_run, daemon=True).start()
+
+
 @app.route('/api/debug/scrape-now', methods=['POST', 'GET'])
 def scrape_now():
     """Trigger one scraper cycle immediately in a background thread."""
