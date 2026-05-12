@@ -1833,86 +1833,6 @@ def price_history_log():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/debug/force-snapshots', methods=['POST', 'GET'])
-def force_snapshots():
-    """Force snapshot collection for a specific source. Used to test sources
-    (e.g., Noon) without waiting for the full 24h cycle."""
-    import threading
-    source = request.args.get("source", "noon_eg")
-    max_products = int(request.args.get("max", 5))
-    job_id = f"{source}_{int(time.time())}"
-    if db:
-        db.collection("debug_jobs").document(job_id).set({
-            "status": "running", "source": source, "ok": 0, "failed": 0,
-            "skipped_dead": 0, "products": [],
-            "started": datetime.now(timezone.utc).isoformat()
-        })
-    def _run():
-        try:
-            from price_history_system import MasterProductList, PriceSnapshotCollector
-            mpl = MasterProductList()
-            collector = PriceSnapshotCollector()
-            prods = mpl.get_active_products(source=source)
-            if not prods:
-                _update_snap_job(job_id, {"status": "error", "error": f"No products found for {source}"})
-                return
-            prods.sort(key=lambda p: (p.get("snapshots_count", 999), str(p.get("last_updated", ""))))
-            to_process = prods[:max_products]
-            results = {"ok": 0, "failed": 0, "skipped_dead": 0, "products": []}
-            for p in to_process:
-                asin = p.get("asin", "")
-                if not asin: continue
-                if collector._is_dead(f"{source}_{asin}"):
-                    results["skipped_dead"] += 1
-                    continue
-                ok = collector.collect_snapshot(source, asin)
-                result = {"asin": asin, "status": "ok" if ok else "failed"}
-                results["ok" if ok else "failed"] += 1
-                results["products"].append(result)
-            _update_snap_job(job_id, {
-                "status": "done", "processed": len(to_process),
-                "ok": results["ok"], "failed": results["failed"],
-                "skipped_dead": results["skipped_dead"], "products": results["products"],
-                "done": datetime.now(timezone.utc).isoformat()
-            })
-        except Exception as e:
-            import traceback
-            _update_snap_job(job_id, {"status": "error", "error": str(e), "traceback": traceback.format_exc()})
-    threading.Thread(target=_run, daemon=True).start()
-    return jsonify({"success": True, "job_id": job_id, "status": "running", "source": source, "max": max_products, "check": f"/api/debug/force-snapshots-status?job={job_id}"})
-
-
-@app.route('/api/debug/force-snapshots-status', methods=['GET'])
-def force_snapshots_status():
-    """Check status via Firestore (cross-worker safe). Quick timeout to avoid hanging."""
-    job_id = request.args.get("job", "")
-    if not job_id:
-        return jsonify({"success": False, "error": "No job ID"}), 400
-    # Return cached result from in-memory dict first (fast, same worker)
-    from flask import g
-    if job_id in _force_snap_results:
-        return jsonify({"success": True, **(_force_snap_results[job_id])})
-    # Fallback: try Firestore with 3s timeout
-    if db:
-        try:
-            doc_ref = db.collection("debug_jobs").document(job_id)
-            doc = doc_ref.get(timeout=3)
-            if doc.exists:
-                return jsonify({"success": True, **doc.to_dict()})
-        except Exception as e:
-            return jsonify({"success": False, "error": str(e), "hint": "Job may still be running. Check stats endpoint for results."}), 500
-    return jsonify({"success": False, "error": "Job not found"}), 404
-
-
-def _update_snap_job(job_id: str, data: dict) -> None:
-    """Update job status in Firestore (cross-worker safe)."""
-    if db:
-        try:
-            db.collection("debug_jobs").document(job_id).update(data)
-        except Exception:
-            pass
-
-
 @app.route('/api/debug/scrape-now', methods=['POST', 'GET'])
 def scrape_now():
     """Trigger one scraper cycle immediately in a background thread."""
@@ -3346,15 +3266,6 @@ def test_notification():
 
 print("Starting...")
 _load_shops()
-
-# v11.2: Start System 1 (price history scheduler) — background thread for snapshot collection
-# Previously only started when scraper.py ran directly, but on Railway we run via server.py
-try:
-    from price_history_system import start_price_history_system
-    start_price_history_system()
-    print("[OK] System 1 (price history) scheduler started")
-except Exception as e:
-    print(f"[WARN] System 1 (price history) failed to start: {e}")
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
