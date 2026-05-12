@@ -45,7 +45,7 @@ RUN pip install --upgrade pip && \
     playwright install chromium
 
 # Cache bust to force fresh code copy (increment when deploying new code)
-ARG CACHE_BUST=2
+ARG CACHE_BUST=3
 
 # Copy all application code (see .dockerignore for exclusions)
 COPY . .
