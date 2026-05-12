@@ -1818,6 +1818,21 @@ def scraper_log():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/debug/price-history-log')
+def price_history_log():
+    """Read the last N lines of the System 1 price history log."""
+    lines = int(request.args.get("lines", 200))
+    try:
+        with open("/tmp/price_history.log", "r") as f:
+            content = f.read()
+        tail = content[-lines * 120:]
+        return jsonify({"log": tail, "total_bytes": len(content)})
+    except FileNotFoundError:
+        return jsonify({"error": "Price history log not found — System 1 may not have started yet"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/api/debug/scrape-now', methods=['POST', 'GET'])
 def scrape_now():
     """Trigger one scraper cycle immediately in a background thread."""
