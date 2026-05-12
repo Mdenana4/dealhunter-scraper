@@ -3973,11 +3973,9 @@ def _scrape_noon_region(
         print(f"  [NOON/{country_code.upper()}] all methods blocked — 0 products expected")
         return resp2  # caller handles empty result
 
-    # ── Phase 1: Deals / sale pages (server-side rendered, most reliable) ──
+    # ── Phase 1: Deals / sale pages (REDUCED to save credits) ──
     deals_pages = [
         f"https://www.noon.com/{region_path}/sale/?limit=48&sort%5Bby%5D=discount_percent&sort%5Bdir%5D=desc",
-        f"https://www.noon.com/{region_path}/offers/?limit=48&sort%5Bby%5D=discount_percent",
-        f"https://www.noon.com/{region_path}/category/deals/?limit=48",
     ]
     for dp_url in deals_pages:
         try:
@@ -3996,18 +3994,12 @@ def _scrape_noon_region(
             print(f"  [NOON/{country_code.upper()}] Deals page error: {e}")
             _log_scraper_error(marketplace_country, dp_url, str(e))
 
-    # ── Phase 2: Category search terms ─────────────────────────────────────
+    # ── Phase 2: Category search terms (REDUCED to save credits) ──
     search_terms = [
         ("samsung galaxy",  "electronics"), ("iphone",     "electronics"),
         ("laptop",          "electronics"), ("headphones", "electronics"),
-        ("tv",              "electronics"), ("tablet",     "electronics"),
-        ("nike shoes",      "fashion"),     ("dress",      "fashion"),
-        ("perfume",         "fashion"),     ("handbag",    "fashion"),
-        ("refrigerator",    "home"),        ("washing machine", "home"),
-        ("air conditioner", "home"),        ("microwave",  "home"),
-        ("skincare",        "beauty"),      ("makeup",     "beauty"),
-        ("hair dryer",      "beauty"),      ("vitamins",   "beauty"),
-        ("gym equipment",   "sports"),      ("protein",    "sports"),
+        ("nike shoes",      "fashion"),     ("perfume",    "fashion"),
+        ("refrigerator",    "home"),        ("skincare",   "beauty"),
     ]
 
     for term, default_cat in search_terms:
