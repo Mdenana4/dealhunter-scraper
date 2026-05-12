@@ -42,7 +42,7 @@ AMAZON_KEYWORD_ENABLED = os.getenv("AMAZON_KEYWORD_ENABLED", "false").lower() ==
 # independent price verification for every product.
 # ═══════════════════════════════════════════════════════════
 _DEAL_SOURCES = {"amazon_eg"}
-INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 60))
+INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 120))
 SCRAPER_API_KEY = (
     os.getenv("SCRAPER_API_KEY") or
     os.getenv("SCRAPERAPI_KEY") or
@@ -1805,7 +1805,7 @@ import os
 from datetime import datetime, timezone
 
 # ─── CONFIGURATION ───
-ENGINE1_DISCOVERY_ENABLED = os.getenv("ENGINE1_DISCOVERY_ENABLED", "true").lower() == "true"
+ENGINE1_DISCOVERY_ENABLED = os.getenv("ENGINE1_DISCOVERY_ENABLED", "false").lower() == "true"
 ENGINE2_TRACKING_ENABLED  = os.getenv("ENGINE2_TRACKING_ENABLED", "true").lower() == "true"
 ENGINE1_INTERVAL_HOURS    = int(os.getenv("ENGINE1_INTERVAL_HOURS", 4))  # Run every N hours
 
