@@ -1833,6 +1833,43 @@ def price_history_log():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/debug/force-snapshots', methods=['POST', 'GET'])
+def force_snapshots():
+    """Force snapshot collection for a specific source. Used to test sources
+    (e.g., Noon) without waiting for the full 24h cycle."""
+    source = request.args.get("source", "noon_eg")
+    max_products = int(request.args.get("max", 5))
+    try:
+        from price_history_system import MasterProductList, SnapshotCollector
+        mpl = MasterProductList()
+        collector = SnapshotCollector()
+        prods = mpl.get_active_products(source=source)
+        if not prods:
+            return jsonify({"success": False, "error": f"No products found for {source}"}), 404
+        prods.sort(key=lambda p: (p.get("snapshots_count", 999), str(p.get("last_updated", ""))))
+        to_process = prods[:max_products]
+        results = {"ok": 0, "failed": 0, "products": []}
+        for p in to_process:
+            asin = p.get("asin", "")
+            if not asin:
+                continue
+            ok = collector.collect_snapshot(source, asin)
+            result = {"asin": asin, "status": "ok" if ok else "failed"}
+            results["ok" if ok else "failed"] += 1
+            results["products"].append(result)
+        return jsonify({
+            "success": True,
+            "source": source,
+            "processed": len(to_process),
+            "ok": results["ok"],
+            "failed": results["failed"],
+            "details": results["products"]
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({"success": False, "error": str(e), "traceback": traceback.format_exc()}), 500
+
+
 @app.route('/api/debug/scrape-now', methods=['POST', 'GET'])
 def scrape_now():
     """Trigger one scraper cycle immediately in a background thread."""
