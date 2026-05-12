@@ -1884,17 +1884,23 @@ def force_snapshots():
 
 @app.route('/api/debug/force-snapshots-status', methods=['GET'])
 def force_snapshots_status():
-    """Check status via Firestore (cross-worker safe)."""
+    """Check status via Firestore (cross-worker safe). Quick timeout to avoid hanging."""
     job_id = request.args.get("job", "")
     if not job_id:
         return jsonify({"success": False, "error": "No job ID"}), 400
+    # Return cached result from in-memory dict first (fast, same worker)
+    from flask import g
+    if job_id in _force_snap_results:
+        return jsonify({"success": True, **(_force_snap_results[job_id])})
+    # Fallback: try Firestore with 3s timeout
     if db:
         try:
-            doc = db.collection("debug_jobs").document(job_id).get()
+            doc_ref = db.collection("debug_jobs").document(job_id)
+            doc = doc_ref.get(timeout=3)
             if doc.exists:
                 return jsonify({"success": True, **doc.to_dict()})
         except Exception as e:
-            return jsonify({"success": False, "error": str(e)}), 500
+            return jsonify({"success": False, "error": str(e), "hint": "Job may still be running. Check stats endpoint for results."}), 500
     return jsonify({"success": False, "error": "Job not found"}), 404
 
 
