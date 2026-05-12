@@ -3264,10 +3264,8 @@ def test_notification():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-print("Starting...")
-_load_shops()
-
-
 if __name__ == '__main__':
+    print("Starting...")
+    _load_shops()
     port = int(os.getenv('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
