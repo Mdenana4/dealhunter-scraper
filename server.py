@@ -1840,9 +1840,9 @@ def force_snapshots():
     source = request.args.get("source", "noon_eg")
     max_products = int(request.args.get("max", 5))
     try:
-        from price_history_system import PriceTracker
-        mpl = PriceTracker.MasterProductList()
-        collector = PriceTracker.SnapshotCollector()
+        from price_history_system import MasterProductList, PriceSnapshotCollector
+        mpl = MasterProductList()
+        collector = PriceSnapshotCollector()
         prods = mpl.get_active_products(source=source)
         if not prods:
             return jsonify({"success": False, "error": f"No products found for {source}"}), 404
@@ -1853,7 +1853,7 @@ def force_snapshots():
             asin = p.get("asin", "")
             if not asin:
                 continue
-            if PriceTracker._is_dead(f"{source}_{asin}"):
+            if PriceSnapshotCollector._is_dead(f"{source}_{asin}"):
                 results["skipped_dead"] += 1
                 continue
             ok = collector.collect_snapshot(source, asin)
