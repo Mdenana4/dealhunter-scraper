@@ -4034,22 +4034,34 @@ def _scrape_noon_region(
 
 
 def scrape_noon():
-    """Noon Egypt — DEAL DISCOVERY SUSPENDED. Price history continues via price_tracker.py."""
-    print("\n[NOON/EG] ⏸ Deal discovery SUSPENDED — skipping new deal scrape")
-    print("  Price history collection continues via background re-check")
-    return 0
+    """Noon Egypt — background price collection."""
+    return _scrape_noon_region(
+        region_path="egypt-en",
+        marketplace_country="noon_eg",
+        site_display="Noon Egypt",
+        currency="EGP",
+        country_code="eg",
+    )
 
 def scrape_noon_ae():
-    """Noon UAE — DEAL DISCOVERY SUSPENDED. Price history continues via price_tracker.py."""
-    print("\n[NOON/AE] ⏸ Deal discovery SUSPENDED — skipping new deal scrape")
-    print("  Price history collection continues via background re-check")
-    return 0
+    """Noon UAE — background price collection."""
+    return _scrape_noon_region(
+        region_path="uae-en",
+        marketplace_country="noon_ae",
+        site_display="Noon UAE",
+        currency="AED",
+        country_code="ae",
+    )
 
 def scrape_noon_sa():
-    """Noon Saudi Arabia — DEAL DISCOVERY SUSPENDED. Price history continues via price_tracker.py."""
-    print("\n[NOON/SA] ⏸ Deal discovery SUSPENDED — skipping new deal scrape")
-    print("  Price history collection continues via background re-check")
-    return 0
+    """Noon Saudi Arabia — background price collection."""
+    return _scrape_noon_region(
+        region_path="saudi-en",
+        marketplace_country="noon_sa",
+        site_display="Noon Saudi Arabia",
+        currency="SAR",
+        country_code="sa",
+    )
 
 
 # ─────────────────────────────────────────────────────
