@@ -1853,7 +1853,7 @@ def force_snapshots():
             asin = p.get("asin", "")
             if not asin:
                 continue
-            if PriceSnapshotCollector._is_dead(f"{source}_{asin}"):
+            if collector._is_dead(f"{source}_{asin}"):
                 results["skipped_dead"] += 1
                 continue
             ok = collector.collect_snapshot(source, asin)
