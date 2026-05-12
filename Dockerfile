@@ -45,11 +45,11 @@ RUN pip install --upgrade pip && \
     playwright install chromium
 
 # Cache bust to force fresh code copy (increment when deploying new code)
-ARG CACHE_BUST=3
+ARG CACHE_BUST=4
 
 # Copy all application code (see .dockerignore for exclusions)
 COPY . .
-RUN chmod +x start.sh
+RUN chmod +x start.sh railway_start.sh
 
 # Download Firebase SDK at build time so it's self-hosted from Railway.
 # The browser only needs to reach our own domain — no gstatic.com / unpkg needed.
@@ -58,11 +58,11 @@ RUN curl -sL https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js   
     curl -sL https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js      -o firebase-auth-compat.js
 
 # Health check uses $PORT (Railway overrides at runtime via env var)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:${PORT}/health || exit 1
 
 # Expose default port (Railway overrides PORT env var at runtime)
 EXPOSE ${PORT}
 
-# Run server + scraper together
-CMD ["sh", "start.sh"]
+# Railway: use lightweight health_server.py instead of heavy server.py
+CMD ["sh", "railway_start.sh"]
