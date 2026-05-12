@@ -4859,17 +4859,24 @@ def _purge_bad_deals():
         print(f"  [PURGE] Error: {e}")
 
 
+# v11.2: Start System 1 (price history) — works with both direct and server.py entry points
+# Runs in background thread with 10s delay to let Flask start first
+def _delayed_start_system_1():
+    import time
+    time.sleep(10)
+    try:
+        start_price_history_system()
+        print("[OK] System 1 (price history) scheduler started")
+    except Exception as e:
+        print(f"[WARN] System 1 failed to start: {e}")
+
+import threading
+threading.Thread(target=_delayed_start_system_1, daemon=True).start()
+
 if __name__ == "__main__":
     print("DealHunter Egypt Scraper v11.1 — All engines on System 1 + Kanbkam/Safqa fallback")
     print(f"Stores: Amazon EG/AE/SA + Noon EG/AE/SA + Jumia + B.Tech + Carrefour + Sharaf DG + HyperOne + Sahla")
     print(f"Fake check: System 1 (own price-history database) — Kanbkam + Safqa DEPRECATED")
-
-    # v11.0: Start System 1 (price history database) — independent background thread
-    try:
-        start_price_history_system()
-    except Exception as e:
-        print(f"[WARN] System 1 (price history) failed to start: {e}")
-        print(f"[WARN] Deal scraper will continue without price-history fraud detection")
     print(f"Min discount: {MIN_DISCOUNT}% | Interval: {INTERVAL} min")
     if MIN_PRICE > 0 or MAX_PRICE < 9999999:
         print(f"Price filter: EGP {MIN_PRICE:,.0f} – EGP {MAX_PRICE:,.0f}")
