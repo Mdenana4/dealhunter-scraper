@@ -3266,6 +3266,12 @@ def test_notification():
 
 if __name__ == '__main__':
     print("Starting...")
-    _load_shops()
+    import threading
+    def _bg_load():
+        try:
+            _load_shops()
+        except Exception as e:
+            print(f"[_load_shops] background error (non-critical): {e}")
+    threading.Thread(target=_bg_load, daemon=True).start()
     port = int(os.getenv('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
