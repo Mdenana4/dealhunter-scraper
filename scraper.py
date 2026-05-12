@@ -4878,15 +4878,21 @@ import threading
 threading.Thread(target=_delayed_start_system_1, daemon=True).start()
 
 if __name__ == "__main__":
-    print("DealHunter Egypt Scraper v11.1 — All engines on System 1 + Kanbkam/Safqa fallback")
-    print(f"Stores: Amazon EG/AE/SA + Noon EG/AE/SA + Jumia + B.Tech + Carrefour + Sharaf DG + HyperOne + Sahla")
-    print(f"Fake check: System 1 (own price-history database) — Kanbkam + Safqa DEPRECATED")
-    print(f"Min discount: {MIN_DISCOUNT}% | Interval: {INTERVAL} min")
-    if MIN_PRICE > 0 or MAX_PRICE < 9999999:
-        print(f"Price filter: EGP {MIN_PRICE:,.0f} – EGP {MAX_PRICE:,.0f}")
-    print()
-    run_scraper()
-    schedule.every(INTERVAL).minutes.do(run_scraper)
-    while True:
-        schedule.run_pending()
-        time.sleep(30)
+    print("[SCRAPER] PAUSED — credit protection mode. No scraping.")
+    print("To resume, remove the sys.exit(0) line in scraper.py __main__ block.")
+    import sys
+    sys.exit(0)
+
+    # === PAUSED ===
+    # print("DealHunter Egypt Scraper v11.1 — All engines on System 1 + Kanbkam/Safqa fallback")
+    # print(f"Stores: Amazon EG/AE/SA + Noon EG/AE/SA + Jumia + B.Tech + Carrefour + Sharaf DG + HyperOne + Sahla")
+    # print(f"Fake check: System 1 (own price-history database) — Kanbkam + Safqa DEPRECATED")
+    # print(f"Min discount: {MIN_DISCOUNT}% | Interval: {INTERVAL} min")
+    # if MIN_PRICE > 0 or MAX_PRICE < 9999999:
+    #     print(f"Price filter: EGP {MIN_PRICE:,.0f} – EGP {MAX_PRICE:,.0f}")
+    # print()
+    # run_scraper()
+    # schedule.every(INTERVAL).minutes.do(run_scraper)
+    # while True:
+    #     schedule.run_pending()
+    #     time.sleep(30)
