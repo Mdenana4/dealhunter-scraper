@@ -4878,21 +4878,16 @@ import threading
 threading.Thread(target=_delayed_start_system_1, daemon=True).start()
 
 if __name__ == "__main__":
-    print("[SCRAPER] PAUSED — credit protection mode. No scraping.")
-    print("To resume, remove the sys.exit(0) line in scraper.py __main__ block.")
-    import sys
-    sys.exit(0)
-
-    # === PAUSED ===
-    # print("DealHunter Egypt Scraper v11.1 — All engines on System 1 + Kanbkam/Safqa fallback")
-    # print(f"Stores: Amazon EG/AE/SA + Noon EG/AE/SA + Jumia + B.Tech + Carrefour + Sharaf DG + HyperOne + Sahla")
-    # print(f"Fake check: System 1 (own price-history database) — Kanbkam + Safqa DEPRECATED")
-    # print(f"Min discount: {MIN_DISCOUNT}% | Interval: {INTERVAL} min")
-    # if MIN_PRICE > 0 or MAX_PRICE < 9999999:
-    #     print(f"Price filter: EGP {MIN_PRICE:,.0f} – EGP {MAX_PRICE:,.0f}")
-    # print()
-    # run_scraper()
-    # schedule.every(INTERVAL).minutes.do(run_scraper)
-    # while True:
-    #     schedule.run_pending()
-    #     time.sleep(30)
+    print("DealHunter Egypt Scraper v12.0 — System 1 + Noon Fix")
+    print(f"Stores: Amazon EG + Noon EG/AE/SA (discovery={'ON' if ENGINE1_DISCOVERY_ENABLED else 'OFF'})")
+    print(f"Interval: {INTERVAL} min | Min discount: {MIN_DISCOUNT}%")
+    print(f"Engine1 Discovery: {ENGINE1_DISCOVERY_ENABLED}")
+    if not ENGINE1_DISCOVERY_ENABLED:
+        print("[CREDIT SAVE] Discovery OFF — only tracking known ASINs")
+    print()
+    run_scraper()
+    schedule.every(INTERVAL).minutes.do(run_scraper)
+    print(f"[SCHEDULER] Next run in {INTERVAL} minutes")
+    while True:
+        schedule.run_pending()
+        time.sleep(30)
