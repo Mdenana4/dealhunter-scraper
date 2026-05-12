@@ -1,5 +1,5 @@
 # DealHunter Scraper - Python Flask Backend
-FROM docker:3.11-slim
+FROM python:3.11-slim
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -26,7 +26,7 @@ RUN pip install --upgrade pip && \
     playwright install chromium
 
 # Force fresh code copy — changing this text invalidates Docker cache
-# CACHE INVALIDATION MARKER: v5-2025-05-13-healthsrv
+# CACHE INVALIDATION MARKER: v6-2025-05-13-fixed
 COPY . .
 RUN chmod +x start.sh
 
@@ -41,40 +41,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=3s --retries=3 \
 
 EXPOSE ${PORT}
 
-# Start scraper in background, minimal Python HTTP server in foreground
-CMD python -c "
-import os, sys, json
-from http.server import BaseHTTPRequestHandler, HTTPServer
-PORT = int(os.getenv('PORT', 5000))
-class H(BaseHTTPRequestHandler):
-    def log_message(self, fmt, *args): pass
-    def do_GET(self):
-        if self.path == '/health':
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(b'{\"status\":\"ok\"}')
-        elif self.path.startswith('/api/debug/scraper-log'):
-            try:
-                n = int(__import__('urllib.parse').parse.parse_qs(self.path.split('?')[1]).get('lines',['50'])[0])
-            except: n = 50
-            try:
-                with open('/tmp/scraper.log','r',encoding='utf-8',errors='replace') as f:
-                    lines = f.readlines()
-                    log = ''.join(lines[-n:]) if len(lines)>n else ''.join(lines)
-            except: log = 'Scraper log not found'
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({'log': log}).encode())
-        else:
-            self.send_response(404)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(b'{\"error\":\"Not Found\"}')
-print(f'[health] Starting on port {PORT}')
-# Start scraper in background first
-import subprocess
-subprocess.Popen([sys.executable, '-u', 'scraper.py'], stdout=open('/tmp/scraper.log','w'), stderr=subprocess.STDOUT)
-HTTPServer(('0.0.0.0', PORT), H).serve_forever()
-"
+CMD ["sh", "start.sh"]
