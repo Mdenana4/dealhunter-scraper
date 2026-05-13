@@ -613,7 +613,6 @@ def paymob_initiate():
         payment_token = pk_r.json().get("token")
 
         if not payment_token:
-            if not payment_token:
             error_detail = pk_r.json() if hasattr(pk_r, 'json') else {}
             if "unrelated" in str(error_detail).lower():
                 return jsonify({"success": False, "error": "PayMob Integration ID mismatch. Set PAYMOB_INTEGRATION_ID env var to your card payment integration ID (find it in PayMob Dashboard > Integrations)."}), 500
