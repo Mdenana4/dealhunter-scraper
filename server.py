@@ -98,6 +98,39 @@ def _get_fraud_reasons(d):
 
 
 # ─── Health ────────────────────────────────────────────────────────
+
+# ═══════════════════════════════════════════════════════════
+# Source / marketplace helpers
+# ═══════════════════════════════════════════════════════════
+
+def _normalize_source(raw: str) -> str:
+    """Convert short source names ('amazon' → 'amazon_eg') to full site names."""
+    if not raw:
+        return ""
+    r = raw.strip().lower()
+    mapping = {
+        "amazon": "amazon_eg",
+        "noon": "noon_eg",
+        "jumia": "jumia_eg",
+        "amazon_eg": "amazon_eg",
+        "noon_eg": "noon_eg",
+        "noon_ae": "noon_ae",
+        "noon_sa": "noon_sa",
+        "jumia_eg": "jumia_eg",
+    }
+    return mapping.get(r, r)
+
+
+def _site_matches(site_filter: str, doc_site: str) -> bool:
+    """Check if a document's site matches the filter (handles both short and long forms)."""
+    if not site_filter:
+        return True
+    normalized_filter = _normalize_source(site_filter)
+    # Allow partial match: 'amazon' matches 'amazon_eg', 'amazon_ae', 'amazon_sa'
+    if normalized_filter in doc_site:
+        return True
+    return doc_site == site_filter
+
 @app.route("/health")
 def health():
     token_preview = SCRAPEDO_TOKEN[:20] + "..." if SCRAPEDO_TOKEN else "NOT SET"
@@ -282,7 +315,7 @@ def get_deals():
             d = doc.to_dict()
             if cat and d.get("category", "").lower() != cat.lower():
                 continue
-            if site and d.get("site") != site:
+            if site and not _site_matches(site, d.get("site", "")):
                 continue
 
             # ── Resolve fraud fields (fallback chain for multiple field names) ──
@@ -354,6 +387,117 @@ def get_deals():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+
+# ═══════════════════════════════════════════════════════════
+# Deal Verification / Fraud Check Endpoint
+# ═══════════════════════════════════════════════════════════
+
+@app.route("/api/verify", methods=["GET"])
+def verify_deal():
+    """
+    Verify a deal's discount authenticity.
+    Query params:
+      - marketplace_country (required): e.g. 'amazon_eg', 'noon_eg'
+      - product_id (required): ASIN / SKU
+      - product_url (optional)
+      - original_price (optional)
+      - current_price (optional)
+      - discount_percent (optional)
+    Returns: verdict, confidence, explanation, red_flags, recommendation,
+             historical_high, historical_low, source_used, data_found
+    """
+    try:
+        marketplace = request.args.get("marketplace_country", "")
+        product_id = request.args.get("product_id", "")
+        product_url = request.args.get("product_url", "")
+        original_price = request.args.get("original_price", "")
+        current_price = request.args.get("current_price", "")
+        discount_pct = request.args.get("discount_percent", "")
+
+        if not marketplace or not product_id:
+            return jsonify({
+                "verdict": "uncertain",
+                "confidence": 0,
+                "explanation": " marketplace_country and product_id are required.",
+                "red_flags": ["Missing required parameters"],
+                "recommendation": "Please provide marketplace_country and product_id.",
+                "historical_high": None,
+                "historical_low": None,
+                "source_used": "",
+                "data_found": False
+            }), 400
+
+        # Look up existing deal in Firestore for pre-computed verdict
+        db = get_firestore()
+        if db:
+            try:
+                # Try to find by product_id in deals collection
+                docs = db.collection("deals").where("product_id", "==", product_id).limit(1).get()
+                if not docs:
+                    # Try by ASIN in the document ID
+                    docs = db.collection("deals").where("asin", "==", product_id).limit(1).get()
+                if docs:
+                    d = docs[0].to_dict()
+                    verdict = d.get("verdict", "UNVERIFIED").lower()
+                    fake_score = float(d.get("fake_score", 0) or 0)
+                    recommendation = d.get("recommendation", "normal")
+                    confidence = float(d.get("confidence", 0) or 0)
+
+                    # Build response matching Flutter app's expected format
+                    if verdict == "fake":
+                        explanation = f"This deal shows signs of an inflated discount. Our analysis detected a fake discount score of {fake_score:.0f}/100. The original price may have been artificially raised to create the appearance of a larger discount."
+                        red_flags = ["Original price appears inflated compared to historical data", f"Fake discount score: {fake_score:.0f}/100"]
+                    elif verdict == "genuine":
+                        explanation = "This appears to be a genuine discount. The current price is significantly below the historical average, making this a legitimate deal."
+                        red_flags = []
+                    elif verdict == "suspicious":
+                        explanation = "This deal has some suspicious indicators. While not confirmed as fake, we recommend researching the product's price history before purchasing."
+                        red_flags = ["Price history shows unusual patterns", "Discount may be inflated"]
+                    else:
+                        explanation = "We don't have enough price history data to verify this discount yet. Our system is tracking this product and will update the verdict as more data becomes available."
+                        red_flags = ["Insufficient price history data"]
+
+                    return jsonify({
+                        "verdict": verdict,
+                        "confidence": min(confidence * 100, 100),
+                        "explanation": explanation,
+                        "red_flags": red_flags,
+                        "recommendation": recommendation,
+                        "historical_high": float(d.get("original_price", 0)) if d.get("original_price") else None,
+                        "historical_low": float(d.get("current_price", 0)) if d.get("current_price") else None,
+                        "source_used": "DealHunter Internal",
+                        "data_found": True
+                    })
+            except Exception as e:
+                print(f"[VERIFY] Firestore lookup error: {e}")
+
+        # Fallback: return uncertain if no data found
+        return jsonify({
+            "verdict": "uncertain",
+            "confidence": 0,
+            "explanation": "We don't have enough price history data for this product yet. Our system is continuously tracking prices and will be able to verify discounts after collecting more data points.",
+            "red_flags": ["Insufficient price history data — tracking in progress"],
+            "recommendation": "Check back in a few days when more price data has been collected.",
+            "historical_high": None,
+            "historical_low": None,
+            "source_used": "",
+            "data_found": False
+        })
+
+    except Exception as e:
+        print(f"[VERIFY] Error: {e}")
+        return jsonify({
+            "verdict": "uncertain",
+            "confidence": 0,
+            "explanation": f"An error occurred during verification: {str(e)}",
+            "red_flags": ["Verification service temporarily unavailable"],
+            "recommendation": "Please try again later.",
+            "historical_high": None,
+            "historical_low": None,
+            "source_used": "",
+            "data_found": False
+        }), 500
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
