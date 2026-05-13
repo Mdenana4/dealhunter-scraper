@@ -306,16 +306,14 @@ def get_deals():
         cat = request.args.get("category", "")
         site = request.args.get("site", "") or request.args.get("source", "")
 
-        # When filtering, scan much more docs since matching docs are sparse in timestamp-sorted results
-        has_filter = bool(site or cat)
-        fetch_limit = min(limit * (100 if has_filter else 10), 3000)
+        fetch_limit = min(limit * 20, 1000)  # Scan more docs for source/category filtering
         query = db.collection("deals").order_by("timestamp", direction="DESCENDING").limit(fetch_limit)
         docs = query.stream()
 
         deals = []
         for doc in docs:
             d = doc.to_dict()
-            if cat and d.get("category", "").lower() != cat.lower():
+            if cat and str(d.get("category") or "").lower() != cat.lower():
                 continue
             if site and not _site_matches(site, d.get("site", "")):
                 continue
