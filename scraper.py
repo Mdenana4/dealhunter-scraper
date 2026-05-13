@@ -3053,7 +3053,7 @@ def scrape_btech():
                     product_url = href if href.startswith("http") else "https://btech.com" + href
 
                     img_el    = p.find("img")
-                    image_url = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+                    image_url = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
 
                     cat = detect_category(title) or default_cat
 
@@ -3385,7 +3385,7 @@ def scrape_sharaf_dg():
                     product_url = href if href.startswith("http") else "https://www.sharafdg.com" + href
 
                     img_el    = p.find("img")
-                    image_url = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+                    image_url = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
 
                     cat = detect_category(title) or default_cat
 
@@ -3431,6 +3431,14 @@ def scrape_sharaf_dg():
 # ─────────────────────────────────────────────────────
 # NOON EGYPT — ScraperAPI + JSON extraction
 # ─────────────────────────────────────────────────────
+
+
+def _noon_real_image(img_url: str) -> str:
+    """Filter out Noon placeholder SVG — return real image URL or empty string."""
+    if not img_url or "media-placeholder.svg" in img_url or "noon-assets" in img_url:
+        return ""
+    return img_url
+
 def _process_noon_item(src, default_cat, region_path="egypt-en", currency="EGP"):
     """Parse a single Noon product dict. Returns tuple or None."""
     title = (src.get("name") or src.get("title") or src.get("productName") or "").strip()
@@ -3642,7 +3650,7 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
             href = link_el["href"] if link_el else ""
             purl = ("https://www.noon.com" + href if href.startswith("/") else href)
             img_el = p.find("img")
-            img = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+            img = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
             cat = detect_category(title) or default_cat
             _sku_m = re.search(r'/[A-Za-z0-9]{5,}/p/', href)
             _sku = _sku_m.group(0).split("/p/")[0].strip("/") if _sku_m else ""
@@ -3838,7 +3846,8 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                     break
 
                 img_el = container.find("img")
-                img = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+                raw_img = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
+                img = _noon_real_image(raw_img)
                 kb = _get_fraud_verdict(
                     source=marketplace_country, asin=_sku,
                     current_price=cp, original_price=op,
@@ -4088,7 +4097,7 @@ def scrape_hyperone():
                     product_url = href if href.startswith("http") else "https://www.hyperone.com.eg" + href
 
                     img_el    = p.find("img")
-                    image_url = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+                    image_url = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
                     cat       = detect_category(title) or default_cat
 
                     asin = product_url.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(product_url.encode()).hexdigest()
@@ -4257,7 +4266,7 @@ def scrape_sahla():
                         purl    = href if href.startswith("http") else "https://sahlaapp.com" + href
 
                         img_el = p.find("img")
-                        img    = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+                        img    = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
                         cat    = detect_category(title)
 
                         asin = purl.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(purl.encode()).hexdigest()
@@ -4368,7 +4377,7 @@ def scrape_custom_sources():
                         purl    = href if href.startswith("http") else site_url.rstrip("/") + "/" + href.lstrip("/")
 
                         img_el = product.find("img")
-                        img    = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+                        img    = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
                         cat    = detect_category(title)
 
                         asin = purl.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(purl.encode()).hexdigest()
