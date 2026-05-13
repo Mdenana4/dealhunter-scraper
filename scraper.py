@@ -2807,6 +2807,7 @@ def _scrape_jumia():
         ("https://www.jumia.com.eg/sporting-goods/?sort=discountPercent", "sports"),
         ("https://www.jumia.com.eg/beauty-health/?sort=discountPercent", "beauty"),
         ("https://www.jumia.com.eg/baby-products/?sort=discountPercent", "toys"),
+        ("https://www.jumia.com.eg/groceries/", "grocery"),
     ]
 
     for url, default_cat in pages:
@@ -3952,6 +3953,7 @@ def _scrape_noon_region(
         ("laptop",          "electronics"), ("headphones", "electronics"),
         ("nike shoes",      "fashion"),     ("perfume",    "fashion"),
         ("refrigerator",    "home"),        ("skincare",   "beauty"),
+        ("rice", "grocery"), ("oil", "grocery"), ("milk", "grocery"),
     ]
 
     for term, default_cat in search_terms:
