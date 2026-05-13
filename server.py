@@ -271,9 +271,9 @@ def get_deals():
     try:
         limit = int(request.args.get("limit", "20"))
         cat = request.args.get("category", "")
-        site = request.args.get("site", "")
+        site = request.args.get("site", "") or request.args.get("source", "")
 
-        query = db.collection("deals").order_by("timestamp", direction="DESCENDING").limit(limit)
+        query = db.collection("deals").order_by("timestamp", direction="DESCENDING").limit(limit * 3)
         docs = query.stream()
 
         deals = []
@@ -281,7 +281,7 @@ def get_deals():
             d = doc.to_dict()
             if cat and d.get("category", "").lower() != cat.lower():
                 continue
-            if site and site not in d.get("site", ""):
+            if site and d.get("site") != site:
                 continue
 
             # ── Resolve fraud fields (fallback chain for multiple field names) ──
