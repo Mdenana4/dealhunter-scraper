@@ -30,6 +30,73 @@ def get_firestore():
 MIN_DISCOUNT = int(os.getenv("MIN_DISCOUNT", "40"))
 SCRAPEDO_TOKEN = os.environ.get("SCRAPEDO_TOKEN", "")
 
+# ─── Fraud-field helper functions ──────────────────────────────────
+# (called by /api/deals to enrich every deal with Flutter-app fraud fields)
+
+def _get_recommendation(verdict, discount_pct):
+    """Map fraud verdict + discount → actionable recommendation string."""
+    if verdict == "FAKE":
+        return "avoid"
+    elif verdict == "GENUINE" and discount_pct >= 50:
+        return "buy_now"
+    elif verdict == "GENUINE":
+        return "good_deal"
+    elif verdict == "SUSPICIOUS":
+        return "research_first"
+    else:
+        return "normal"
+
+
+def _get_confidence(verdict):
+    """Return a static confidence level for each verdict tier."""
+    if verdict == "FAKE":
+        return 0.85
+    elif verdict == "GENUINE":
+        return 0.75
+    elif verdict == "SUSPICIOUS":
+        return 0.60
+    else:
+        return 0.0
+
+
+def _get_fraud_reasons(d):
+    """Build human-readable fraud reason list from stored rule triggers."""
+    reasons = []
+    # Pull from stored fraud_reasons if already present
+    stored = d.get("fraud_reasons") or d.get("fraud_signals") or []
+    if stored:
+        return stored if isinstance(stored, list) else [str(stored)]
+
+    # Derive from kanbkam rule flags + price stats
+    kb = d.get("kanbkam") or {}
+    verdict = d.get("verdict") or d.get("fake_verdict") or "UNVERIFIED"
+
+    if verdict == "FAKE":
+        if kb.get("rule_a_triggered") or d.get("rule_a"):
+            reasons.append("Current price matches or exceeds historical average — deal may be inflated")
+        if kb.get("rule_b_triggered") or d.get("rule_b"):
+            reasons.append("Discount percentage is unrealistic for this product category")
+        if not reasons:
+            reasons.append("Price analysis indicates this deal is likely inflated")
+    elif verdict == "SUSPICIOUS":
+        if kb.get("rule_a_triggered") or d.get("rule_a"):
+            reasons.append("Price is close to historical average — limited genuine savings")
+        if kb.get("rule_b_triggered") or d.get("rule_b"):
+            reasons.append("Unusual discount pattern detected")
+        if not reasons:
+            reasons.append("Some price anomalies detected — verify before purchasing")
+    elif verdict == "GENUINE":
+        lp = kb.get("lowest_price") or d.get("lowest_price_ever", 0)
+        if lp and d.get("current_price", 0) <= lp * 1.05:
+            reasons.append("Price is near or at historical low — excellent time to buy")
+        else:
+            reasons.append("Price verified against historical data — genuine savings found")
+    else:
+        reasons.append("Price history data not available for verification")
+
+    return reasons
+
+
 # ─── Health ────────────────────────────────────────────────────────
 @app.route("/health")
 def health():
@@ -96,13 +163,30 @@ def price_history_stats():
                 total_snapshots += len(snaps)
             except:
                 pass
-        result = {"sources": {}, "total_products": total_products, "total_snapshots": total_snapshots}
-        for mc, data in sorted(sources.items()):
-            result["sources"][mc] = {
+
+        # Build result with explicit Egypt sources (ensure all 3 always appear)
+        EGYPT_SOURCES = ["amazon_eg", "noon_eg", "jumia_eg"]
+        result = {
+            "sources": {},
+            "total_products": total_products,
+            "total_snapshots": total_snapshots
+        }
+        # Add Egypt sources first (with zero defaults if missing)
+        for src in EGYPT_SOURCES:
+            data = sources.get(src, {"products": 0, "snapshots": 0})
+            result["sources"][src] = {
                 "products": data["products"],
                 "snapshots": data["snapshots"],
                 "avg_snapshots_per_product": round(data["snapshots"] / max(data["products"], 1), 2)
             }
+        # Add any other sources found in DB
+        for mc, data in sorted(sources.items()):
+            if mc not in EGYPT_SOURCES:
+                result["sources"][mc] = {
+                    "products": data["products"],
+                    "snapshots": data["snapshots"],
+                    "avg_snapshots_per_product": round(data["snapshots"] / max(data["products"], 1), 2)
+                }
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -199,22 +283,76 @@ def get_deals():
                 continue
             if site and site not in d.get("site", ""):
                 continue
+
+            # ── Resolve fraud fields (fallback chain for multiple field names) ──
+            verdict = (
+                d.get("verdict")
+                or d.get("fake_verdict")
+                or "UNVERIFIED"
+            )
+            fake_score = (
+                d.get("fake_score")
+                or d.get("fraud_score")
+                or 0.0
+            )
+            # Normalise fake_score to 0.0-100.0 float
+            try:
+                fake_score = float(fake_score)
+            except (TypeError, ValueError):
+                fake_score = 0.0
+
+            discount_percent = d.get("discount_percent") or d.get("discount") or 0
+            try:
+                discount_percent = float(discount_percent)
+            except (TypeError, ValueError):
+                discount_percent = 0.0
+
+            recommendation = d.get("recommendation") or _get_recommendation(verdict, discount_percent)
+            confidence = d.get("confidence")
+            if confidence is None:
+                confidence = _get_confidence(verdict)
+            else:
+                try:
+                    confidence = float(confidence)
+                except (TypeError, ValueError):
+                    confidence = _get_confidence(verdict)
+
+            fraud_reasons = _get_fraud_reasons(d)
+
             deals.append({
+                # ── Core deal fields ──
                 "id": doc.id,
                 "title": d.get("title", ""),
                 "site": d.get("site", ""),
                 "current_price": d.get("current_price"),
                 "original_price": d.get("original_price"),
                 "discount": d.get("discount"),
+                "discount_percent": discount_percent,
                 "category": d.get("category", ""),
                 "timestamp": str(d.get("timestamp")) if d.get("timestamp") else None,
                 "product_url": d.get("product_url", ""),
-                "image_url": d.get("image_url", "")
+                "image_url": d.get("image_url", ""),
+
+                # ── Fraud detection fields (REQUIRED by Flutter app) ──
+                "verdict": verdict,
+                "fake_score": fake_score,
+                "recommendation": recommendation,
+                "confidence": round(confidence, 2),
+                "fraud_reasons": fraud_reasons,
+
+                # ── Extra fraud metadata (nice-to-have for debugging) ──
+                "fake_verdict_ar": d.get("fake_verdict_ar", ""),
+                "fake_emoji": d.get("fake_emoji", ""),
+                "lowest_price_ever": d.get("lowest_price_ever") or d.get("kanbkam", {}).get("lowest_price"),
+                "highest_price_ever": d.get("highest_price_ever") or d.get("kanbkam", {}).get("highest_price"),
+                "suggested_wait_price": d.get("suggested_wait_price") or d.get("kanbkam", {}).get("suggested_wait_price"),
+                "kanbkam_source": d.get("source_used") or d.get("kanbkam", {}).get("source_used", ""),
             })
 
         return jsonify({"deals": deals, "count": len(deals)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
