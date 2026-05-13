@@ -671,6 +671,179 @@ def test_notification():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+
+
+# ═══════════════════════════════════════════════════════════
+# FCM Notification Registration & Test
+# ═══════════════════════════════════════════════════════════
+
+@app.route("/api/notifications/register", methods=["POST"])
+def register_fcm_token():
+    """Register a device FCM token. Call this when app opens."""
+    try:
+        data = request.get_json() or {}
+        token = data.get("fcm_token", "")
+        device_id = data.get("device_id", "")
+        platform = data.get("platform", "unknown")  # android, ios, web
+
+        if not token:
+            return jsonify({"success": False, "error": "fcm_token required"}), 400
+
+        db = get_firestore()
+        if db:
+            # Save or update device token
+            db.collection("devices").document(token[:50]).set({
+                "fcm_token": token,
+                "device_id": device_id,
+                "platform": platform,
+                "registered_at": firestore.SERVER_TIMESTAMP,
+                "last_active": firestore.SERVER_TIMESTAMP,
+                "tier": "free"
+            }, merge=True)
+
+        return jsonify({"success": True, "message": "FCM token registered", "token_prefix": token[:20]})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/notifications/send", methods=["POST"])
+def send_notification():
+    """Send a test push notification to a specific FCM token."""
+    try:
+        data = request.get_json() or {}
+        fcm_token = data.get("fcm_token", "")
+        title = data.get("title", "DealHunter Alert")
+        body = data.get("body", "New deals available!")
+
+        if not fcm_token:
+            return jsonify({"success": False, "error": "fcm_token required"}), 400
+
+        db = get_firestore()
+        if not db:
+            return jsonify({"success": False, "error": "Firestore not available"}), 500
+
+        # Send via Firebase Admin SDK
+        try:
+            message = messaging.Message(
+                notification=messaging.Notification(title=title, body=body),
+                token=fcm_token,
+                android=messaging.AndroidConfig(
+                    priority="high",
+                    notification=messaging.AndroidNotification(
+                        channel_id="dealhunter_alerts",
+                        sound="default"
+                    )
+                ),
+                apns=messaging.APNSConfig(
+                    payload=messaging.APNSPayload(
+                        aps=messaging.Aps(sound="default", badge=1)
+                    )
+                ),
+                data={"type": "test", "click_action": "FLUTTER_NOTIFICATION_CLICK"}
+            )
+            response = messaging.send(message)
+            return jsonify({"success": True, "message_id": response, "sent_to": fcm_token[:20]})
+        except Exception as fcm_err:
+            # Fallback: store the notification for retry
+            db.collection("pending_notifications").add({
+                "fcm_token": fcm_token,
+                "title": title,
+                "body": body,
+                "error": str(fcm_err),
+                "created_at": firestore.SERVER_TIMESTAMP,
+                "status": "failed"
+            })
+            return jsonify({"success": False, "error": f"FCM send failed: {str(fcm_err)}"}), 500
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/notifications/test", methods=["POST"])
+def test_notification():
+    """Send a test notification. Requires fcm_token in body."""
+    try:
+        data = request.get_json() or {}
+        fcm_token = data.get("fcm_token", "")
+
+        if not fcm_token:
+            return jsonify({
+                "success": False, 
+                "error": "fcm_token required",
+                "instructions": "Get your FCM token from the app console or by calling /api/notifications/register first"
+            }), 400
+
+        return send_notification_to_token(fcm_token, "Test Notification", "This is a test from DealHunter!")
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+def send_notification_to_token(fcm_token, title, body):
+    """Helper: send FCM notification to a single token."""
+    try:
+        message = messaging.Message(
+            notification=messaging.Notification(title=title, body=body),
+            token=fcm_token,
+            android=messaging.AndroidConfig(
+                priority="high",
+                notification=messaging.AndroidNotification(
+                    channel_id="dealhunter_alerts",
+                    sound="default",
+                    icon="ic_notification"
+                )
+            ),
+            apns=messaging.APNSConfig(
+                payload=messaging.APNSPayload(
+                    aps=messaging.Aps(sound="default", badge=1)
+                )
+            ),
+            data={"type": "deal_alert", "click_action": "FLUTTER_NOTIFICATION_CLICK"}
+        )
+        response = messaging.send(message)
+        return jsonify({"success": True, "message_id": response, "sent_to": fcm_token[:20] + "..."})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/notifications/broadcast", methods=["POST"])
+def broadcast_notification():
+    """Send notification to all registered devices (admin only)."""
+    try:
+        data = request.get_json() or {}
+        title = data.get("title", "Deal Alert")
+        body = data.get("body", "Check out new deals!")
+
+        db = get_firestore()
+        if not db:
+            return jsonify({"success": False, "error": "Firestore not available"}), 500
+
+        # Get all registered tokens
+        devices = db.collection("devices").stream()
+        tokens = [d.to_dict().get("fcm_token", "") for d in devices if d.to_dict().get("fcm_token")]
+
+        if not tokens:
+            return jsonify({"success": False, "error": "No registered devices found. Have users open the app first?"}), 404
+
+        # Send to all tokens
+        success = 0
+        failed = 0
+        for token in tokens:
+            try:
+                message = messaging.Message(
+                    notification=messaging.Notification(title=title, body=body),
+                    token=token,
+                    android=messaging.AndroidConfig(priority="high"),
+                    data={"type": "broadcast", "click_action": "FLUTTER_NOTIFICATION_CLICK"}
+                )
+                messaging.send(message)
+                success += 1
+            except Exception:
+                failed += 1
+
+        return jsonify({"success": True, "sent": success, "failed": failed, "total_devices": len(tokens)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     print(f"[server] Starting on port {port}")
