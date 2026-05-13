@@ -41,7 +41,7 @@ AMAZON_KEYWORD_ENABLED = os.getenv("AMAZON_KEYWORD_ENABLED", "false").lower() ==
 # price_history database.  After ~60 days this gives us
 # independent price verification for every product.
 # ═══════════════════════════════════════════════════════════
-_DEAL_SOURCES = {"amazon_eg"}
+_DEAL_SOURCES = {"amazon_eg", "noon_eg", "jumia_eg"}
 INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 120))
 SCRAPER_API_KEY = (
     os.getenv("SCRAPER_API_KEY") or
@@ -66,6 +66,8 @@ RAPIDAPI_KEY = (
 # Leave as 0 / 9999999 to disable the filter.
 MIN_PRICE = float(os.getenv("MIN_PRICE", 0))
 MAX_PRICE = float(os.getenv("MAX_PRICE", 9999999))
+# Minimum product price threshold for deal eligibility (was hardcoded 200)
+MIN_PRODUCT_PRICE = float(os.environ.get("MIN_PRODUCT_PRICE", "50"))  # Default 50 EGP
 
 
 # ─────────────────────────────────────────────────────
@@ -232,14 +234,13 @@ def generate_deal_id(site, url, price):
 def clean_price(text):
     if not text:
         return 0.0
-    text = (str(text)
-            .replace(',', '').replace('EGP', '').replace('ج.م', '')
-            .replace('جنيه', '').replace('جنية', '').strip())
-    text = re.sub(r'[^\d.]', '', text)
-    try:
-        return float(text)
-    except Exception:
+    text = str(text).strip()
+    # Find the FIRST number group (not all — prevents concatenation of multiple prices)
+    m = re.search(r"[\d,]+", text)
+    if not m:
         return 0.0
+    clean = m.group().replace(",", "")
+    return float(clean) if clean else 0.0
 
 def price_in_range(price):
     """Return True if price passes the MIN_PRICE / MAX_PRICE filter."""
@@ -591,26 +592,17 @@ def fetch_direct(url, mobile=False):
         return None
 
 def fetch_noon_direct(url, country_code="eg"):
-    """Direct fetch for Noon with realistic browser headers. No proxy needed for most pages."""
+    """Direct fetch for Noon pages with proper headers and response validation."""
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Referer": "https://www.noon.com/",
-        "sec-ch-ua": '"Chromium";v="124","Google Chrome";v="124"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "same-origin",
-        "Cache-Control": "max-age=0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
     }
     try:
-        resp = requests.get(url, headers=headers, timeout=30, allow_redirects=True)
-        return resp
+        resp = requests.get(url, headers=headers, timeout=25, allow_redirects=True)
+        return resp if resp.status_code == 200 and len(resp.text or "") > 5000 else None
     except Exception as e:
-        print(f"    Noon direct error: {e}")
+        print(f"[NOON/DIRECT] Error: {e}")
         return None
 
 
@@ -1012,7 +1004,9 @@ def _parse_and_save_rapidapi_products(products, country, marketplace_country,
             if disc == 0:
                 disc = calculate_discount(op, cp)
             if disc >= MIN_DISCOUNT and op <= cp:
-                op = round(cp / (1 - disc / 100))
+                # Cap discount at 99% to prevent division by zero
+                safe_disc = min(disc, 99)
+                op = round(cp / (1 - safe_disc / 100.0))
             if disc < MIN_DISCOUNT:
                 continue
             if currency == "EGP" and not price_in_range(cp):
@@ -1846,26 +1840,23 @@ _credit_stats = {"scrape_do": 0, "scraperapi": 0, "direct": 0}
 
 
 def _should_run_discovery():
-    """Check if discovery should run based on interval."""
-    # v9.2: Temporarily force-run every cycle until we confirm ASINs are found.
-    # Change 'return True' to the commented block below to re-enable 4h interval.
-    return True  # FORCED: run every cycle during testing
-    # --- UNCOMMENT BELOW TO RE-ENABLE 4-HOUR INTERVAL ---
-    # try:
-    #     doc = db.collection("scraper_state").document("engine1_last_run").get()
-    #     if doc.exists:
-    #         last_run = doc.to_dict().get("timestamp")
-    #         if last_run:
-    #             from datetime import datetime
-    #             last = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
-    #             hours_since = (datetime.now(timezone.utc) - last).total_seconds() / 3600
-    #             print(f"[AMAZON-DISCOVERY] Last discovery run: {hours_since:.1f}h ago (interval: {ENGINE1_INTERVAL_HOURS}h)")
-    #             return hours_since >= ENGINE1_INTERVAL_HOURS
-    #     print(f"[AMAZON-DISCOVERY] No previous run — starting fresh")
-    #     return True
-    # except Exception as e:
-    #     print(f"[AMAZON-ERROR] Engine1 schedule check failed: {e}")
-    #     return True
+    """Check if discovery should run based on interval (default: every 4h)."""
+    if not ENGINE1_DISCOVERY_ENABLED:
+        return False
+    try:
+        doc = db.collection("scraper_state").document("engine1_last_run").get()
+        if doc.exists:
+            last_run = doc.to_dict().get("timestamp")
+            if last_run:
+                last = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
+                hours_since = (datetime.now(timezone.utc) - last).total_seconds() / 3600
+                print(f"[AMAZON-DISCOVERY] Last discovery run: {hours_since:.1f}h ago (interval: {ENGINE1_INTERVAL_HOURS}h)")
+                return hours_since >= ENGINE1_INTERVAL_HOURS
+        print("[AMAZON-DISCOVERY] No previous run — starting fresh")
+        return True
+    except Exception as e:
+        print(f"[AMAZON-ERROR] Engine1 schedule check failed: {e}")
+        return True
 
 
 def _extract_asins_from_html(html_text, html_raw):
@@ -2782,52 +2773,6 @@ def scrape_amazon():
     print(f"[AMAZON/EG] === Done. {total_deals} total deals ===")
     return total_deals
 
-
-
-def scrape_amazon():
-    """
-    Two-Engine Amazon Egypt System:
-    - Engine #1: Discovery (every 4h) — finds new discounted ASINs
-    - Engine #2: Tracking (every cycle) — checks prices on known ASINs
-    - Falls back to deals page if both engines fail
-    """
-    print("\n[AMAZON/EG] === Two-Engine System Starting ===")
-    total_deals = 0
-    seen_asins = set()
-
-    # ─── Engine #1: Discovery ───
-    if ENGINE1_DISCOVERY_ENABLED and _should_run_discovery():
-        new_asins = _engine1_discovery()
-        print(f"[AMAZON-DISCOVERY] {new_asins} new ASINs added to tracking")
-    else:
-        print(f"[AMAZON-DISCOVERY] Skipped (enabled={ENGINE1_DISCOVERY_ENABLED})")
-
-    # ─── Engine #2: Tracking ───
-    if ENGINE2_TRACKING_ENABLED:
-        tracking_deals = _engine2_tracking(seen_asins=seen_asins)
-        total_deals += tracking_deals
-        print(f"[AMAZON-TRACKING] {tracking_deals} deals from tracking")
-    else:
-        print(f"[AMAZON-TRACKING] Skipped (enabled={ENGINE2_TRACKING_ENABLED})")
-
-    # ─── Fallback: Deals page (if engines produced nothing) ───
-    if total_deals == 0:
-        print(f"[AMAZON/EG] Engines produced 0 deals — trying deals page fallback")
-        deals_total, seen = _scrape_amazon_deals_page()
-        if deals_total > 0:
-            print(f"[AMAZON/EG] Deals page fallback: {deals_total} deals")
-            total_deals += deals_total
-            seen_asins.update(seen)
-
-    # ─── Credit Report ───
-    print(f"[AMAZON-CREDIT] Credits used this cycle:")
-    for service, count in _credit_stats.items():
-        if count > 0:
-            print(f"  {service}: {count}")
-
-    print(f"[AMAZON/EG] === Done. {total_deals} total deals ===")
-    return total_deals
-
 def scrape_amazon_ae():
     """Amazon UAE — DEAL DISCOVERY SUSPENDED. Price history continues via price_tracker.py."""
     print("\n[AMAZON/AE] ⏸ Deal discovery SUSPENDED — skipping new deal scrape")
@@ -2845,14 +2790,12 @@ def scrape_amazon_sa():
 # JUMIA EGYPT — Static HTML
 # ─────────────────────────────────────────────────────
 def scrape_jumia():
-    """Jumia Egypt — DEAL DISCOVERY SUSPENDED. Price history continues via price_tracker.py."""
-    print("\n[JUMIA/EG] ⏸ Deal discovery SUSPENDED — skipping new deal scrape")
-    print("  Price history collection continues via background re-check")
-    return 0
+    """Jumia Egypt — 22 categories, static HTML selectors."""
+    return _scrape_jumia()
 
 
-def _scrape_jumia_disabled_placeholder():
-    """Original Jumia scraper — disabled from deal discovery per admin request."""
+def _scrape_jumia():
+    """Jumia Egypt scraper — 22 categories, static HTML selectors."""
     print("\n[JUMIA] Starting...")
     total = 0
     pages = [
@@ -4737,7 +4680,7 @@ def _recheck_expired_deals():
 
                     cp = clean_price(cp_raw)
                     op = clean_price(op_raw) or cp
-                    if cp and cp >= 200 and op >= cp:
+                    if cp and cp >= MIN_PRODUCT_PRICE and op >= cp:
                         disc = calculate_discount(op, cp)
                         if disc >= MIN_DISCOUNT:
                             still_live = True
