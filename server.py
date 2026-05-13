@@ -572,7 +572,7 @@ def paymob_initiate():
         tier_info = MEMBERSHIP_TIERS[tier]
         amount_cents = int(tier_info["price"] * 100)
 
-        PAYMOB_API_KEY = "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJjbGFzcyI6Ik1lcmNoYW50IiwicHJvZmlsZV9wayI6MTE2MzUwNSwibmFtZSI6ImluaXRpYWwifQ.pNNx6pblxOKgVQT4PwHN46SbnOzUJuGCdtRLhjON5Jf2jcjgqO7qnQTXcGB62hmEwtH4I-sDHnIjucoAhEo1FQ"
+        PAYMOB_API_KEY = "ZXlKaGJHY2lPaUpJVXpVeE1pSXNJblI1Y0NJNklrcFhWQ0o5LmV5SmpiR0Z6Y3lJNklrMWxjbU5vWVc1MElpd2ljSEp2Wm1sc1pWOXdheUk2TVRFMk16VXdOU3dpYm1GdFpTSTZJbWx1YVhScFlXd2lmUS5wTk54NnBibHhPS2dWUVQ0UHdITjQ2U2JuT3pVSnVHQ2R0Ukxoak9ONUpmMmpjamdxTzdxblFUWGNHQjYyaG1Fd3RINEktc0RIbklqdWNvQWhFbzFGUQ=="
         PAYMOB_INTEGRATION_ID = 4547446
 
         # Step 1: Auth
