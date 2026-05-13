@@ -572,7 +572,9 @@ def paymob_initiate():
         tier_info = MEMBERSHIP_TIERS[tier]
         amount_cents = int(tier_info["price"] * 100)
 
-        PAYMOB_API_KEY = "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJjbGFzcyI6Ik1lcmNoYW50IiwicHJvZmlsZV9wayI6MTE2MzUwNSwibmFtZSI6ImluaXRpYWwifQ.pNNx6pblxOKgVQT4PwHN46SbnOzUJuGCdtRLhjON5Jf2jcjgqO7qnQTXcGB62hmEwtH4I-sDHnIjucoAhEo1FQ"
+        PAYMOB_API_KEY = os.environ.get("PAYMOB_API_KEY", "")
+        if not PAYMOB_API_KEY:
+            return jsonify({"success": False, "error": "PayMob API key not configured. Set PAYMOB_API_KEY environment variable."}), 500
         PAYMOB_INTEGRATION_ID = int(os.environ.get('PAYMOB_INTEGRATION_ID', '4547446'))
 
         # Step 1: Auth
