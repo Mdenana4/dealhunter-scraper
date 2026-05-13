@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """DealHunter API server — minimal startup, lazy imports."""
 import os, sys, json, hashlib, time
+import requests
 from flask import Flask, jsonify, request, send_from_directory
 
 app = Flask(__name__)
@@ -559,20 +560,70 @@ def subscribe():
 
 @app.route("/api/payment/paymob/initiate", methods=["POST"])
 def paymob_initiate():
-    """Initiate PayMob payment. In production, integrates with PayMob API."""
+    """Initiate PayMob payment — REAL integration."""
     try:
         data = request.get_json() or {}
         tier = data.get("tier", "premium")
-        amount = MEMBERSHIP_TIERS.get(tier, {}).get("price", 49)
+        user_id = data.get("user_id", "")
+
+        if tier not in MEMBERSHIP_TIERS:
+            return jsonify({"success": False, "error": "Invalid tier"}), 400
+
+        tier_info = MEMBERSHIP_TIERS[tier]
+        amount_cents = int(tier_info["price"] * 100)
+
+        PAYMOB_API_KEY = "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJjbGFzcyI6Ik1lcmNoYW50IiwicHJvZmlsZV9wayI6MTE2MzUwNSwibmFtZSI6ImluaXRpYWwifQ.pNNx6pblxOKgVQT4PwHN46SbnOzUJuGCdtRLhjON5Jf2jcjgqO7qnQTXcGB62hmEwtH4I-sDHnIjucoAhEo1FQ"
+        PAYMOB_INTEGRATION_ID = 4547446
+
+        # Step 1: Auth
+        auth_r = requests.post("https://accept.paymob.com/api/auth/tokens", json={"api_key": PAYMOB_API_KEY}, timeout=30)
+        auth_token = auth_r.json().get("token")
+        if not auth_token:
+            return jsonify({"success": False, "error": "PayMob auth failed"}), 500
+
+        # Step 2: Order
+        order_r = requests.post("https://accept.paymob.com/api/ecommerce/orders", json={
+            "auth_token": auth_token,
+            "delivery_needed": False,
+            "amount_cents": amount_cents,
+            "currency": "EGP",
+            "items": [{"name": tier_info["name"], "amount_cents": amount_cents, "description": f"DealHunter {tier_info['name']}", "quantity": 1}],
+            "merchant_order_id": f"dh_{tier}_{user_id}_{int(time.time())}"
+        }, timeout=30)
+        order_id = order_r.json().get("id")
+
+        # Step 3: Payment Key
+        pk_r = requests.post("https://accept.paymob.com/api/acceptance/payment_keys", json={
+            "auth_token": auth_token,
+            "amount_cents": amount_cents,
+            "expiration": 3600,
+            "order_id": order_id,
+            "billing_data": {
+                "first_name": user_id or "DealHunter", "last_name": "User",
+                "email": data.get("email", "user@dealhunter.com"),
+                "phone_number": data.get("phone", "+201000000000"),
+                "apartment": "NA", "floor": "NA", "street": "NA", "building": "NA",
+                "shipping_method": "NA", "postal_code": "NA",
+                "city": "Cairo", "country": "EG", "state": "Cairo"
+            },
+            "currency": "EGP",
+            "integration_id": PAYMOB_INTEGRATION_ID,
+            "lock_order_when_paid": True
+        }, timeout=30)
+        payment_token = pk_r.json().get("token")
+
+        if not payment_token:
+            return jsonify({"success": False, "error": "PayMob payment key failed"}), 500
+
+        iframe_url = f"https://accept.paymob.com/api/acceptance/iframes/833328?payment_token={payment_token}"
 
         return jsonify({
-            "success": True,
-            "iframe_url": None,
-            "order_id": f"mock_order_{int(time.time())}",
-            "amount": amount,
-            "message": "PayMob integration placeholder. In production, this returns a payment iframe URL."
+            "success": True, "iframe_url": iframe_url, "order_id": str(order_id),
+            "amount": tier_info["price"], "currency": "EGP", "tier": tier,
+            "message": "Complete payment in PayMob iframe"
         })
     except Exception as e:
+        print(f"[PAYMENT] Error: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/api/payment/webhook", methods=["POST"])
