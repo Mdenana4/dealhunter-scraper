@@ -272,17 +272,23 @@ def get_deals():
         limit = int(request.args.get("limit", "20"))
         cat = request.args.get("category", "")
         site = request.args.get("site", "")
+        # Also accept "source" as alias for "site" for Flutter app compatibility
 
-        query = db.collection("deals").order_by("timestamp", direction="DESCENDING").limit(limit)
-        docs = query.stream()
+        # Build query with server-side filtering for performance
+        query = db.collection("deals").order_by("timestamp", direction="DESCENDING")
+
+        # Accept both "source" (Flutter app) and "site" (legacy) params
+        source_filter = site or request.args.get("source", "")
+        if source_filter:
+            query = query.where("site", "==", source_filter)
+        if cat:
+            query = query.where("category", "==", cat)
+
+        docs = query.limit(limit).stream()
 
         deals = []
         for doc in docs:
             d = doc.to_dict()
-            if cat and d.get("category", "").lower() != cat.lower():
-                continue
-            if site and site not in d.get("site", ""):
-                continue
 
             # ── Resolve fraud fields (fallback chain for multiple field names) ──
             verdict = (
@@ -326,7 +332,7 @@ def get_deals():
                 "site": d.get("site", ""),
                 "current_price": d.get("current_price"),
                 "original_price": d.get("original_price"),
-                "discount": d.get("discount"),
+                "discount": discount_percent,
                 "discount_percent": discount_percent,
                 "category": d.get("category", ""),
                 "timestamp": str(d.get("timestamp")) if d.get("timestamp") else None,
