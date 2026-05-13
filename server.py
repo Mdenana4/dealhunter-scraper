@@ -706,59 +706,6 @@ def register_fcm_token():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@app.route("/api/notifications/send", methods=["POST"])
-def send_notification():
-    """Send a test push notification to a specific FCM token."""
-    try:
-        data = request.get_json() or {}
-        fcm_token = data.get("fcm_token", "")
-        title = data.get("title", "DealHunter Alert")
-        body = data.get("body", "New deals available!")
-
-        if not fcm_token:
-            return jsonify({"success": False, "error": "fcm_token required"}), 400
-
-        db = get_firestore()
-        if not db:
-            return jsonify({"success": False, "error": "Firestore not available"}), 500
-
-        # Send via Firebase Admin SDK
-        try:
-            message = messaging.Message(
-                notification=messaging.Notification(title=title, body=body),
-                token=fcm_token,
-                android=messaging.AndroidConfig(
-                    priority="high",
-                    notification=messaging.AndroidNotification(
-                        channel_id="dealhunter_alerts",
-                        sound="default"
-                    )
-                ),
-                apns=messaging.APNSConfig(
-                    payload=messaging.APNSPayload(
-                        aps=messaging.Aps(sound="default", badge=1)
-                    )
-                ),
-                data={"type": "test", "click_action": "FLUTTER_NOTIFICATION_CLICK"}
-            )
-            response = messaging.send(message)
-            return jsonify({"success": True, "message_id": response, "sent_to": fcm_token[:20]})
-        except Exception as fcm_err:
-            # Fallback: store the notification for retry
-            db.collection("pending_notifications").add({
-                "fcm_token": fcm_token,
-                "title": title,
-                "body": body,
-                "error": str(fcm_err),
-                "created_at": firestore.SERVER_TIMESTAMP,
-                "status": "failed"
-            })
-            return jsonify({"success": False, "error": f"FCM send failed: {str(fcm_err)}"}), 500
-
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
 @app.route("/api/notifications/test", methods=["POST"])
 def test_notification():
     """Send a test notification. Requires fcm_token in body."""
