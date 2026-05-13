@@ -289,7 +289,7 @@ class PriceSnapshotCollector:
         ok = failed = skipped = 0
         total = len(prods)
         # Get current delay (may be increased from previous backoff)
-        delay = SnapshotCollector._backoff_delays.get(source, SnapshotCollector._BASE_DELAY)
+        delay = PriceSnapshotCollector._backoff_delays.get(source, PriceSnapshotCollector._BASE_DELAY)
         _log(f"snapshots: {source} processing {len(to_process)}/{total} products (delay={delay}s)")
         for p in to_process:
             if not (asin := p.get("asin", "")): skipped += 1; continue
@@ -301,14 +301,14 @@ class PriceSnapshotCollector:
         processed = ok + failed
         if processed > 10:  # Only adjust if we have enough samples
             fail_rate = failed / processed
-            if fail_rate > SnapshotCollector._FAIL_RATE_THRESHOLD:
-                new_delay = min(delay * SnapshotCollector._DELAY_MULTIPLIER, SnapshotCollector._MAX_DELAY)
-                SnapshotCollector._backoff_delays[source] = new_delay
+            if fail_rate > PriceSnapshotCollector._FAIL_RATE_THRESHOLD:
+                new_delay = min(delay * PriceSnapshotCollector._DELAY_MULTIPLIER, PriceSnapshotCollector._MAX_DELAY)
+                PriceSnapshotCollector._backoff_delays[source] = new_delay
                 _log(f"collect_all: {source} fail_rate={fail_rate:.0%} — BACKOFF delay {delay}s -> {new_delay}s")
-            elif fail_rate < 0.20 and delay > SnapshotCollector._BASE_DELAY:
+            elif fail_rate < 0.20 and delay > PriceSnapshotCollector._BASE_DELAY:
                 # Recovery: if fail rate drops below 20%, gradually reduce delay
-                new_delay = max(delay / SnapshotCollector._DELAY_MULTIPLIER, SnapshotCollector._BASE_DELAY)
-                SnapshotCollector._backoff_delays[source] = new_delay
+                new_delay = max(delay / PriceSnapshotCollector._DELAY_MULTIPLIER, PriceSnapshotCollector._BASE_DELAY)
+                PriceSnapshotCollector._backoff_delays[source] = new_delay
                 _log(f"collect_all: {source} fail_rate={fail_rate:.0%} — RECOVER delay {delay}s -> {new_delay}s")
         _log(f"collect_all: {source} ok={ok} failed={failed} skipped={skipped} (processed {len(to_process)}/{total})")
         return {"ok": ok, "failed": failed, "skipped": skipped, "total": total}
@@ -709,3 +709,4 @@ def get_price_history_system() -> PriceHistoryScheduler:
 def start_price_history_system() -> None:
     get_price_history_system().start()
     _log("System 1 started — 24h cycle background thread launched")
+
