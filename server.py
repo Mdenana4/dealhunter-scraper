@@ -131,6 +131,23 @@ def _site_matches(site_filter: str, doc_site: str) -> bool:
         return True
     return doc_site == site_filter
 
+
+# ═══════════════════════════════════════════════════════════
+# CORS — Allow web app to call API directly (no proxy)
+# ═══════════════════════════════════════════════════════════
+
+try:
+    from flask_cors import CORS
+    CORS(app, origins="*")
+except ImportError:
+    @app.after_request
+    def _add_cors(response):
+        h = response.headers
+        h["Access-Control-Allow-Origin"] = "*"
+        h["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        h["Access-Control-Allow-Headers"] = "Content-Type"
+        return response
+
 @app.route("/health")
 def health():
     token_preview = SCRAPEDO_TOKEN[:20] + "..." if SCRAPEDO_TOKEN else "NOT SET"
