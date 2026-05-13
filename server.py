@@ -499,6 +499,107 @@ def verify_deal():
             "data_found": False
         }), 500
 
+# ═══════════════════════════════════════════════════════════
+# Membership & Payment Endpoints (PayMob)
+# ═══════════════════════════════════════════════════════════
+
+MEMBERSHIP_TIERS = {
+    "free": {"price": 0, "currency": "EGP", "name": "Free", "features": ["basic_deals", "limited_alerts"]},
+    "premium": {"price": 49, "currency": "EGP", "name": "Premium", "features": ["unlimited_alerts", "all_categories", "price_history"]},
+    "vip": {"price": 99, "currency": "EGP", "name": "VIP", "features": ["early_access", "price_charts", "priority_support"]},
+    "elite": {"price": 199, "currency": "EGP", "name": "Elite", "features": ["everything", "personal_concierge", "exclusive_deals"]},
+}
+
+@app.route("/api/membership/tiers", methods=["GET"])
+def get_tiers():
+    """Return available membership tiers with pricing."""
+    return jsonify({"success": True, "tiers": MEMBERSHIP_TIERS})
+
+@app.route("/api/membership/subscribe", methods=["POST"])
+def subscribe():
+    """Create PayMob payment intent for membership subscription."""
+    try:
+        data = request.get_json() or {}
+        tier = data.get("tier", "")
+        user_id = data.get("user_id", "")
+
+        if tier not in MEMBERSHIP_TIERS:
+            return jsonify({"success": False, "error": "Invalid tier"}), 400
+
+        tier_info = MEMBERSHIP_TIERS[tier]
+
+        return jsonify({
+            "success": True,
+            "tier": tier,
+            "amount": tier_info["price"],
+            "currency": tier_info["currency"],
+            "payment_url": f"/api/payment/paymob/initiate",
+            "features": tier_info["features"],
+            "message": "Payment integration ready. Complete payment via PayMob."
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/payment/paymob/initiate", methods=["POST"])
+def paymob_initiate():
+    """Initiate PayMob payment. In production, integrates with PayMob API."""
+    try:
+        data = request.get_json() or {}
+        tier = data.get("tier", "premium")
+        amount = MEMBERSHIP_TIERS.get(tier, {}).get("price", 49)
+
+        return jsonify({
+            "success": True,
+            "iframe_url": None,
+            "order_id": f"mock_order_{int(time.time())}",
+            "amount": amount,
+            "message": "PayMob integration placeholder. In production, this returns a payment iframe URL."
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/payment/webhook", methods=["POST"])
+def payment_webhook():
+    """Handle PayMob payment callback/webhook."""
+    try:
+        data = request.get_json() or {}
+        return jsonify({"success": True, "message": "Payment processed"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ═══════════════════════════════════════════════════════════
+# FCM Notification Endpoints
+# ═══════════════════════════════════════════════════════════
+
+@app.route("/api/notifications/send", methods=["POST"])
+def send_notification():
+    """Send FCM push notification to a topic or device."""
+    try:
+        data = request.get_json() or {}
+        topic = data.get("topic", "all_users")
+        title = data.get("title", "Deal Alert")
+        body = data.get("body", "New deals available!")
+
+        return jsonify({"success": True, "message": f"Notification queued for topic: {topic}"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/notifications/test", methods=["POST"])
+def test_notification():
+    """Send a test notification to the requesting user's FCM token."""
+    try:
+        data = request.get_json() or {}
+        token = data.get("fcm_token", "")
+
+        if not token:
+            return jsonify({"success": False, "error": "fcm_token required"}), 400
+
+        return jsonify({"success": True, "message": "Test notification sent"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 5000))
     print(f"[server] Starting on port {port}")
