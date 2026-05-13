@@ -306,7 +306,9 @@ def get_deals():
         cat = request.args.get("category", "")
         site = request.args.get("site", "") or request.args.get("source", "")
 
-        fetch_limit = min(limit * 20, 1000)  # Scan more docs for source/category filtering
+        # When filtering, scan much more docs since matching docs are sparse in timestamp-sorted results
+        has_filter = bool(site or cat)
+        fetch_limit = min(limit * (100 if has_filter else 10), 3000)
         query = db.collection("deals").order_by("timestamp", direction="DESCENDING").limit(fetch_limit)
         docs = query.stream()
 
