@@ -18,7 +18,7 @@ const _categoryKeys = [
   ('Sports', 'cat_sports'),
   ('Toys', 'cat_toys'),
   ('Books', 'cat_books'),
-  ('Food', 'cat_food'),
+  // ('Food', 'cat_food'), // TODO: Add when grocery scraper is active
 ];
 
 class DealsScreen extends ConsumerStatefulWidget {
@@ -38,10 +38,10 @@ const _countries = [
 
 // Source options: (code sent to API, string key)
 const _sources = [
-  (null,      'source_all'),
-  ('amazon',  'source_amazon'),
-  ('noon',    'source_noon'),
-  ('jumia',   'source_jumia'),
+  (null,         'source_all'),
+  ('amazon_eg',  'source_amazon'),
+  ('noon_eg',    'source_noon'),
+  ('jumia_eg',   'source_jumia'),
 ];
 
 class _DealsScreenState extends ConsumerState<DealsScreen> {
