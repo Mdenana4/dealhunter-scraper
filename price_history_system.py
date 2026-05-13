@@ -244,7 +244,7 @@ class PriceSnapshotCollector:
         if self._is_dead(pid): return None
         domain = meta["domain"]
         if source.startswith("amazon"): url = f"https://{domain}/dp/{asin}"
-        elif source.startswith("noon"): url = f"https://www.{domain}/product/{asin}"
+        elif source.startswith("noon"): url = f"https://www.{domain}/{asin}/p/"
         elif source.startswith("jumia"): url = f"https://{domain}/product/{asin}"
         else: url = f"https://{domain}/dp/{asin}"
         try:
@@ -323,16 +323,23 @@ class PriceSnapshotCollector:
         soup = BeautifulSoup(html, "html.parser")
 
         # ── Current price: try multiple data-qa selectors ──
+        # Noon 2025 uses "div-price-now" (with div- prefix); legacy was "price-now"
         cp = 0.0
-        for qa in ("price-now", "selling-price", "product-price", "price", "offerPrice"):
+        for qa in ("div-price-now", "price-now", "selling-price", "product-price", "price", "offerPrice"):
             if (el := soup.find(attrs={"data-qa": qa})) and (m := re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
                 try: cp = float(m.group().replace(",", "")); break
                 except ValueError: continue
-        # Fallback: class-based search
+        # Fallback: class-based search (amount/currency pattern)
         if cp <= 0:
-            for cls in ("priceNow", "sellingPrice", "Price_amount__", "-prc"):
-                if (el := soup.find(class_=re.compile(cls))) and (m := re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
+            for cls_pat in (r"amount", r"priceNow", r"sellingPrice", r"Price_amount__", r"-prc", r"\bprice\b"):
+                if (el := soup.find(class_=re.compile(cls_pat, re.I))) and (m := re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
                     try: cp = float(m.group().replace(",", "")); break
+                    except ValueError: continue
+        # Fallback: generic text search near currency symbol
+        if cp <= 0:
+            for el in soup.find_all(string=re.compile(r"EGP\s*[\d,]+", re.I)):
+                if (m := re.search(r"EGP\s*([\d,.]+)", el, re.I)):
+                    try: cp = float(m.group(1).replace(",", "")); break
                     except ValueError: continue
         # Fallback: <script> JSON-LD
         if cp <= 0:
@@ -347,7 +354,7 @@ class PriceSnapshotCollector:
 
         # ── List / old price ──
         lp = cp
-        for qa in ("price-was", "product-old-price", "old-price", "original-price", "listPrice"):
+        for qa in ("div-price-was", "price-was", "product-old-price", "old-price", "original-price", "listPrice"):
             if (el := soup.find(attrs={"data-qa": qa})) and (m := re.search(r"[\d,.]+", el.get_text(strip=True).replace(",", ""))):
                 try: lp = float(m.group().replace(",", "")); break
                 except ValueError: continue
@@ -356,6 +363,16 @@ class PriceSnapshotCollector:
             if (m := re.search(r"[\d,.]+", del_el.get_text(strip=True).replace(",", ""))):
                 try: lp = float(m.group().replace(",", ""))
                 except ValueError: pass
+        # Fallback: crossed-out price pattern (two prices on page, higher = list)
+        if lp <= cp:
+            prices_found = []
+            for el in soup.find_all(string=re.compile(r"EGP\s*[\d,]+", re.I)):
+                if (m := re.search(r"EGP\s*([\d,.]+)", el, re.I)):
+                    try: prices_found.append(float(m.group(1).replace(",", "")))
+                    except ValueError: pass
+            if len(prices_found) >= 2:
+                max_price = max(prices_found)
+                if max_price > cp: lp = max_price
         # JSON-LD fallback for list price
         if lp <= cp:
             for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
@@ -363,7 +380,6 @@ class PriceSnapshotCollector:
                     ld = json.loads(script.string or "")
                     if isinstance(ld, dict) and (offer := ld.get("offers", {})):
                         lpp = float(offer.get("price", 0)) if isinstance(offer, dict) else 0.0
-                        # Some Noon pages list old price as highPrice
                         hp = float(offer.get("highPrice", 0)) if isinstance(offer, dict) else 0.0
                         if hp > lpp > 0: lp = hp; break
                 except Exception: continue
@@ -373,19 +389,23 @@ class PriceSnapshotCollector:
 
         # ── Seller / fulfillment ──
         seller = ""
-        for qa in ("seller-name", "pdp-seller-name", "sold-by"):
+        for qa in ("pdp-seller-name", "seller-name", "sold-by"):
             if el := soup.find(attrs={"data-qa": qa}):
                 seller = el.get_text(strip=True)
                 break
         if not seller:
-            for cls in ("Seller_name__", "seller-info", "merchant"):
-                if el := soup.find(class_=re.compile(cls, re.I)):
+            for cls_pat in (r"Seller_name__", r"seller-info", r"merchant"):
+                if el := soup.find(class_=re.compile(cls_pat, re.I)):
                     seller = el.get_text(strip=True)[:60]
                     break
+        # Fallback: "Sold by X" text pattern
+        if not seller:
+            if (m := re.search(r"Sold by\s+([^\n<]+)", html, re.I)):
+                seller = m.group(1).strip()[:60]
         ftype = "FBN" if "FBN" in html.upper() or "noon" in html.lower()[:50000] else "Merchant"
 
         # ── Stock ──
-        oos_texts = ["out of stock", "sold out", "unavailable", "غير متوفر", "نفذت الكمية"]
+        oos_texts = ["out of stock", "sold out", "unavailable", "غير متوفر", "نفذت الكمية", "sorry! this product is not available"]
         page_text = soup.get_text(" ", strip=True).lower()
         in_stock = not any(t in page_text for t in oos_texts)
 
@@ -669,7 +689,7 @@ class PriceHistoryScheduler:
             try:
                 # Build product URL per platform
                 if platform == "noon":
-                    product_url = f"https://www.{domain}/product/{asin}"
+                    product_url = f"https://www.{domain}/{asin}/p/"
                 elif platform == "jumia":
                     # Jumia URLs need the product slug — use a generic pattern
                     product_url = f"https://{domain}/generic-{asin}.html"
