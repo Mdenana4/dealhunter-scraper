@@ -54,13 +54,8 @@ def main() -> int:
     try:
         scraper = DealHunterScraper()
 
-        # Check if discovery should run (4-hour interval guard)
-        force_run = os.environ.get("FORCE_RUN", "").lower() == "true"
-        if not force_run and not scraper.should_run_discovery():
-            print("[OK] Discovery interval not reached (4h guard). Skipping.")
-            return 0
-        if force_run:
-            print("[OK] FORCE_RUN=true — bypassing 4-hour interval guard.")
+        # Always run — the 4-hour guard is managed by Cloud Scheduler
+        print("[OK] Starting discovery cycle...")
 
         print("[OK] Starting scraper cycle...")
         result = scraper.run_cycle()
