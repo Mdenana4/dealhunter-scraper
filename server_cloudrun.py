@@ -1166,19 +1166,19 @@ def create_subscription() -> Response:
     conn = None
     try:
         body = request.get_json(silent=True) or {}
-        tier_id = sanitize_string(body.get("tier_id", ""), 50)
+        tier_id = sanitize_string(body.get("tier_id", body.get("tier", "")), 50)
         billing_email = sanitize_string(body.get("billing_email", ""), 200)
         billing_phone = sanitize_string(body.get("billing_phone", ""), 50)
         billing_first_name = sanitize_string(body.get("billing_first_name", ""), 100)
         billing_last_name = sanitize_string(body.get("billing_last_name", ""), 100)
         user_id = sanitize_string(body.get("user_id", ""), 100)
 
-        if tier_id not in ("premium", "vip"):
-            return error_response("tier_id must be 'premium' or 'vip'", "INVALID_TIER", 400)
+        if tier_id not in ("premium", "vip", "elite"):
+            return error_response("tier_id must be 'premium', 'vip', or 'elite'", "INVALID_TIER", 400)
         if not billing_email:
             return error_response("billing_email is required", "MISSING_EMAIL", 400)
 
-        tier_prices = {"premium": 4900, "vip": 14900}  # in cents
+        tier_prices = {"premium": 4900, "vip": 9900, "elite": 19900}  # in cents
         amount_cents = tier_prices.get(tier_id, 4900)
 
         # Step 1: Get auth token
@@ -1284,18 +1284,28 @@ def paymob_initiate() -> Response:
     conn = None
     try:
         body = request.get_json(silent=True) or {}
+
+        # Support both tier_id (auto-calculates amount) and amount_egp (custom amount)
+        tier_id = sanitize_string(body.get("tier_id", body.get("tier", "")), 50)
         amount_egp = get_float_param_from_body(body, "amount_egp", 0, 0, 100000)
-        billing_email = sanitize_string(body.get("billing_email", ""), 200)
-        billing_phone = sanitize_string(body.get("billing_phone", ""), 50)
-        billing_first_name = sanitize_string(body.get("billing_first_name", ""), 100)
-        billing_last_name = sanitize_string(body.get("billing_last_name", ""), 100)
+        billing_email = sanitize_string(body.get("billing_email", "user@dealhunter.app"), 200)
+        billing_phone = sanitize_string(body.get("billing_phone", "01000000000"), 50)
+        billing_first_name = sanitize_string(body.get("billing_first_name", "DealHunter"), 100)
+        billing_last_name = sanitize_string(body.get("billing_last_name", "User"), 100)
         user_id = sanitize_string(body.get("user_id", ""), 100)
         items_data = body.get("items", [])
 
-        if amount_egp <= 0:
-            return error_response("amount_egp must be greater than 0", "INVALID_AMOUNT", 400)
-        if not billing_email:
-            return error_response("billing_email is required", "MISSING_EMAIL", 400)
+        # If tier_id provided, calculate amount from database
+        if tier_id and tier_id in ("premium", "vip", "elite"):
+            tier_prices = {"premium": 4900, "vip": 14900, "elite": 19900}
+            amount_cents = tier_prices.get(tier_id, 4900)
+            amount_egp = amount_cents / 100.0
+            item_name = f"DealHunter {tier_id.capitalize()} Subscription"
+        elif amount_egp > 0:
+            amount_cents = int(amount_egp * 100)
+            item_name = "DealHunter Purchase"
+        else:
+            return error_response("Provide either tier_id (premium/vip/elite) or amount_egp > 0", "INVALID_PAYMENT_PARAMS", 400)
 
         amount_cents = int(amount_egp * 100)
 
@@ -1310,7 +1320,7 @@ def paymob_initiate() -> Response:
                 })
         else:
             items = [{
-                "name": "DealHunter Purchase",
+                "name": item_name,
                 "amount_cents": amount_cents,
                 "quantity": 1,
             }]
