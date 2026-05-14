@@ -481,6 +481,24 @@ def _get_paymob_payment_key(auth_token: str, amount_cents: int, order_id: str, b
 # ENDPOINTS
 # ============================================================================
 
+@app.route("/", methods=["GET"])
+def root() -> Response:
+    """Root endpoint - redirects to health or returns API info."""
+    return success_response({
+        "service": "DealHunter Egypt API",
+        "version": "2.0.0",
+        "status": "running",
+        "endpoints": {
+            "health": "/health",
+            "deals": "/api/deals",
+            "deal_detail": "/api/deals/<id>",
+            "verify": "/api/verify",
+            "tiers": "/api/membership/tiers",
+            "paymob": "/api/payment/paymob/initiate",
+        },
+        "docs": "See /health for system status"
+    })
+
 @app.route("/health", methods=["GET"])
 def health_check() -> Response:
     """
