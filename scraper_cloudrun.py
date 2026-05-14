@@ -238,7 +238,7 @@ class ProxyRotator:
         self._lock = threading.Lock()
 
         # Scrape.do proxy
-        self.scrapedo_token = os.environ.get("SCRAPE_DO_TOKEN", "")
+        self.scrapedo_token = os.environ.get("SCRAPEDO_TOKEN", os.environ.get("SCRAPE_DO_TOKEN", ""))
         if self.scrapedo_token:
             self.proxies.append("scrapedo")
 
