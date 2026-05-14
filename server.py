@@ -708,24 +708,6 @@ def register_fcm_token():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@app.route("/api/notifications/test", methods=["POST"])
-def test_notification():
-    """Send a test notification. Requires fcm_token in body."""
-    try:
-        data = request.get_json() or {}
-        fcm_token = data.get("fcm_token", "")
-
-        if not fcm_token:
-            return jsonify({
-                "success": False, 
-                "error": "fcm_token required",
-                "instructions": "Get your FCM token from the app console or by calling /api/notifications/register first"
-            }), 400
-
-        return send_notification_to_token(fcm_token, "Test Notification", "This is a test from DealHunter!")
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
 
 def send_notification_to_token(fcm_token, title, body):
     """Helper: send FCM notification to a single token."""
