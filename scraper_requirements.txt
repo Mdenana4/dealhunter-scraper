@@ -1,0 +1,23 @@
+# DealHunter Scraper Dependencies
+# Install with: pip install -r scraper_requirements.txt
+
+# ── HTTP & HTML Parsing ──
+requests>=2.31.0          # HTTP client for all platform requests
+beautifulsoup4>=4.12.0    # HTML parsing (deals extraction)
+lxml>=4.9.0               # Fast XML/HTML parser (BeautifulSoup backend)
+
+# ── Database ──
+psycopg2-binary>=2.9.9    # PostgreSQL client with connection pooling
+
+# ── Environment ──
+python-dotenv>=1.0.0      # Load .env files for local development
+
+# ── Browser Automation ──
+playwright>=1.40.0        # JavaScript-rendered page scraping (Safqa, SPA sites)
+
+# ── Security ──
+cryptography>=41.0.0      # SSL/TLS and encryption utilities
+
+# ── Utilities (implicitly used) ──
+urllib3>=2.0.0            # HTTP client (requests dependency)
+charset-normalizer>=3.0.0 # Character encoding detection
