@@ -43,7 +43,7 @@ MAX_DISCOUNT_THRESHOLD = int(os.environ.get("MAX_DISCOUNT_THRESHOLD", "90"))
 MIN_DISCOUNT = int(os.environ.get("MIN_DISCOUNT", "40"))
 
 # Timeouts
-REQUEST_TIMEOUT = int(os.environ.get("REQUEST_TIMEOUT", "30"))
+REQUEST_TIMEOUT = int(os.environ.get("REQUEST_TIMEOUT", "120"))
 MIN_REQUEST_INTERVAL = float(os.environ.get("MIN_REQUEST_INTERVAL", "2.0"))
 
 # Database URLs
@@ -271,7 +271,7 @@ class ProxyRotator:
         if proxy == "scrapedo":
             return (
                 f"http://api.scrape.do/?token={self.scrapedo_token}"
-                f"&url={encoded_url}"
+                f"&url={encoded_url}&render=true"
             )
         elif proxy == "crawlbase":
             return (
