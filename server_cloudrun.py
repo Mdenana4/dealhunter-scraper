@@ -575,7 +575,7 @@ def list_deals() -> Response:
                    category, original_price, current_price, discount_percent,
                    savings, currency, verdict, fake_score, recommendation,
                    confidence, fraud_reasons, rating, review_count,
-                   marketplace_country, created_at, updated_at
+                   created_at
             FROM deals
             WHERE {where_clause}
             ORDER BY {sort_column} {sort_direction}
