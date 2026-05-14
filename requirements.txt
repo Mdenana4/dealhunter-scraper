@@ -1,13 +1,34 @@
-flask
-flask-cors
-firebase-admin
-requests
-beautifulsoup4
-lxml
-cryptography
-schedule
-python-dotenv
+# DealHunter Egypt - Cloud Run Flask API Dependencies
+# ==================================================
+# Pinned versions for reproducible builds
+# Last updated: 2025-01-15
 
-# Browser automation for Safqa (no proxy needed)
-playwright>=1.40.0  # cache-bust-v4-2026-05-09
-gunicorn
+# --- Web Framework ---
+flask==3.0.3
+flask-cors==4.0.1
+werkzeug==3.0.3
+
+# --- Database ---
+psycopg2-binary==2.9.9
+psycopg[pool]==3.1.19
+
+# --- Authentication / JWT ---
+python-jose[cryptography]==3.3.0
+
+# --- Firebase / FCM ---
+firebase-admin==6.5.0
+google-auth==2.31.0
+
+# --- HTTP Client ---
+requests==2.32.3
+urllib3==2.2.2
+certifi==2024.7.4
+
+# --- Server ---
+gunicorn==22.0.0
+
+# --- Environment ---
+python-dotenv==1.0.1
+
+# --- Utilities ---
+python-dateutil==2.9.0
