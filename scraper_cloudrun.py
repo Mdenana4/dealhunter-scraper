@@ -1,3 +1,4 @@
+from psycopg2.extras import Json
 #!/usr/bin/env python3
 """
 DealHunter Scraper — Production Cloud Run Job
@@ -1833,7 +1834,7 @@ class DealHunterScraper:
                                     deal.get("fake_score", 0.0),
                                     deal.get("recommendation", "good_deal"),
                                     deal.get("confidence", 0.0),
-                                    json.dumps(deal.get("fraud_reasons", [])),
+                                    Json(deal.get("fraud_reasons", [])),
                                     deal.get("rating"),
                                     deal.get("review_count", 0),
                                 ),
