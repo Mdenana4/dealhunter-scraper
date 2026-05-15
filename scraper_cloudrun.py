@@ -1,5 +1,5 @@
-from psycopg2.extras import Json
 #!/usr/bin/env python3
+from psycopg2.extras import Json
 """
 DealHunter Scraper — Production Cloud Run Job
 Scrapes Amazon.eg/ae/sa, Noon.com (eg/ae/sa), and Jumia.com.eg for deals.
