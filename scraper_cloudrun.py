@@ -1833,7 +1833,7 @@ class DealHunterScraper:
                                     deal.get("fake_score", 0.0),
                                     deal.get("recommendation", "good_deal"),
                                     deal.get("confidence", 0.0),
-                                    str(deal.get("fraud_reasons", [])),
+                                    json.dumps(deal.get("fraud_reasons", [])),
                                     deal.get("rating"),
                                     deal.get("review_count", 0),
                                 ),
@@ -1891,6 +1891,10 @@ class DealHunterScraper:
 
                     except Exception as e:
                         logger.error(f"[ERROR] Failed to upsert deal {deal.get('id')}: {e}")
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
                         continue
 
                 conn.commit()
