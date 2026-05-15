@@ -1834,7 +1834,7 @@ class DealHunterScraper:
                                     deal.get("fake_score", 0.0),
                                     deal.get("recommendation", "good_deal"),
                                     deal.get("confidence", 0.0),
-                                    Json(deal.get("fraud_reasons", [])),
+                                    (deal.get("fraud_reasons") or None),
                                     deal.get("rating"),
                                     deal.get("review_count", 0),
                                 ),
