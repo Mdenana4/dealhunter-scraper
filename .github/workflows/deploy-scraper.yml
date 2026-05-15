@@ -1,0 +1,116 @@
+name: Deploy Scraper to Cloud Run Job
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scraper_cloudrun.py'
+      - 'scraper_job.py'
+      - 'scraper_requirements.txt'
+      - 'Dockerfile.scraper'
+      - '.github/workflows/deploy-scraper.yml'
+  workflow_dispatch:
+    inputs:
+      run_immediately:
+        description: 'Execute one scrape cycle after deploy?'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  PROJECT_ID: dealhunter-egypt-70d29
+  REGION:     us-central1
+  JOB_NAME:   dealhunter-scraper
+  IMAGE:      us-central1-docker.pkg.dev/dealhunter-egypt-70d29/cloud-run-source-deploy/dealhunter-scraper:latest
+  SA_EMAIL:   firebase-adminsdk-fbsvc@dealhunter-egypt-70d29.iam.gserviceaccount.com
+
+jobs:
+  deploy:
+    name: Build & Deploy Scraper
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Clone repo
+        run: |
+          git clone --depth=1 --no-recurse-submodules --branch main \
+            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" .
+
+      - name: Authenticate to GCP
+        run: |
+          echo '${{ secrets.GCP_SA_KEY }}' > /tmp/sa-key.json
+          gcloud auth activate-service-account --key-file=/tmp/sa-key.json
+          gcloud config set project ${{ env.PROJECT_ID }}
+          rm -f /tmp/sa-key.json
+          echo "Authenticated as: $(gcloud auth list --filter=status:ACTIVE --format='value(account)')"
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build Docker image
+        run: |
+          docker build -f Dockerfile.scraper -t ${{ env.IMAGE }} .
+          echo "Built: ${{ env.IMAGE }}"
+
+      - name: Push image to Artifact Registry
+        run: |
+          docker push ${{ env.IMAGE }}
+          echo "Pushed: ${{ env.IMAGE }}"
+
+      - name: Update Cloud Run Job
+        run: |
+          JOB_EXISTS=$(gcloud run jobs describe "${{ env.JOB_NAME }}" \
+            --project="${{ env.PROJECT_ID }}" --region="${{ env.REGION }}" \
+            --format="value(name)" 2>/dev/null || echo "")
+
+          ENV_VARS="DATABASE_URL=${{ secrets.DATABASE_URL }}"
+          ENV_VARS="${ENV_VARS},SCRAPEDO_TOKEN=${{ secrets.SCRAPEDO_TOKEN }}"
+          ENV_VARS="${ENV_VARS},AMAZON_ENABLED=true,NOON_ENABLED=true,JUMIA_ENABLED=true"
+          ENV_VARS="${ENV_VARS},MIN_DISCOUNT=40,MIN_PRICE=50"
+
+          if [ -n "$JOB_EXISTS" ]; then
+            gcloud run jobs update "${{ env.JOB_NAME }}" \
+              --project="${{ env.PROJECT_ID }}" --region="${{ env.REGION }}" \
+              --image="${{ env.IMAGE }}" --task-timeout=1800 --max-retries=1 \
+              --memory=1Gi --cpu=1 --set-env-vars="${ENV_VARS}"
+            echo "Job updated."
+          else
+            gcloud run jobs create "${{ env.JOB_NAME }}" \
+              --project="${{ env.PROJECT_ID }}" --region="${{ env.REGION }}" \
+              --image="${{ env.IMAGE }}" --task-timeout=1800 --max-retries=1 \
+              --memory=1Gi --cpu=1 --set-env-vars="${ENV_VARS}"
+            echo "Job created."
+          fi
+
+      - name: Setup Cloud Scheduler (every 4 hours Cairo)
+        continue-on-error: true
+        run: |
+          JOB_URI="https://${{ env.REGION }}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${{ env.PROJECT_ID }}/jobs/${{ env.JOB_NAME }}:run"
+          SCHED_EXISTS=$(gcloud scheduler jobs describe scraper-schedule \
+            --project="${{ env.PROJECT_ID }}" --location="${{ env.REGION }}" \
+            --format="value(name)" 2>/dev/null || echo "")
+          if [ -n "$SCHED_EXISTS" ]; then
+            gcloud scheduler jobs update http scraper-schedule \
+              --project="${{ env.PROJECT_ID }}" --location="${{ env.REGION }}" \
+              --schedule="0 */4 * * *" --uri="$JOB_URI" --http-method=POST \
+              --oauth-service-account-email="${{ env.SA_EMAIL }}" --time-zone="Africa/Cairo"
+          else
+            gcloud scheduler jobs create http scraper-schedule \
+              --project="${{ env.PROJECT_ID }}" --location="${{ env.REGION }}" \
+              --schedule="0 */4 * * *" --uri="$JOB_URI" --http-method=POST \
+              --oauth-service-account-email="${{ env.SA_EMAIL }}" --time-zone="Africa/Cairo"
+          fi
+          echo "Scheduler ready."
+
+      - name: Run first scrape cycle
+        continue-on-error: true
+        if: ${{ github.event.inputs.run_immediately != 'false' }}
+        run: |
+          gcloud run jobs execute "${{ env.JOB_NAME }}" \
+            --project="${{ env.PROJECT_ID }}" --region="${{ env.REGION }}" --wait
+          echo "First cycle complete."
+
+      - name: Done
+        if: always()
+        run: echo "Job=${{ env.JOB_NAME }} Region=${{ env.REGION }} Image=${{ env.IMAGE }}"
