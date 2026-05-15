@@ -979,21 +979,24 @@ class DealHunterScraper:
 
         deal = {
             "id": make_deal_id(site, url, current),
+            "product_id": "",
             "site": site,
-            "platform": platform,
-            "country": country,
             "title": title.strip()[:500],
-            "url": url.strip()[:2000],
             "image_url": (image_url or "")[:2000],
-            "current_price": current,
-            "original_price": original,
-            "discount_percent": discount["percent"],
-            "discount_amount": discount["savings"],
+            "product_url": url.strip()[:2000],
             "category": category,
+            "original_price": original,
+            "current_price": current,
+            "discount_percent": discount["percent"],
+            "savings": discount["savings"],
+            "currency": "EGP",
+            "verdict": "GENUINE",
+            "fake_score": 0.0,
+            "recommendation": "good_deal",
+            "confidence": 0.0,
+            "fraud_reasons": [],
             "rating": rating,
-            "reviews": reviews,
-            "is_active": True,
-            "is_grocery": is_grocery,
+            "review_count": reviews,
         }
         return deal
 
@@ -1026,8 +1029,8 @@ class DealHunterScraper:
         seen = set()
         unique_deals = []
         for d in all_deals:
-            if d["url"] not in seen:
-                seen.add(d["url"])
+            if d["product_url"] not in seen:
+                seen.add(d["product_url"])
                 unique_deals.append(d)
 
         logger.info(f"[OK] Amazon EG total: {len(unique_deals)} unique deals")
@@ -1217,8 +1220,8 @@ class DealHunterScraper:
         seen = set()
         unique_deals = []
         for d in all_deals:
-            if d["url"] not in seen:
-                seen.add(d["url"])
+            if d["product_url"] not in seen:
+                seen.add(d["product_url"])
                 unique_deals.append(d)
 
         logger.info(f"[OK] Amazon AE total: {len(unique_deals)} unique deals")
@@ -1248,8 +1251,8 @@ class DealHunterScraper:
         seen = set()
         unique_deals = []
         for d in all_deals:
-            if d["url"] not in seen:
-                seen.add(d["url"])
+            if d["product_url"] not in seen:
+                seen.add(d["product_url"])
                 unique_deals.append(d)
 
         logger.info(f"[OK] Amazon SA total: {len(unique_deals)} unique deals")
@@ -1281,8 +1284,8 @@ class DealHunterScraper:
         unique_deals = []
         failed_images = 0
         for d in all_deals:
-            if d["url"] not in seen:
-                seen.add(d["url"])
+            if d["product_url"] not in seen:
+                seen.add(d["product_url"])
                 unique_deals.append(d)
                 if not d.get("image_url"):
                     failed_images += 1
@@ -1498,8 +1501,8 @@ class DealHunterScraper:
         seen = set()
         unique_deals = []
         for d in all_deals:
-            if d["url"] not in seen:
-                seen.add(d["url"])
+            if d["product_url"] not in seen:
+                seen.add(d["product_url"])
                 unique_deals.append(d)
 
         logger.info(f"[OK] Noon AE total: {len(unique_deals)} unique deals")
@@ -1529,8 +1532,8 @@ class DealHunterScraper:
         seen = set()
         unique_deals = []
         for d in all_deals:
-            if d["url"] not in seen:
-                seen.add(d["url"])
+            if d["product_url"] not in seen:
+                seen.add(d["product_url"])
                 unique_deals.append(d)
 
         logger.info(f"[OK] Noon SA total: {len(unique_deals)} unique deals")
@@ -1563,8 +1566,8 @@ class DealHunterScraper:
         seen = set()
         unique_deals = []
         for d in all_deals:
-            if d["url"] not in seen:
-                seen.add(d["url"])
+            if d["product_url"] not in seen:
+                seen.add(d["product_url"])
                 unique_deals.append(d)
 
         logger.info(f"[OK] Jumia EG total: {len(unique_deals)} unique deals")
@@ -1792,37 +1795,39 @@ class DealHunterScraper:
                         row = cur.fetchone()
 
                         if row is None:
-                            # Insert new deal
                             cur.execute(
                                 """
                                 INSERT INTO deals (
-                                    id, site, platform, country, title, url,
-                                    image_url, current_price, original_price,
-                                    discount_percent, discount_amount, category,
-                                    rating, reviews, is_active, is_grocery,
-                                    created_at, updated_at, last_seen_at
+                                    id, product_id, site, title, image_url,
+                                    product_url, category, original_price, current_price,
+                                    discount_percent, savings, currency,
+                                    verdict, fake_score, recommendation, confidence,
+                                    fraud_reasons, rating, review_count, created_at
                                 ) VALUES (
                                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                    %s, %s, %s, %s, %s, %s, NOW(), NOW(), NOW()
+                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()
                                 )
                                 """,
                                 (
                                     deal["id"],
+                                    deal.get("product_id", ""),
                                     deal["site"],
-                                    deal["platform"],
-                                    deal["country"],
                                     deal["title"],
-                                    deal["url"],
                                     deal.get("image_url", ""),
-                                    deal["current_price"],
-                                    deal["original_price"],
-                                    deal["discount_percent"],
-                                    deal["discount_amount"],
+                                    deal.get("product_url", ""),
                                     deal.get("category"),
+                                    deal["original_price"],
+                                    deal["current_price"],
+                                    deal["discount_percent"],
+                                    deal["savings"],
+                                    deal.get("currency", "EGP"),
+                                    deal.get("verdict", "GENUINE"),
+                                    deal.get("fake_score", 0.0),
+                                    deal.get("recommendation", "good_deal"),
+                                    deal.get("confidence", 0.0),
+                                    str(deal.get("fraud_reasons", [])),
                                     deal.get("rating"),
-                                    deal.get("reviews", 0),
-                                    deal.get("is_active", True),
-                                    deal.get("is_grocery", False),
+                                    deal.get("review_count", 0),
                                 ),
                             )
                             inserted += 1
@@ -1831,37 +1836,34 @@ class DealHunterScraper:
                             new_price = float(deal["current_price"])
 
                             if abs(old_price - new_price) > 0.01:
-                                # Price changed — update
                                 cur.execute(
                                     """
                                     UPDATE deals SET
                                         current_price = %s,
                                         original_price = %s,
                                         discount_percent = %s,
-                                        discount_amount = %s,
+                                        savings = %s,
                                         title = %s,
                                         image_url = %s,
+                                        product_url = %s,
                                         category = %s,
                                         rating = %s,
-                                        reviews = %s,
-                                        is_active = %s,
-                                        is_grocery = %s,
-                                        updated_at = NOW(),
-                                        last_seen_at = NOW()
+                                        review_count = %s,
+                                        recommendation = %s
                                     WHERE id = %s
                                     """,
                                     (
                                         deal["current_price"],
                                         deal["original_price"],
                                         deal["discount_percent"],
-                                        deal["discount_amount"],
+                                        deal["savings"],
                                         deal["title"],
                                         deal.get("image_url", ""),
+                                        deal.get("product_url", ""),
                                         deal.get("category"),
                                         deal.get("rating"),
-                                        deal.get("reviews", 0),
-                                        deal.get("is_active", True),
-                                        deal.get("is_grocery", False),
+                                        deal.get("review_count", 0),
+                                        deal.get("recommendation", "good_deal"),
                                         deal["id"],
                                     ),
                                 )
