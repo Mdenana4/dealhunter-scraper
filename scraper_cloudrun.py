@@ -694,7 +694,10 @@ class DealHunterScraper:
             logger.warning("[WARN] TIMESCALE_URL not set — price snapshots disabled")
 
     def _ensure_tables(self):
-        """Ensure required tables exist in both databases."""
+        """Ensure required tables exist with correct schema.
+        Handles both fresh deployments (CREATE TABLE) and existing tables
+        with old schema (automatic migration via ALTER TABLE + UPDATE).
+        """
         # Supabase deals table
         if self.db_pool:
             try:
@@ -704,51 +707,56 @@ class DealHunterScraper:
                         """
                         CREATE TABLE IF NOT EXISTS deals (
                             id TEXT PRIMARY KEY,
+                            product_id TEXT,
                             site VARCHAR(32) NOT NULL,
-                            platform VARCHAR(32) NOT NULL,
-                            country VARCHAR(8) NOT NULL,
                             title TEXT NOT NULL,
-                            url TEXT NOT NULL,
                             image_url TEXT,
-                            current_price DECIMAL(12,2) NOT NULL DEFAULT 0,
-                            original_price DECIMAL(12,2) NOT NULL DEFAULT 0,
-                            discount_percent DECIMAL(5,1) NOT NULL DEFAULT 0,
-                            discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+                            product_url TEXT,
                             category VARCHAR(32),
+                            original_price DECIMAL(12,2) NOT NULL DEFAULT 0,
+                            current_price DECIMAL(12,2) NOT NULL DEFAULT 0,
+                            discount_percent DECIMAL(5,1) NOT NULL DEFAULT 0,
+                            savings DECIMAL(12,2) NOT NULL DEFAULT 0,
+                            currency VARCHAR(8) DEFAULT 'EGP',
+                            verdict VARCHAR(32) DEFAULT 'GENUINE',
+                            fake_score DECIMAL(5,2) DEFAULT 0,
+                            recommendation VARCHAR(32) DEFAULT 'good_deal',
+                            confidence DECIMAL(5,2) DEFAULT 0,
+                            fraud_reasons JSONB DEFAULT '[]',
                             rating DECIMAL(3,1),
-                            reviews INTEGER DEFAULT 0,
-                            is_active BOOLEAN DEFAULT true,
-                            is_grocery BOOLEAN DEFAULT false,
-                            created_at TIMESTAMPTZ DEFAULT NOW(),
-                            updated_at TIMESTAMPTZ DEFAULT NOW(),
-                            last_seen_at TIMESTAMPTZ DEFAULT NOW()
+                            review_count INTEGER DEFAULT 0,
+                            created_at TIMESTAMPTZ DEFAULT NOW()
                         )
                         """
                     )
-                    # Index for common queries
-                    cur.execute(
-                        """
-                        CREATE INDEX IF NOT EXISTS idx_deals_site_active
-                        ON deals(site, is_active)
-                        """
-                    )
-                    cur.execute(
-                        """
-                        CREATE INDEX IF NOT EXISTS idx_deals_discount
-                        ON deals(discount_percent DESC)
-                        WHERE is_active = true
-                        """
-                    )
-                    cur.execute(
-                        """
-                        CREATE INDEX IF NOT EXISTS idx_deals_category
-                        ON deals(category)
-                        WHERE is_active = true
-                        """
-                    )
+                    # MIGRATE: Add columns that don't exist yet
+                    migrations = [
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS product_id TEXT",
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS product_url TEXT",
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS savings DECIMAL(12,2) NOT NULL DEFAULT 0",
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS currency VARCHAR(8) DEFAULT 'EGP'",
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS verdict VARCHAR(32) DEFAULT 'GENUINE'",
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS fake_score DECIMAL(5,2) DEFAULT 0",
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS recommendation VARCHAR(32) DEFAULT 'good_deal'",
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS confidence DECIMAL(5,2) DEFAULT 0",
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS fraud_reasons JSONB DEFAULT '[]'",
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS review_count INTEGER DEFAULT 0",
+                    ]
+                    for sql in migrations:
+                        cur.execute(sql)
+                    # MIGRATE: Copy data from old column names
+                    cur.execute("UPDATE deals SET product_url = url WHERE product_url IS NULL AND url IS NOT NULL")
+                    cur.execute("UPDATE deals SET savings = discount_amount WHERE savings = 0 AND discount_amount > 0")
+                    cur.execute("UPDATE deals SET review_count = reviews WHERE review_count = 0 AND reviews > 0")
+                    cur.execute("UPDATE deals SET currency = 'EGP' WHERE currency IS NULL")
+                    cur.execute("UPDATE deals SET verdict = 'GENUINE' WHERE verdict IS NULL")
+                    # Indexes
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_deals_site ON deals(site)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_deals_discount ON deals(discount_percent DESC)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_deals_category ON deals(category)")
                     conn.commit()
                 self.db_pool.putconn(conn)
-                logger.info("[OK] Supabase deals table ensured")
+                logger.info("[OK] Supabase deals table ensured with correct schema")
             except Exception as e:
                 logger.error(f"[ERROR] Failed to ensure Supabase tables: {e}")
 
