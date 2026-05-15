@@ -1931,13 +1931,17 @@ class DealHunterScraper:
                         cur.execute(
                             """
                             INSERT INTO price_snapshots
-                                (deal_id, price, source, timestamp)
-                            VALUES (%s, %s, %s, NOW())
+                                (deal_id, product_id, site, price, original_price, discount_percent, currency)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
                             """,
                             (
                                 deal["id"],
-                                deal["current_price"],
+                                deal.get("product_id", ""),
                                 deal["site"],
+                                deal["current_price"],
+                                deal["original_price"],
+                                deal["discount_percent"],
+                                deal.get("currency", "EGP"),
                             ),
                         )
                         count += 1
