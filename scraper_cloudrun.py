@@ -742,7 +742,7 @@ class DealHunterScraper:
                         """
                     )
                     # MIGRATE: Add columns that don't exist yet
-                    migrations = [
+                    for sql in [
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS product_id TEXT",
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS product_url TEXT",
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS savings DECIMAL(12,2) NOT NULL DEFAULT 0",
@@ -755,9 +755,13 @@ class DealHunterScraper:
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS review_count INTEGER DEFAULT 0",
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ DEFAULT NOW()",
-                    ]
-                    for sql in migrations:
-                        cur.execute(sql)
+                    ]:
+                        try:
+                            cur.execute(sql)
+                        except psycopg2.Error:
+                            conn.rollback()
+                    # Commit column additions before risky operations that may rollback
+                    conn.commit()
                     # MIGRATE: Copy data from old column names (guard against missing cols)
                     for safe_sql in [
                         "UPDATE deals SET savings = discount_amount WHERE savings = 0 AND discount_amount > 0",
@@ -766,28 +770,37 @@ class DealHunterScraper:
                     ]:
                         try:
                             cur.execute(safe_sql)
+                            conn.commit()
                         except psycopg2.Error:
                             conn.rollback()
                     # Fix category check constraint to include all categories we produce
-                    for csql in [
-                        "ALTER TABLE deals DROP CONSTRAINT IF EXISTS deals_category_check",
-                        (
+                    try:
+                        cur.execute("ALTER TABLE deals DROP CONSTRAINT IF EXISTS deals_category_check")
+                        conn.commit()
+                    except psycopg2.Error:
+                        conn.rollback()
+                    try:
+                        cur.execute(
                             "ALTER TABLE deals ADD CONSTRAINT deals_category_check "
                             "CHECK (category IS NULL OR category IN ("
                             "'electronics','fashion','home','sports','beauty',"
                             "'baby','automotive','books','pets','food','health',"
                             "'grocery','office','other'))"
-                        ),
+                        )
+                        conn.commit()
+                    except psycopg2.Error:
+                        conn.rollback()
+                    # Indexes
+                    for idx_sql in [
+                        "CREATE INDEX IF NOT EXISTS idx_deals_site ON deals(site)",
+                        "CREATE INDEX IF NOT EXISTS idx_deals_discount ON deals(discount_percent DESC)",
+                        "CREATE INDEX IF NOT EXISTS idx_deals_category ON deals(category)",
                     ]:
                         try:
-                            cur.execute(csql)
+                            cur.execute(idx_sql)
+                            conn.commit()
                         except psycopg2.Error:
                             conn.rollback()
-                    # Indexes
-                    cur.execute("CREATE INDEX IF NOT EXISTS idx_deals_site ON deals(site)")
-                    cur.execute("CREATE INDEX IF NOT EXISTS idx_deals_discount ON deals(discount_percent DESC)")
-                    cur.execute("CREATE INDEX IF NOT EXISTS idx_deals_category ON deals(category)")
-                    conn.commit()
                 self.db_pool.putconn(conn)
                 logger.info("[OK] Supabase deals table ensured with correct schema")
             except Exception as e:
@@ -826,6 +839,8 @@ class DealHunterScraper:
                             cur.execute(col_sql)
                         except psycopg2.Error:
                             conn.rollback()
+                    # Commit column migrations NOW — before hypertable call which may rollback
+                    conn.commit()
                     # Convert to hypertable if TimescaleDB is available
                     try:
                         cur.execute(
@@ -856,6 +871,8 @@ class DealHunterScraper:
                         )
                         """
                     )
+                    # Commit CREATE TABLE before hypertable attempt which may rollback
+                    conn.commit()
                     try:
                         cur.execute(
                             """
@@ -866,11 +883,10 @@ class DealHunterScraper:
                             )
                             """
                         )
+                        conn.commit()
                     except psycopg2.Error:
                         conn.rollback()
                         pass
-
-                    conn.commit()
                 self.ts_pool.putconn(conn)
                 logger.info("[OK] TimescaleDB tables ensured")
             except Exception as e:
