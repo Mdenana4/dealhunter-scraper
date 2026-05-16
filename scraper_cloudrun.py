@@ -75,27 +75,34 @@ _DEAL_URLS: Dict[str, List[str]] = {
         "https://www.amazon.sa/s?k=deals",
     ],
     "noon_eg": [
-        "https://www.noon.com/egypt-en/sale-electronics/",
-        "https://www.noon.com/egypt-en/sale-fashion/",
-        "https://www.noon.com/egypt-en/sale-home/",
+        "https://www.noon.com/egypt-en/flash-sale/",
+        "https://www.noon.com/egypt-en/offers/",
+        "https://www.noon.com/egypt-en/mobiles-and-tablets/",
         "https://www.noon.com/egypt-en/electronics-and-mobiles/",
+        "https://www.noon.com/egypt-en/fashion/",
+        "https://www.noon.com/egypt-en/home-and-kitchen/",
+        "https://www.noon.com/egypt-en/sports-and-outdoors/",
     ],
     "noon_ae": [
-        "https://www.noon.com/uae-en/sale-electronics/",
-        "https://www.noon.com/uae-en/sale-fashion/",
+        "https://www.noon.com/uae-en/flash-sale/",
+        "https://www.noon.com/uae-en/offers/",
+        "https://www.noon.com/uae-en/mobiles-and-tablets/",
         "https://www.noon.com/uae-en/electronics-and-mobiles/",
     ],
     "noon_sa": [
-        "https://www.noon.com/saudi-en/sale-electronics/",
-        "https://www.noon.com/saudi-en/sale-fashion/",
+        "https://www.noon.com/saudi-en/flash-sale/",
+        "https://www.noon.com/saudi-en/offers/",
+        "https://www.noon.com/saudi-en/mobiles-and-tablets/",
         "https://www.noon.com/saudi-en/electronics-and-mobiles/",
     ],
     "jumia_eg": [
-        "https://www.jumia.com.eg/deals-of-the-day/",
         "https://www.jumia.com.eg/catalog/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/catalog/?f%5Bn_special_price%5D=1&page=2",
+        "https://www.jumia.com.eg/catalog/?f%5Bn_special_price%5D=1&page=3",
         "https://www.jumia.com.eg/phones-tablets/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/laptops/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/televisions/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/health-beauty/?f%5Bn_special_price%5D=1",
     ],
 }
 
@@ -751,12 +758,31 @@ class DealHunterScraper:
                     ]
                     for sql in migrations:
                         cur.execute(sql)
-                    # MIGRATE: Copy data from old column names
-                    #cur.execute("UPDATE deals SET product_url = url WHERE product_url IS NULL AND url IS NOT NULL")
-                    cur.execute("UPDATE deals SET savings = discount_amount WHERE savings = 0 AND discount_amount > 0")
-                    cur.execute("UPDATE deals SET review_count = reviews WHERE review_count = 0 AND reviews > 0")
-                    cur.execute("UPDATE deals SET currency = 'EGP' WHERE currency IS NULL")
-                    cur.execute("UPDATE deals SET verdict = 'GENUINE' WHERE verdict IS NULL")
+                    # MIGRATE: Copy data from old column names (guard against missing cols)
+                    for safe_sql in [
+                        "UPDATE deals SET savings = discount_amount WHERE savings = 0 AND discount_amount > 0",
+                        "UPDATE deals SET currency = 'EGP' WHERE currency IS NULL",
+                        "UPDATE deals SET verdict = 'GENUINE' WHERE verdict IS NULL",
+                    ]:
+                        try:
+                            cur.execute(safe_sql)
+                        except psycopg2.Error:
+                            conn.rollback()
+                    # Fix category check constraint to include all categories we produce
+                    for csql in [
+                        "ALTER TABLE deals DROP CONSTRAINT IF EXISTS deals_category_check",
+                        (
+                            "ALTER TABLE deals ADD CONSTRAINT deals_category_check "
+                            "CHECK (category IS NULL OR category IN ("
+                            "'electronics','fashion','home','sports','beauty',"
+                            "'baby','automotive','books','pets','food','health',"
+                            "'grocery','office','other'))"
+                        ),
+                    ]:
+                        try:
+                            cur.execute(csql)
+                        except psycopg2.Error:
+                            conn.rollback()
                     # Indexes
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_deals_site ON deals(site)")
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_deals_discount ON deals(discount_percent DESC)")
@@ -791,6 +817,7 @@ class DealHunterScraper:
                     for col_sql in [
                         "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS product_id TEXT",
                         "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS site VARCHAR(32)",
+                        "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS source VARCHAR(32)",
                         "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS original_price DECIMAL(12,2)",
                         "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS discount_percent DECIMAL(5,1)",
                         "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS currency VARCHAR(8) DEFAULT 'EGP'",
@@ -1368,6 +1395,9 @@ class DealHunterScraper:
                 if resp.status_code == 200:
                     html = resp.text
                     logger.info(f"[NOON] scrape.do rendered OK for {url}")
+                elif resp.status_code == 404:
+                    logger.warning(f"[NOON] URL does not exist (404): {url}")
+                    return []  # dead URL — no point trying Playwright
                 else:
                     logger.warning(
                         f"[NOON] scrape.do HTTP {resp.status_code} for {url}"
