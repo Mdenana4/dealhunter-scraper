@@ -2326,3 +2326,60 @@ def scrape_noon_playwright(url, site_key="noon_eg", min_discount=40):
     
     logger.info(f"[PLAYWRIGHT] Noon {site_key}: {len(deals)} deals extracted")
     return deals
+
+
+    def _scrape_noon_playwright(self, url: str, site_key: str):
+        """Scrape Noon using Playwright - renders React client-side."""
+        deals = []
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+                page.goto(url, wait_until="networkidle", timeout=30000)
+                page.wait_for_selector('[data-qa="plp-product-box"]', timeout=15000)
+                page.wait_for_timeout(3000)
+                
+                products = page.query_selector_all('[data-qa="plp-product-box"]')
+                print(f"[NOON] Found {len(products)} products via Playwright")
+                
+                for product in products:
+                    try:
+                        name_el = product.query_selector('[data-qa="plp-product-box-name"]')
+                        price_el = product.query_selector('[data-qa="plp-product-box-price"]')
+                        link_el = product.query_selector('a')
+                        if not all([name_el, price_el, link_el]): continue
+                        
+                        name = name_el.inner_text().strip()
+                        price_text = price_el.inner_text().strip()
+                        href = link_el.get_attribute('href') or ""
+                        
+                        price_match = re.search(r'[\d,]+\.?\d*', price_text.replace(',', ''))
+                        if not price_match: continue
+                        current_price = float(price_match.group().replace(',', ''))
+                        if current_price < 100: continue
+                        
+                        deal = {
+                            'id': __import__('hashlib').md5(f"{site_key}:{href}:{current_price}".encode()).hexdigest()[:16],
+                            'title': name,
+                            'product_url': f"https://www.noon.com{href}" if href.startswith('/') else href,
+                            'current_price': current_price,
+                            'original_price': current_price,
+                            'discount_percent': 0,
+                            'site': site_key,
+                            'category': 'electronics',
+                            'timestamp': __import__('datetime').datetime.utcnow().isoformat(),
+                            'currency': 'EGP' if 'eg' in site_key else 'AED' if 'ae' in site_key else 'SAR',
+                            'fraud_reasons': [],
+                            'verdict': 'PENDING',
+                            'fake_score': 0,
+                            'confidence': 0,
+                        }
+                        deals.append(deal)
+                    except: pass
+                
+                browser.close()
+        except Exception as e:
+            print(f"[NOON-ERROR] Playwright failed: {e}")
+        
+        print(f"[NOON] {site_key}: extracted {len(deals)} deals")
+        return deals
