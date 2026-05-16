@@ -2256,3 +2256,73 @@ if __name__ == "__main__":
     scraper = DealHunterScraper()
     result = scraper.run_cycle()
     print(json.dumps(result, indent=2, default=str))
+
+def scrape_noon_playwright(url, site_key="noon_eg", min_discount=40):
+    """Scrape Noon using Playwright - handles client-side rendered React app."""
+    import re
+    from playwright.sync_api import sync_playwright
+    
+    deals = []
+    logger.info(f"[PLAYWRIGHT] Rendering Noon page: {url}")
+    
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(url, wait_until="networkidle", timeout=30000)
+            
+            # Wait for React hydration
+            page.wait_for_selector('[data-qa="plp-product-box"]', timeout=15000)
+            
+            # Small additional wait for price data to load
+            page.wait_for_timeout(2000)
+            
+            products = page.query_selector_all('[data-qa="plp-product-box"]')
+            logger.info(f"[PLAYWRIGHT] Found {len(products)} products on Noon")
+            
+            for i, product in enumerate(products):
+                try:
+                    name_el = product.query_selector('[data-qa="plp-product-box-name"]')
+                    price_el = product.query_selector('[data-qa="plp-product-box-price"]')
+                    link_el = product.query_selector('a')
+                    
+                    if not all([name_el, price_el, link_el]):
+                        continue
+                    
+                    name = name_el.inner_text().strip()
+                    price_text = price_el.inner_text().strip()
+                    href = link_el.get_attribute('href') or ""
+                    
+                    # Parse price
+                    price_match = re.search(r'[\d,]+\.?\d*', price_text)
+                    if not price_match:
+                        continue
+                    
+                    current_price = float(price_match.group().replace(',', ''))
+                    
+                    # Skip if below minimum
+                    if current_price < 200:
+                        continue
+                    
+                    deal = {
+                        'title': name,
+                        'current_price': current_price,
+                        'original_price': current_price,  # Will be updated if discount found
+                        'discount_percent': 0,
+                        'product_url': f"https://www.noon.com{href}" if href.startswith('/') else href,
+                        'site': site_key,
+                        'category': detect_category(name),
+                    }
+                    deals.append(deal)
+                    
+                except Exception as e:
+                    logger.warning(f"[PLAYWRIGHT] Error parsing product {i}: {e}")
+                    continue
+            
+            browser.close()
+            
+    except Exception as e:
+        logger.error(f"[PLAYWRIGHT] Failed to render Noon: {e}")
+    
+    logger.info(f"[PLAYWRIGHT] Noon {site_key}: {len(deals)} deals extracted")
+    return deals
