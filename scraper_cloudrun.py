@@ -746,7 +746,7 @@ class DealHunterScraper:
                     for sql in migrations:
                         cur.execute(sql)
                     # MIGRATE: Copy data from old column names
-                    cur.execute("UPDATE deals SET product_url = url WHERE product_url IS NULL AND url IS NOT NULL")
+                    #cur.execute("UPDATE deals SET product_url = url WHERE product_url IS NULL AND url IS NOT NULL")
                     cur.execute("UPDATE deals SET savings = discount_amount WHERE savings = 0 AND discount_amount > 0")
                     cur.execute("UPDATE deals SET review_count = reviews WHERE review_count = 0 AND reviews > 0")
                     cur.execute("UPDATE deals SET currency = 'EGP' WHERE currency IS NULL")
