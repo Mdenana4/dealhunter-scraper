@@ -63,37 +63,77 @@ _DEAL_SOURCES = {"amazon_eg", "noon_eg", "jumia_eg"}
 # URLs to scrape per source
 _DEAL_URLS: Dict[str, List[str]] = {
     "amazon_eg": [
-        "https://www.amazon.eg/-/en/gp/goldbox",
-        "https://www.amazon.eg/s?k=deals",
+        "https://www.amazon.eg/s?k=smartphones&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=laptops&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=headphones&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=electronics&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=perfume&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=beauty&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=shoes&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=bags&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=kitchen&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=sports&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=baby&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=books&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
     ],
     "amazon_ae": [
-        "https://www.amazon.ae/-/en/gp/goldbox",
-        "https://www.amazon.ae/s?k=deals",
+        "https://www.amazon.ae/s?k=smartphones&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=laptops&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=headphones&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=electronics&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=perfume&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=beauty&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=shoes&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=bags&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=watches&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=gaming&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=cameras&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=kitchen&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=sports&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=baby&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=books&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
     ],
     "amazon_sa": [
-        "https://www.amazon.sa/-/en/gp/goldbox",
-        "https://www.amazon.sa/s?k=deals",
+        "https://www.amazon.sa/s?k=smartphones&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=laptops&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=headphones&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=electronics&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=perfume&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=beauty&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=shoes&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=bags&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=watches&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=gaming&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=kitchen&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=sports&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
     ],
     "noon_eg": [
-        "https://www.noon.com/egypt-en/flash-sale/",
-        "https://www.noon.com/egypt-en/offers/",
-        "https://www.noon.com/egypt-en/mobiles-and-tablets/",
         "https://www.noon.com/egypt-en/electronics-and-mobiles/",
-        "https://www.noon.com/egypt-en/fashion/",
-        "https://www.noon.com/egypt-en/home-and-kitchen/",
-        "https://www.noon.com/egypt-en/sports-and-outdoors/",
+        "https://www.noon.com/egypt-en/fashion/womens-clothing/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/fashion/mens-clothing/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/fashion/womens-shoes/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/fashion/mens-shoes/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/fashion/bags-and-luggage/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/home-and-kitchen/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/sports-and-outdoors/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/beauty-and-fragrance/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/offers/",
     ],
     "noon_ae": [
-        "https://www.noon.com/uae-en/flash-sale/",
-        "https://www.noon.com/uae-en/offers/",
-        "https://www.noon.com/uae-en/mobiles-and-tablets/",
         "https://www.noon.com/uae-en/electronics-and-mobiles/",
+        "https://www.noon.com/uae-en/fashion/womens-clothing/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/fashion/mens-clothing/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/home-and-kitchen/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/beauty-and-fragrance/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/offers/",
     ],
     "noon_sa": [
-        "https://www.noon.com/saudi-en/flash-sale/",
-        "https://www.noon.com/saudi-en/offers/",
-        "https://www.noon.com/saudi-en/mobiles-and-tablets/",
         "https://www.noon.com/saudi-en/electronics-and-mobiles/",
+        "https://www.noon.com/saudi-en/fashion/womens-clothing/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/fashion/mens-clothing/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/home-and-kitchen/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/beauty-and-fragrance/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/offers/",
     ],
     "jumia_eg": [
         "https://www.jumia.com.eg/catalog/?f%5Bn_special_price%5D=1",
@@ -1119,8 +1159,29 @@ class DealHunterScraper:
         country: str,
         proxy: Optional[str] = None,
     ) -> List[dict]:
-        """Scrape a single Amazon deals page."""
-        resp = self._fetch(url, proxy=proxy)
+        """Scrape a single Amazon deals page.
+
+        Amazon EG and AE block Google Cloud Run datacenter IPs (503/403).
+        Force all EG/AE requests through scrape.do; SA works with direct too.
+        """
+        resp = None
+        if country in ("eg", "ae") and self.proxy_rotator.scrapedo_token:
+            try:
+                encoded = urllib.parse.quote(url, safe="")
+                sd_url = (
+                    f"https://api.scrape.do/?token="
+                    f"{self.proxy_rotator.scrapedo_token}"
+                    f"&url={encoded}&render=false"
+                )
+                r = requests.get(sd_url, timeout=60)
+                if r.status_code == 200:
+                    resp = r
+                else:
+                    logger.warning(f"[Amazon] scrape.do HTTP {r.status_code} for {url}")
+            except Exception as e:
+                logger.warning(f"[Amazon] scrape.do error: {e}")
+        if resp is None:
+            resp = self._fetch(url, proxy=proxy)
         if resp is None:
             return []
 
