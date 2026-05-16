@@ -181,9 +181,8 @@ class PriceCleaner:
 
         text = text.strip()
 
-        # Find the first number group (handles 1,299 and 1.299)
-        # Match digits with optional comma/dot thousand separators
-        m = re.search(r"[\d,]+(?:\.\d+)?", text)
+        # Find the first number group (handles 1,299 / 1.299 / 1.299,00 EU)
+        m = re.search(r"[\d.,]+", text)
         if not m:
             return 0.0
 
