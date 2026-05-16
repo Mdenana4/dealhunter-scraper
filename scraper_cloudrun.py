@@ -92,10 +92,10 @@ _DEAL_URLS: Dict[str, List[str]] = {
     ],
     "jumia_eg": [
         "https://www.jumia.com.eg/deals-of-the-day/",
-        "https://www.jumia.com.eg/catalog/?f%5Bn_special_price%5D=1&page=1",
-        "https://www.jumia.com.eg/phones-tablets/",
-        "https://www.jumia.com.eg/electronics/",
-        "https://www.jumia.com.eg/laptops/",
+        "https://www.jumia.com.eg/catalog/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/catalog/?f%5Bn_special_price%5D=1&page=2",
+        "https://www.jumia.com.eg/phones-tablets/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/laptops/?f%5Bn_special_price%5D=1",
     ],
 }
 
@@ -1294,7 +1294,11 @@ class DealHunterScraper:
     # ── Noon Egypt ──
 
     def scrape_noon_eg(self, proxy: Optional[str] = None) -> List[dict]:
-        """Scrape Noon Egypt deals via Playwright (React SPA / Akamai protected)."""
+        """Scrape Noon Egypt deals.
+
+        Primary: scrape.do rendered (Akamai bypass via their infra).
+        Fallback: stealth Playwright (only if scrape.do unavailable).
+        """
         if not NOON_ENABLED:
             logger.info("[OK] Noon EG disabled by kill switch")
             return []
@@ -1304,7 +1308,7 @@ class DealHunterScraper:
 
         for url in urls:
             try:
-                deals = self._scrape_noon_playwright(url, "noon_eg", "eg")
+                deals = self._scrape_noon_page(url, "noon_eg", "noon", "eg")
                 all_deals.extend(deals)
                 logger.info(
                     f"[OK] Scraped noon_eg ({url}): {len(deals)} deals found"
@@ -1339,155 +1343,226 @@ class DealHunterScraper:
         country: str,
         proxy: Optional[str] = None,
     ) -> List[dict]:
-        """Scrape a single Noon page."""
-        resp = self._fetch(url, proxy=proxy)
-        if resp is None:
-            return []
+        """Scrape a single Noon page.
 
-        soup = BeautifulSoup(resp.text, "lxml")
-        deals: List[dict] = []
+        Noon uses Akamai Bot Management, which blocks Google Cloud Run IPs.
+        The winning strategy is to route through scrape.do's rendered mode —
+        their infrastructure handles Akamai on our behalf and returns fully
+        hydrated React HTML. We then parse data-qa attributes with BeautifulSoup.
 
-        # Noon product grid selectors
-        selectors = [
-            "div[data-qa='product-item']",
-            "div.productPane",
-            "div[data-id]",
-            "div.sc-5e739f1b-0",  # Noon class patterns change frequently
-            "div[class*='product']",
-            "a[href*='/p/']",
-        ]
+        We also try __NEXT_DATA__ JSON (embedded in every Next.js SSR page) as
+        a fast path that doesn't require JavaScript rendering at all.
+        """
+        html: Optional[str] = None
 
-        cards = []
-        for selector in selectors:
-            if selector.startswith("a["):
-                cards = soup.select(selector)
-            else:
-                cards = soup.select(selector)
-            if cards:
-                break
-
-        # Fallback: find all anchor tags with /p/ in href
-        if not cards:
-            all_links = soup.find_all("a", href=re.compile(r"/p/\d+"))
-            # Group by parent to form cards
-            card_parents = {}
-            for link in all_links:
-                parent = link.find_parent("div", recursive=True)
-                if parent:
-                    pid = id(parent)
-                    if pid not in card_parents:
-                        card_parents[pid] = parent
-            cards = list(card_parents.values())
-
-        if not cards:
-            logger.warning(f"[WARN] No deal cards found on Noon {country}: {url}")
-            return []
-
-        for card in cards:
+        # ── Strategy 1: scrape.do rendered (Akamai bypass via their infra) ──
+        if self.proxy_rotator.scrapedo_token:
             try:
-                # Title
-                title_el = (
-                    card.select_one("div[data-qa='product-name']")
-                    or card.select_one("h2")
-                    or card.select_one("p[class*='title']")
-                    or card.select_one("span[class*='title']")
-                    or card.select_one("div[class*='name']")
-                    or card.find("a", href=re.compile(r"/p/\d+"))
+                encoded = urllib.parse.quote(url, safe="")
+                # render=true → execute JS  |  wait=6000 → let React hydrate
+                sd_url = (
+                    f"https://api.scrape.do/?token="
+                    f"{self.proxy_rotator.scrapedo_token}"
+                    f"&url={encoded}&render=true&wait=6000"
                 )
-                title = ""
-                if title_el:
-                    title = title_el.get_text(strip=True)
-                    if not title and title_el.get("title"):
-                        title = title_el["title"]
-                if not title:
+                resp = requests.get(sd_url, timeout=90)
+                if resp.status_code == 200:
+                    html = resp.text
+                    logger.info(f"[NOON] scrape.do rendered OK for {url}")
+                else:
+                    logger.warning(
+                        f"[NOON] scrape.do HTTP {resp.status_code} for {url}"
+                    )
+            except Exception as e:
+                logger.warning(f"[NOON] scrape.do rendered error: {e}")
+
+        # ── Strategy 2: Playwright stealth browser (fallback) ──
+        if not html:
+            return self._scrape_noon_playwright(url, site, country)
+
+        # ── Parse rendered HTML ──
+        soup = BeautifulSoup(html, "lxml")
+
+        # Primary: data-qa product boxes (React-rendered)
+        products = soup.select('[data-qa="plp-product-box"]')
+        logger.info(
+            f"[NOON] {len(products)} product boxes in rendered HTML for {url}"
+        )
+
+        if not products:
+            # Fallback: try __NEXT_DATA__ JSON (embedded in all Next.js pages)
+            return self._parse_noon_next_data(html, site, platform, country)
+
+        deals: List[dict] = []
+        for product in products:
+            try:
+                name_el = product.select_one('[data-qa="plp-product-box-name"]')
+                price_el = product.select_one('[data-qa="plp-product-box-price"]')
+                old_price_el = product.select_one(
+                    '[data-qa="plp-product-box-old-price"]'
+                )
+                discount_el = product.select_one(
+                    '[data-qa="plp-product-box-discount"]'
+                )
+                link_el = product.select_one("a[href]")
+                img_el = product.select_one("img")
+
+                if not name_el or not price_el or not link_el:
                     continue
 
-                # URL
-                link_el = (
-                    card.select_one("a[href*='/p/']")
-                    or card.find("a", href=re.compile(r"/p/\d+"))
+                name = name_el.get_text(strip=True)
+                if not name:
+                    continue
+
+                price_text = price_el.get_text(strip=True)
+                current_price = self.price_cleaner.clean_price(price_text)
+                if current_price < MIN_PRODUCT_PRICE:
+                    continue
+
+                original_price = current_price
+                if old_price_el:
+                    op = self.price_cleaner.clean_price(
+                        old_price_el.get_text(strip=True)
+                    )
+                    if op > current_price:
+                        original_price = op
+
+                if discount_el and original_price <= current_price:
+                    m = re.search(r"(\d+)", discount_el.get_text(strip=True))
+                    if m:
+                        pct = int(m.group(1))
+                        if 0 < pct < 100:
+                            original_price = round(
+                                current_price / (1 - pct / 100), 2
+                            )
+
+                href = link_el.get("href", "")
+                product_url = (
+                    f"https://www.noon.com{href}"
+                    if href.startswith("/")
+                    else href
                 )
-                href = link_el.get("href", "") if link_el else ""
-                product_url = resolve_url(href, f"https://www.noon.com/{country}-en")
                 if not product_url or "/p/" not in product_url:
                     continue
 
-                # Current price
-                price_el = (
-                    card.select_one("strong[class*='amount']")
-                    or card.select_one("div[data-qa='product-price']")
-                    or card.select_one("span[class*='price']")
-                    or card.select_one("div[class*='price'] strong")
-                    or card.select_one("div[class*='salePrice']")
-                )
-                current_price_str = (
-                    price_el.get_text(strip=True) if price_el else ""
+                image_url = (
+                    extract_image_url(img_el, "https://www.noon.com")
+                    if img_el
+                    else ""
                 )
 
-                # Original price
-                original_el = (
-                    card.select_one("span[class*='oldPrice']")
-                    or card.select_one("span[class*='was']")
-                    or card.select_one("div[class*='original'] span")
-                    or card.select_one("span[class*='crossed']")
-                    or card.select_one("span[data-qa='product-old-price']")
+                deal = self._build_deal(
+                    site=site,
+                    platform=platform,
+                    country=country,
+                    title=name,
+                    url=product_url,
+                    current_price=current_price,
+                    original_price=original_price,
+                    image_url=image_url,
                 )
-                original_price_str = (
-                    original_el.get_text(strip=True) if original_el else ""
-                )
+                if deal:
+                    deals.append(deal)
 
-                # Discount percentage (if shown)
-                if not original_price_str and current_price_str:
-                    discount_el = (
-                        card.select_one("span[class*='discount']")
-                        or card.select_one("div[class*='discountBadge']")
+            except Exception as e:
+                logger.debug(f"[NOON] Card parse error: {e}")
+                continue
+
+        return deals
+
+    def _parse_noon_next_data(
+        self, html: str, site: str, platform: str, country: str
+    ) -> List[dict]:
+        """Parse Noon's __NEXT_DATA__ JSON embedded in every Next.js page.
+
+        When the React page is rendered (by scrape.do or direct), Next.js
+        embeds all initial state as JSON in <script id="__NEXT_DATA__">.
+        This is faster and more reliable than DOM parsing.
+        """
+        soup = BeautifulSoup(html, "lxml")
+        script = soup.find("script", {"id": "__NEXT_DATA__"})
+        if not script or not script.string:
+            return []
+
+        try:
+            data = json.loads(script.string)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+        # Navigate the Next.js props tree — Noon's structure varies by page type
+        page_props = data.get("props", {}).get("pageProps", {})
+
+        # Try multiple known paths where Noon hides product data
+        hits: List[dict] = []
+        for path in [
+            ["catalog", "hits"],
+            ["initialData", "hits"],
+            ["initialData", "data", "products"],
+            ["data", "products"],
+            ["products"],
+        ]:
+            obj = page_props
+            for key in path:
+                obj = obj.get(key, {}) if isinstance(obj, dict) else {}
+            if isinstance(obj, list) and obj:
+                hits = obj
+                break
+
+        if not hits:
+            logger.debug(f"[NOON] __NEXT_DATA__ found but no product hits for {site}")
+            return []
+
+        logger.info(f"[NOON] __NEXT_DATA__: {len(hits)} products for {site}")
+        deals: List[dict] = []
+
+        for hit in hits:
+            try:
+                title = hit.get("name", "") or hit.get("title", "")
+                if not title:
+                    continue
+
+                price_obj = hit.get("price", {}) or {}
+                current_price = float(
+                    price_obj.get("salePrice", 0)
+                    or price_obj.get("sellingPrice", 0)
+                    or price_obj.get("price", 0)
+                    or 0
+                )
+                original_price = float(
+                    price_obj.get("oldPrice", 0)
+                    or price_obj.get("originalPrice", 0)
+                    or current_price
+                )
+                if original_price < current_price:
+                    original_price = current_price
+
+                sku = hit.get("sku", "") or hit.get("id", "")
+                url_path = (
+                    hit.get("url", "")
+                    or hit.get("purl", "")
+                    or hit.get("productUrl", "")
+                )
+                if url_path:
+                    product_url = (
+                        f"https://www.noon.com{url_path}"
+                        if url_path.startswith("/")
+                        else url_path
                     )
-                    if discount_el:
-                        discount_text = discount_el.get_text(strip=True)
-                        m = re.search(r"(\d+)", discount_text)
-                        if m:
-                            pct = int(m.group(1))
-                            current_f = self.price_cleaner.clean_price(
-                                current_price_str
-                            )
-                            if current_f > 0 and 0 < pct < 100:
-                                original_f = current_f / (1 - pct / 100)
-                                original_price_str = str(round(original_f, 2))
+                elif sku:
+                    product_url = (
+                        f"https://www.noon.com/{country}-en/product/{sku}/"
+                    )
+                else:
+                    continue
 
-                # Image - handle Noon's lazy-loaded images
-                img = card.select_one("img")
-                image_url = extract_image_url(img, f"https://www.noon.com/{country}-en")
-
-                # Noon often uses placeholder SVGs — try data attributes
-                if not image_url or "placeholder" in image_url.lower():
-                    # Look for background image in style attr
-                    div_with_bg = card.select_one("div[style*='background']")
-                    if div_with_bg:
-                        style = div_with_bg.get("style", "")
-                        m = re.search(r'url\(["\']?(.*?)["\']?\)', style)
-                        if m:
-                            image_url = urllib.parse.urljoin(
-                                f"https://www.noon.com/{country}-en",
-                                m.group(1),
-                            )
-
-                # Rating
-                rating_el = card.select_one("span[class*='rating']")
-                rating = None
-                if rating_el:
-                    rating_text = rating_el.get_text(strip=True)
-                    m = re.search(r"([\d.]+)", rating_text)
-                    if m:
-                        rating = float(m.group(1))
-
-                # Reviews
-                reviews_el = card.select_one("span[class*='review']")
-                reviews = 0
-                if reviews_el:
-                    reviews_text = reviews_el.get_text(strip=True)
-                    m = re.search(r"(\d+)", reviews_text)
-                    if m:
-                        reviews = int(m.group(1))
+                image_keys = hit.get("imageKeys", []) or hit.get("images", [])
+                image_url = ""
+                if image_keys:
+                    k = image_keys[0] if isinstance(image_keys[0], str) else ""
+                    if k:
+                        image_url = (
+                            f"https://f.nooncdn.com/p/pnsku/{k}/45/_/1.jpg"
+                        )
 
                 deal = self._build_deal(
                     site=site,
@@ -1495,17 +1570,14 @@ class DealHunterScraper:
                     country=country,
                     title=title,
                     url=product_url,
-                    current_price=current_price_str,
-                    original_price=original_price_str,
+                    current_price=current_price,
+                    original_price=original_price,
                     image_url=image_url,
-                    rating=rating,
-                    reviews=reviews,
                 )
                 if deal:
                     deals.append(deal)
-
             except Exception as e:
-                logger.debug(f"[DEBUG] Error parsing Noon card: {e}")
+                logger.debug(f"[NOON] __NEXT_DATA__ hit parse error: {e}")
                 continue
 
         return deals
@@ -1743,7 +1815,7 @@ class DealHunterScraper:
 
         for url in urls:
             try:
-                deals = self._scrape_noon_playwright(url, "noon_ae", "ae")
+                deals = self._scrape_noon_page(url, "noon_ae", "noon", "ae")
                 all_deals.extend(deals)
                 logger.info(
                     f"[OK] Scraped noon_ae ({url}): {len(deals)} deals found"
@@ -1774,7 +1846,7 @@ class DealHunterScraper:
 
         for url in urls:
             try:
-                deals = self._scrape_noon_playwright(url, "noon_sa", "sa")
+                deals = self._scrape_noon_page(url, "noon_sa", "noon", "sa")
                 all_deals.extend(deals)
                 logger.info(
                     f"[OK] Scraped noon_sa ({url}): {len(deals)} deals found"
@@ -2183,57 +2255,60 @@ class DealHunterScraper:
         return {"inserted": inserted, "updated": updated, "unchanged": unchanged}
 
     def record_price_snapshots(self, deals: List[dict]) -> int:
-        """Record price snapshots to TimescaleDB hypertable.
+        """Record price snapshots to TimescaleDB.
 
-        Returns number of snapshots recorded.
+        Uses chunked batching with automatic reconnection on SSL/network drops.
+        Each chunk of 10 snapshots gets its own connection attempt so a single
+        dropped connection doesn't wipe out all 43+ inserts.
         """
         if not deals or not self.ts_pool:
             return 0
 
-        conn = self._get_db_conn(self.ts_pool)
-        if conn is None:
-            logger.error("[ERROR] No TimescaleDB connection for snapshots")
-            return 0
+        _SQL = """
+            INSERT INTO price_snapshots
+                (deal_id, product_id, site, source,
+                 price, original_price, discount_percent, currency)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+        """
+
+        def _row(d: dict) -> tuple:
+            return (
+                d["id"],
+                d.get("product_id", ""),
+                d["site"],
+                d["site"],
+                d["current_price"],
+                d["original_price"],
+                d["discount_percent"],
+                d.get("currency", "EGP"),
+            )
 
         count = 0
-        try:
-            with conn.cursor() as cur:
-                for deal in deals:
-                    try:
-                        cur.execute(
-                            """
-                            INSERT INTO price_snapshots
-                                (deal_id, product_id, site, source,
-                                 price, original_price, discount_percent, currency)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                            """,
-                            (
-                                deal["id"],
-                                deal.get("product_id", ""),
-                                deal["site"],
-                                deal["site"],
-                                deal["current_price"],
-                                deal["original_price"],
-                                deal["discount_percent"],
-                                deal.get("currency", "EGP"),
-                            ),
-                        )
-                        count += 1
-                    except Exception as e:
-                        logger.debug(
-                            f"[DEBUG] Failed to record snapshot for {deal['id']}: {e}"
-                        )
-                        continue
-                conn.commit()
-        except Exception as e:
-            logger.error(f"[ERROR] Snapshot batch failed: {e}")
+        # Process in chunks of 10 — if one chunk's connection dies, others survive
+        chunk_size = 10
+        for i in range(0, len(deals), chunk_size):
+            chunk = deals[i : i + chunk_size]
+            conn = self._get_db_conn(self.ts_pool)
+            if conn is None:
+                logger.warning("[WARN] No TimescaleDB connection for snapshot chunk")
+                break
             try:
-                conn.rollback()
-            except Exception:
-                pass
-        finally:
-            self._put_db_conn(self.ts_pool, conn)
+                with conn.cursor() as cur:
+                    for deal in chunk:
+                        cur.execute(_SQL, _row(deal))
+                        count += 1
+                conn.commit()
+            except Exception as e:
+                logger.warning(f"[WARN] Snapshot chunk {i}-{i+chunk_size} failed: {e}")
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            finally:
+                self._put_db_conn(self.ts_pool, conn)
 
+        logger.info(f"[OK] Recorded {count}/{len(deals)} price snapshots")
         return count
 
     def detect_price_changes(self) -> List[dict]:
@@ -2277,7 +2352,7 @@ class DealHunterScraper:
                         COALESCE(ps.price, ls.price) as previous_price,
                         d.site,
                         d.title,
-                        d.url
+                        d.product_url
                     FROM latest_snapshots ls
                     LEFT JOIN previous_snapshots ps ON ls.deal_id = ps.deal_id
                     JOIN deals d ON ls.deal_id = d.id
