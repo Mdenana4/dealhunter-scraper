@@ -181,7 +181,7 @@ _DEAL_URLS: Dict[str, List[str]] = {
         "https://www.noon.com/egypt-en/laptops-and-computers/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/egypt-en/tv-and-audio/tvs/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/egypt-en/electronics-and-mobiles/audio/?sort_by=discount_percent&sort_order=d",
-        "https://www.noon.com/egypt-en/cameras-and-accessories/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/electronics-and-mobiles/cameras/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/egypt-en/gaming/?sort_by=discount_percent&sort_order=d",
         # Fashion — discount sorted
         "https://www.noon.com/egypt-en/fashion/womens-clothing/?sort_by=discount_percent&sort_order=d",
@@ -193,8 +193,9 @@ _DEAL_URLS: Dict[str, List[str]] = {
         # Home, Beauty, Sports — discount sorted
         "https://www.noon.com/egypt-en/home-and-kitchen/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/egypt-en/home-and-kitchen/furniture/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/health-and-beauty/fragrance/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/health-and-beauty/skincare/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/egypt-en/beauty-and-fragrance/?sort_by=discount_percent&sort_order=d",
-        "https://www.noon.com/egypt-en/beauty-and-fragrance/skincare/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/egypt-en/sports-and-outdoors/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/egypt-en/baby-products/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/egypt-en/grocery/?sort_by=discount_percent&sort_order=d",
@@ -220,7 +221,7 @@ _DEAL_URLS: Dict[str, List[str]] = {
         "https://www.noon.com/uae-en/laptops-and-computers/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/uae-en/tv-and-audio/tvs/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/uae-en/electronics-and-mobiles/audio/?sort_by=discount_percent&sort_order=d",
-        "https://www.noon.com/uae-en/cameras-and-accessories/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/electronics-and-mobiles/cameras/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/uae-en/gaming/?sort_by=discount_percent&sort_order=d",
         # Fashion — discount sorted
         "https://www.noon.com/uae-en/fashion/womens-clothing/?sort_by=discount_percent&sort_order=d",
@@ -232,8 +233,9 @@ _DEAL_URLS: Dict[str, List[str]] = {
         # Home, Beauty, Sports — discount sorted
         "https://www.noon.com/uae-en/home-and-kitchen/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/uae-en/home-and-kitchen/furniture/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/health-and-beauty/fragrance/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/health-and-beauty/skincare/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/uae-en/beauty-and-fragrance/?sort_by=discount_percent&sort_order=d",
-        "https://www.noon.com/uae-en/beauty-and-fragrance/skincare/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/uae-en/sports-and-outdoors/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/uae-en/baby-products/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/uae-en/grocery/?sort_by=discount_percent&sort_order=d",
@@ -259,7 +261,7 @@ _DEAL_URLS: Dict[str, List[str]] = {
         "https://www.noon.com/saudi-en/laptops-and-computers/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/saudi-en/tv-and-audio/tvs/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/saudi-en/electronics-and-mobiles/audio/?sort_by=discount_percent&sort_order=d",
-        "https://www.noon.com/saudi-en/cameras-and-accessories/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/electronics-and-mobiles/cameras/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/saudi-en/gaming/?sort_by=discount_percent&sort_order=d",
         # Fashion — discount sorted
         "https://www.noon.com/saudi-en/fashion/womens-clothing/?sort_by=discount_percent&sort_order=d",
@@ -271,8 +273,9 @@ _DEAL_URLS: Dict[str, List[str]] = {
         # Home, Beauty, Sports — discount sorted
         "https://www.noon.com/saudi-en/home-and-kitchen/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/saudi-en/home-and-kitchen/furniture/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/health-and-beauty/fragrance/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/health-and-beauty/skincare/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/saudi-en/beauty-and-fragrance/?sort_by=discount_percent&sort_order=d",
-        "https://www.noon.com/saudi-en/beauty-and-fragrance/skincare/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/saudi-en/sports-and-outdoors/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/saudi-en/baby-products/?sort_by=discount_percent&sort_order=d",
         "https://www.noon.com/saudi-en/grocery/?sort_by=discount_percent&sort_order=d",
