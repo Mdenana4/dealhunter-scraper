@@ -902,6 +902,14 @@ class DealHunterScraper:
         """Initialize PostgreSQL connection pools."""
         min_conn = 1
         max_conn = 5
+        # keepalive options prevent Supabase/PgBouncer from silently dropping
+        # idle connections mid-run (SSL SYSCALL EOF after ~60s of inactivity)
+        _keepalive_kwargs = {
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 5,
+        }
 
         if DATABASE_URL:
             try:
@@ -909,6 +917,7 @@ class DealHunterScraper:
                     minconn=min_conn,
                     maxconn=max_conn,
                     dsn=DATABASE_URL,
+                    **_keepalive_kwargs,
                 )
                 logger.info("[OK] Supabase connection pool initialized")
             except Exception as e:
@@ -923,6 +932,7 @@ class DealHunterScraper:
                     minconn=min_conn,
                     maxconn=max_conn,
                     dsn=TIMESCALE_URL,
+                    **_keepalive_kwargs,
                 )
                 logger.info("[OK] TimescaleDB connection pool initialized")
             except Exception as e:
@@ -2414,29 +2424,30 @@ class DealHunterScraper:
     def upsert_deals(self, deals: List[dict]) -> dict:
         """Batch upsert deals to Supabase PostgreSQL.
 
+        Processes in chunks of 25. Each chunk gets its own connection so an
+        SSL drop mid-run only loses that chunk, not the entire batch.
         Returns counts: inserted, updated, unchanged.
         """
         if not deals or not self.db_pool:
-            return {"inserted": 0, "updated": 0, "unchanged": 0}
-
-        conn = self._get_db_conn(self.db_pool)
-        if conn is None:
-            logger.error("[ERROR] No database connection for upsert")
             return {"inserted": 0, "updated": 0, "unchanged": 0}
 
         inserted = 0
         updated = 0
         unchanged = 0
 
-        try:
-            with conn.cursor() as cur:
-                for deal in deals:
-                    try:
-                        # Check if deal exists and if price changed
+        chunk_size = 25
+        for chunk_start in range(0, len(deals), chunk_size):
+            chunk = deals[chunk_start : chunk_start + chunk_size]
+            conn = self._get_db_conn(self.db_pool)
+            if conn is None:
+                logger.error("[ERROR] No database connection for upsert chunk")
+                break
+
+            try:
+                with conn.cursor() as cur:
+                    for deal in chunk:
                         cur.execute(
-                            """
-                            SELECT current_price FROM deals WHERE id = %s
-                            """,
+                            "SELECT current_price FROM deals WHERE id = %s",
                             (deal["id"],),
                         )
                         row = cur.fetchone()
@@ -2516,36 +2527,28 @@ class DealHunterScraper:
                                 )
                                 updated += 1
                             else:
-                                # Price unchanged — just update last_seen_at
                                 cur.execute(
                                     """
-                                    UPDATE deals SET
-                                        last_seen_at = NOW(),
-                                        is_active = %s
+                                    UPDATE deals SET last_seen_at = NOW(), is_active = %s
                                     WHERE id = %s
                                     """,
                                     (deal.get("is_active", True), deal["id"]),
                                 )
                                 unchanged += 1
 
-                    except Exception as e:
-                        logger.error(f"[ERROR] Failed to upsert deal {deal.get('id')}: {e}")
-                        try:
-                            conn.rollback()
-                        except Exception:
-                            pass
-                        continue
-
                 conn.commit()
-        except Exception as e:
-            logger.error(f"[ERROR] Upsert transaction failed: {e}")
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-        finally:
-            self._put_db_conn(self.db_pool, conn)
+            except Exception as e:
+                logger.error(
+                    f"[ERROR] Upsert chunk {chunk_start}-{chunk_start + chunk_size} failed: {e}"
+                )
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            finally:
+                self._put_db_conn(self.db_pool, conn)
 
+        logger.info(f"[OK] Upserted: {inserted} inserted, {updated} updated, {unchanged} unchanged")
         return {"inserted": inserted, "updated": updated, "unchanged": unchanged}
 
     def record_price_snapshots(self, deals: List[dict]) -> int:
