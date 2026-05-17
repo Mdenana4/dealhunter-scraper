@@ -1,0 +1,5 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-f', 'Dockerfile.tracker', '-t', 'gcr.io/dealhunter-egypt-70d29/dealhunter-tracker:latest', '.']
+images:
+- 'gcr.io/dealhunter-egypt-70d29/dealhunter-tracker:latest'

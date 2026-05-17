@@ -1409,8 +1409,21 @@ class DealHunterScraper:
             if cards:
                 break
 
+        # ── Bestseller page layout (different from search results) ──
+        is_bestseller = "/gp/bestsellers/" in url or "/bestsellers/" in url
+        if not cards and is_bestseller:
+            bs_selectors = [
+                "div.p13n-desktop-grid div[id^='gridItemRoot']",
+                "li.zg-item-immersion",
+                "li[id^='p13n-asin-index']",
+                "div.zg_itemWrapper",
+            ]
+            for sel in bs_selectors:
+                cards = soup.select(sel)
+                if cards:
+                    break
+
         if not cards:
-            # Log a snippet to help diagnose bot pages vs real results
             snippet = soup.get_text()[:200].replace("\n", " ").strip()
             logger.warning(f"[Amazon] No cards on {country} ({len(resp.text)}B): {snippet[:120]}")
             return []
@@ -1449,51 +1462,63 @@ class DealHunterScraper:
                     else:
                         continue
 
-                # Price - current
-                price_whole = card.select_one("span.a-price-whole")
-                price_fraction = card.select_one("span.a-price-fraction")
-                if price_whole:
-                    whole = price_whole.get_text(strip=True).replace(",", "")
-                    fraction = (
-                        price_fraction.get_text(strip=True)
-                        if price_fraction
-                        else "00"
-                    )
-                    current_price_str = f"{whole}.{fraction}"
+                # ── Current price ──
+                # Prefer a-offscreen (clean string like "SAR 599.00") over
+                # splitting whole/fraction because a-price-whole on Middle East
+                # Amazon embeds a nested <span class="a-price-decimal">.</span>
+                # which makes get_text() return "599." and produces "599..00".
+                price_offscreen = card.select_one(
+                    "span.a-price:not(.a-text-price) span.a-offscreen"
+                )
+                if price_offscreen:
+                    current_price_str = price_offscreen.get_text(strip=True)
                 else:
-                    price_el = card.select_one("span.a-price span.a-offscreen")
-                    current_price_str = (
-                        price_el.get_text(strip=True) if price_el else ""
-                    )
+                    price_whole = card.select_one("span.a-price-whole")
+                    price_fraction = card.select_one("span.a-price-fraction")
+                    if price_whole:
+                        # Strip nested spans (a-price-decimal etc.) before reading
+                        for nested in price_whole.find_all("span"):
+                            nested.decompose()
+                        whole = price_whole.get_text(strip=True).replace(",", "").rstrip(".")
+                        frac = price_fraction.get_text(strip=True).replace(".", "").replace(",", "") if price_fraction else "00"
+                        current_price_str = f"{whole}.{frac}" if whole else ""
+                    else:
+                        current_price_str = ""
 
-                # Original price (was / list price)
+                # ── Original / list price ──
                 original_el = (
                     card.select_one("span.a-text-price span.a-offscreen")
                     or card.select_one("span[data-a-color='secondary'] span.a-offscreen")
                     or card.select_one("span.a-price.a-text-price span.a-offscreen")
+                    or card.select_one("span[data-a-strike='true'] span.a-offscreen")
                 )
-                original_price_str = (
-                    original_el.get_text(strip=True) if original_el else ""
-                )
+                original_price_str = original_el.get_text(strip=True) if original_el else ""
 
-                # If no original price, try to find discount badge
+                # ── Fallback: derive original from discount badge ──
                 if not original_price_str:
-                    discount_badge = (
+                    badge_el = (
                         card.select_one("span.a-badge-text")
                         or card.select_one("span.s-coupon-highlight-color")
+                        or card.select_one("span[data-csa-c-type='label']")
                     )
-                    if discount_badge:
-                        badge_text = discount_badge.get_text(strip=True)
-                        # e.g. "-30%"
-                        m = re.search(r"(\d+)", badge_text)
-                        if m and current_price_str:
+                    if badge_el:
+                        badge_text = badge_el.get_text(strip=True)
+                        m = re.search(r"(\d+)\s*%", badge_text)
+                        if m:
                             pct = int(m.group(1))
-                            current_f = self.price_cleaner.clean_price(
-                                current_price_str
-                            )
-                            if current_f > 0 and pct > 0:
-                                original_f = current_f / (1 - pct / 100)
-                                original_price_str = str(round(original_f, 2))
+                            current_f = self.price_cleaner.clean_price(current_price_str)
+                            if current_f > 0 and 5 <= pct <= 95:
+                                original_price_str = str(round(current_f / (1 - pct / 100), 2))
+
+                # ── Last resort for discount-search URLs ──
+                # rh=p_n_pct-off-with-tax guarantees ≥40% discount.
+                # If HTML gives us no original price at all, back-calculate
+                # assuming the minimum 40% so the deal isn't silently dropped.
+                is_discount_search = "pct-off-with-tax" in url
+                if not original_price_str and is_discount_search:
+                    current_f = self.price_cleaner.clean_price(current_price_str)
+                    if current_f > 0:
+                        original_price_str = str(round(current_f / 0.60, 2))
 
                 # Image
                 img = card.select_one("img")
