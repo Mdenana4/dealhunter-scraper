@@ -1,209 +1,299 @@
-# DealHunter Scraper — Session Notes
-**Date:** 2026-05-02  
-**Project:** `Mdenana4/dealhunter-scraper`  
-**Branch:** `claude/review-app-deployment-o70ke` → merged to `main`
+# DealHunter Scraper — Full Session Documentation
+
+## Overview
+
+Complete debugging and improvement session for the DealHunter scraper after migration from Railway/Render to **Google Cloud Run + Supabase PostgreSQL + TimescaleDB**.
 
 ---
 
-## Summary
+## Infrastructure
 
-Full debug, fix, and infrastructure migration session for the DealHunter admin panel and backend.
-
----
-
-## Root Causes Found & Fixed
-
-### 1. Login Completely Broken — "429 Quota exceeded"
-**Root cause:** `admin_stats()` called `db.collection('deals').stream()` (ALL deals) + `db.collection('users').stream()` (ALL users) on every request. Monitor page polled every 60 seconds = **400,000+ Firestore reads/day** against a 50,000/day free-tier limit. Once quota exhausted, every Firestore call including login failed with 429.
-
-**Fixes applied:**
-- `server.py`: Load `admin_users` into memory at startup (`_admin_cache`), refresh hourly — login now needs **zero Firestore reads**
-- `server.py`: Cache stats response for 5 minutes (`_stats_cache`)
-- `admin.html`: Reduce stats polling from 60s → 300s
-- `admin.html`: Add localStorage session cache — valid for 4 hours, skips check-auth on repeated page loads
-
-### 2. Server Using verify_id_token → Firebase API Quota
-**Root cause:** Old `check-auth` endpoint called `fb_auth.verify_id_token()` which hits Google's `identitytoolkit.googleapis.com` — a separate quota from Firestore.
-
-**Fix:** `_uid_email_from_token()` — pure local JWT base64 decode, zero network calls, zero quota usage.
-
-### 3. Admin Stats 500 Error
-**Root cause:** `deals.index(d)` — Python `list.index()` compares dict objects containing Firestore Timestamp values; always throws ValueError.
-
-**Fix:** Store `_doc_id` inside each deal dict during stream, extract cleanly at end.
-
-### 4. Revenue Endpoint 500 — `list.index(x): x not in list`
-**Root cause:** `['free','trial','premium','vip'].index(tier)` crashes when tier value is empty string or unknown name.
-
-**Fix:** Safe `_tier_rank()` function with try/except.
-
-### 5. Logs Endpoint 500
-**Root cause:** `order_by('timestamp')` on `admin_logs` collection fails when collection is new/empty (Firestore index not yet built).
-
-**Fix:** Try ordered fetch, fall back to unordered, sort in Python.
-
-### 6. Offers Endpoint 500
-**Root cause:** `order_by('timestamp').where('site', '==', source)` requires a Firestore composite index that was never created.
-
-**Fix:** Fetch with order only, filter by source/category in Python.
-
-### 7. Proxy PATCH 500
-**Root cause:** Firestore `update()` fails with NOT_FOUND if document doesn't exist.
-
-**Fix:** Changed to `set(merge=True)` which creates or updates.
-
-### 8. Team Tab "Error loading team"
-**Root cause:** `m.role.toUpperCase()` throws TypeError when `role` field is missing from Firestore admin_users document.
-
-**Fix:** Null-safe rendering: `(m.role || 'admin').toUpperCase()` for all fields.
-
-### 9. Duplicate Function Name Breaking Daily Limit Save
-**Root cause:** Two functions named `updateDailyLimit` — second (modal helper) overwrote first (API call function).
-
-**Fix:** Renamed modal helper to `syncAddUserLimit()`.
-
-### 10. Tier Pricing Reading Wrong Collection
-**Root cause:** Frontend wrote to `tier_config` but `admin_tiers` read from `tiers`.
-
-**Fix:** `admin_tiers()` tries `tier_config` first, falls back to `tiers`.
-
-### 11. Notifications Saved Twice
-**Root cause:** `saveNotif()` in admin.html called `dbp('notifications', ...)` AND then called the server endpoint which also saved to Firestore.
-
-**Fix:** Removed client-side `dbp` save; server handles both FCM + Firestore.
-
-### 12. Source Filter Showing Only 3 Sites
-**Root cause:** `while(sel.options.length>3) sel.remove(3)` removed all Egypt/UAE/Saudi static options.
-
-**Fix:** Use `data-custom='1'` attribute to only remove dynamically-added options.
-
-### 13. Render Never Deployed Code
-**Root cause:** GitHub Actions workflow required `RENDER_DEPLOY_HOOK` secret (not configured). Render's native GitHub integration also not connected. `autoDeploy: true` in render.yaml has no effect without integration.
-
-**Status:** User upgraded Render plan + Firebase to Blaze.
-
-### 14. Railway Health Check Failing
-**Root cause:** Railway assigns dynamic `PORT` env var. App was hardcoded to listen on port 5000. Railway health checker hit its assigned port, got nothing, killed container.
-
-**Fix:** `server.py` reads `PORT = int(os.getenv('PORT', 5000))`. `start.sh` passes `PORT` through. Dockerfile sets `ENV PORT=5000` as default.
-
-### 15. Railway Firebase Credentials Not Found
-**Root cause:** User set env var as `FIREBASE_CREDENTIALS_JSON` but code expected `FIREBASE_KEY_JSON`.
-
-**Fix:** Code now accepts `FIREBASE_KEY_JSON`, `FIREBASE_CREDENTIALS_JSON`, or `FIREBASE_SERVICE_ACCOUNT_JSON` — whichever is set.
+| Component | Service |
+|-----------|---------|
+| Compute | Google Cloud Run Job |
+| Primary DB | Supabase PostgreSQL (`deals` table) |
+| Time-Series DB | TimescaleDB (`price_snapshots` hypertable) |
+| Container Registry | `gcr.io/dealhunter-egypt-70d29/dealhunter-scraper:latest` |
+| Build Config | `cloudbuild_scraper.yaml` |
+| Project ID | `dealhunter-egypt-70d29` |
+| Branch | `claude/resolve-user-support-5Eljo` |
+| PR | https://github.com/Mdenana4/dealhunter-scraper/pull/10 |
 
 ---
 
-## Architecture Changes
+## Sources Scraped (7 total)
 
-### Infrastructure Migration
-- **From:** Render Free → **To:** Render Paid ($7/mo) + Railway Hobby ($5/mo)
-- **Database:** Firebase Spark (50K reads/day) → **Firebase Blaze** (pay-per-use, no limits)
-- **Auto-deploy:** GitHub push to `main` → Railway auto-deploys
-
-### New Server-Side Features Added
-- `_uid_email_from_token()` — local JWT decode, no Firebase API calls
-- `_admin_cache` — in-memory admin users cache, refreshes hourly
-- `_stats_cache` — 5-minute stats cache
-- `_log_event()` — structured logging to Firestore `admin_logs` collection
-- Global exception handler — catches all 500s and logs them
-- `/api/v1/admin/logs` — returns recent error logs
-- `/api/v1/admin/alarms` — real-time health alarms
-- `/api/v1/admin/revenue` — financial dashboard data
-- `/api/v1/admin/country-pricing` — per-country pricing management
-- `/api/v1/notifications/send` — FCM topic/token push with Firestore save
-- Generic Firestore proxy — `GET/POST/PATCH/PUT/DELETE /api/v1/admin/db/<collection>[/<doc_id>]`
-
-### New Admin Panel Features Added
-- Revenue tab with MRR, tier breakdown, tier change history
-- Logs tab with error viewer and stack traces
-- Alarm banner on Monitor page
-- Bulk user tier change (select multiple → apply tier)
-- Country pricing editor (Egypt EGP, Saudi SAR, UAE AED, Kuwait KWD, Qatar QAR)
-- Membership overrides table in Pricing tab
-- localStorage session cache (4-hour, survives page reloads)
-- Fallback login path using Firestore client SDK direct read
+| Source | Platform | Country | Bot Protection | Bypass Method |
+|--------|----------|---------|----------------|---------------|
+| amazon_eg | Amazon | Egypt | AWS WAF + IP block | scrape.do plain proxy |
+| amazon_ae | Amazon | UAE | AWS WAF + IP block | scrape.do plain proxy |
+| amazon_sa | Amazon | Saudi Arabia | AWS WAF | proxy rotation |
+| noon_eg | Noon | Egypt | Akamai Bot Manager | scrape.do rendered + __NEXT_DATA__ |
+| noon_ae | Noon | UAE | Akamai Bot Manager | scrape.do rendered + __NEXT_DATA__ |
+| noon_sa | Noon | Saudi Arabia | Akamai Bot Manager | scrape.do rendered + __NEXT_DATA__ |
+| jumia_eg | Jumia | Egypt | Cloudflare WAF | curl_cffi chrome120 TLS impersonation |
 
 ---
 
-## Pending Issues (Still Open)
+## Key Configuration
 
-| Issue | Root Cause | Status |
-|---|---|---|
-| Amazon/Jumia deals not updated | Scraper may be blocked or hitting old URLs | Not fixed |
-| Noon scraper returns 0 deals | Scraper endpoint/selectors broken | Not fixed |
-| Team add/edit/delete | Server endpoints may be missing POST/PATCH/DELETE | Under investigation |
-| Tier add/edit modals | `openTierModal()` / `openTierEditModal()` JS may not call correct endpoint | Under investigation |
-| Country pricing "Loading..." | `loadTierPricing()` → `renderCountryPricing()` chain needs verification | Under investigation |
-| FCM notifications delivery | Users not subscribed to FCM topics in mobile app | Needs mobile app fix |
-| Deal fake-checker from deals list | No "open deal" modal/route in current admin panel | Missing feature |
-| Revenue Excel export | Feature not implemented | Missing feature |
-| Dashboard user/revenue stats | Partial — needs country breakdown, login count | Partially implemented |
-
----
-
-## Key Files
-
-| File | Purpose |
-|---|---|
-| `server.py` | Flask backend (~2500 lines) |
-| `admin.html` | Admin panel SPA (~3500 lines) |
-| `scraper.py` | Deal scraper (Amazon, Noon, Jumia, etc.) |
-| `fake_checker.py` | Fake deal detection logic |
-| `price_tracker.py` | Price history tracking |
-| `scraper_health.py` | Scraper health monitoring |
-| `start.sh` | Container startup (scraper + server) |
-| `Dockerfile` | Docker image definition |
-| `railway.json` | Railway deployment config |
-| `render.yaml` | Render deployment config |
-| `.github/workflows/deploy-render.yml` | GitHub Actions CI/CD |
+| Setting | Default | Override |
+|---------|---------|----------|
+| MIN_DISCOUNT | 40% | `MIN_DISCOUNT` env var |
+| MIN_PRODUCT_PRICE | 50 | `MIN_PRODUCT_PRICE` env var |
+| REQUEST_TIMEOUT | 120s | `REQUEST_TIMEOUT` env var |
+| SCRAPEDO_TOKEN | — | env var (required) |
+| DATABASE_URL | — | env var (Supabase, required) |
+| TIMESCALE_URL | — | env var (TimescaleDB, required) |
+| AMAZON_ENABLED | true | env var |
+| NOON_ENABLED | true | env var |
+| JUMIA_ENABLED | true | env var |
 
 ---
 
-## Environment Variables Required
+## All Problems Found and Fixed
 
-| Variable | Description |
-|---|---|
-| `FIREBASE_KEY_JSON` | Firebase service account JSON (full content) |
-| `FLASK_ENV` | Set to `production` |
-| `CORS_ORIGINS` | Comma-separated allowed origins |
-| `SCRAPERAPI_KEY` | ScraperAPI key for scraping |
+### 1. Noon EG/AE/SA — 0 deals
 
----
+**Root cause:** Google Cloud Run datacenter IPs blocked by Akamai Bot Management. Local Playwright also fails because the block is at IP level, not browser fingerprint level.
 
-## Firestore Collections Used
-
-| Collection | Purpose |
-|---|---|
-| `admin_users` | Admin panel users (email or uid as doc ID) |
-| `admin_logs` | Structured error/event logs |
-| `deals` | All scraped deals |
-| `users` | App users |
-| `tier_config` | Tier pricing and features |
-| `notifications` | Sent notifications history |
-| `user_groups` | User groups for shared plans |
-| `country_pricing` | Per-country price configs |
-| `tier_history` | Tier upgrade/downgrade audit trail |
-| `scraper_health` | Per-source scraper health stats |
+**Fix:** Route all Noon through scrape.do `render=true`. Their infrastructure bypasses Akamai. Added `__NEXT_DATA__` JSON extraction as fallback (Noon is Next.js — every page embeds full product state as JSON in `<script id="__NEXT_DATA__">`). Added 404 early-exit so dead URLs skip Playwright immediately.
 
 ---
 
-## Recommended Next Steps
+### 2. Jumia EG — 1 deal only
 
-1. **Fix scraper selectors** for Amazon EG, Jumia, Noon — site layouts change and selectors break
-2. **Add Composite Firestore Indexes** for queries that need order_by + where
-3. **Mobile app FCM topic subscription** — app must call `subscribeToTopic("all_users")` on startup
-4. **Migrate to PostgreSQL** (Supabase) when ready — better for complex queries, no per-read quota
-5. **Add Excel export** for revenue and user data
-6. **Complete deal viewer modal** in admin panel
+**Root cause 1:** URLs pointed to general category pages with 10–30% discounts (below 40% threshold).
+**Root cause 2:** Cloudflare blocks Cloud Run IPs.
+
+**Fix 1:** Switched to `f[n_special_price]=1` filter URLs — shows only products currently on sale.
+**Fix 2:** curl_cffi `impersonate="chrome120"` as primary strategy. Performs exact TLS fingerprint impersonation of Chrome 120. scrape.do `super=true` as fallback.
 
 ---
 
-## Scaling Recommendations
+### 3. Amazon EG/AE — 0 deals
 
-| Phase | Users | Stack | Cost |
-|---|---|---|---|
-| Now | <10K | Railway + Firebase Blaze | ~$7/mo |
-| Phase 2 | 10K-100K | Railway + Supabase + Redis | ~$50/mo |
-| Phase 3 | 100K-1M | Google Cloud Run + Firestore Blaze + CloudFlare | ~$150/mo |
-| Phase 4 | 1M+ | AWS ECS + RDS + ElastiCache | ~$500+/mo |
+**Root cause 1:** HTTP 503 — Cloud Run IPs blocked.
+**Root cause 2:** `s?k=deals` URLs return general products, most < 40% discount.
+
+**Fix 1:** Force scrape.do for `country in ("eg","ae")` in `_scrape_amazon_page()`.
+**Fix 2:** Category-specific discount-filtered URLs: `s?k=CATEGORY&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank` — Amazon's native ≥40% filter sorted by largest discount.
+
+---
+
+### 4. Price snapshots — 0 recorded every run
+
+**Root cause:** Migration rollback bug. `create_hypertable()` already-exists error called `conn.rollback()`, rolling back ALL prior ALTER TABLE statements in the same transaction — including the `source` column addition. `conn.commit()` then committed nothing.
+
+**Fix:** `conn.commit()` immediately after column migrations, before any hypertable call. Each risky SQL now in its own commit/rollback cycle.
+
+---
+
+### 5. deals_category_check constraint violations
+
+**Root cause:** Old DB constraint only allowed a limited category list. Scraper produces `beauty`, `pets`, etc. which were not in it.
+
+**Fix:** Migration drops old constraint, recreates with all 14 categories:
+`electronics, fashion, home, sports, beauty, baby, automotive, books, pets, food, health, grocery, office, other`
+
+---
+
+### 6. `column "reviews" does not exist` on startup
+
+**Root cause:** Stale migration: `UPDATE deals SET review_count = reviews` — column `reviews` was renamed to `review_count` long ago.
+
+**Fix:** Removed the stale line. All data-copy migrations wrapped in try/except.
+
+---
+
+### 7. Dead Noon sale URLs (all 404)
+
+`/sale-electronics/`, `/sale-fashion/`, `/sale-home/` — Noon deleted these pages.
+
+**Fix:** Replaced with subcategory URLs + `?sort_by=discount_percent&sort_order=d`. Confirmed returning 16+ deals per category in live logs.
+
+---
+
+### 8. Jumia `/deals-of-the-day/` — 404
+
+**Fix:** Removed. Replaced with more category pages using `f[n_special_price]=1`.
+
+---
+
+### 9. PriceCleaner EU decimal format
+
+**Root cause:** Regex `[\d,]+(?:\.\d+)?` truncated `1.299,00 SAR` to `1.299` (stopped before comma).
+
+**Fix:** Changed regex to `[\d.,]+` — captures full number, existing EU/US detection handles the rest.
+
+---
+
+## Anti-Bot Bypass Architecture
+
+```
+Amazon EG/AE  →  scrape.do plain proxy (render=false)
+               ↓ fallback
+               direct HTTP
+
+Amazon SA     →  proxy rotation (scrape.do + direct)
+
+Noon          →  scrape.do rendered (render=true, wait=6000ms)
+               ↓ fallback (if 0 product boxes found)
+               __NEXT_DATA__ JSON extraction
+               ↓ fallback (if no __NEXT_DATA__)
+               Playwright stealth browser
+               (404 from scrape.do → skip all, return [])
+
+Jumia         →  curl_cffi impersonate="chrome120" (TLS fingerprint)
+               ↓ fallback
+               scrape.do super=true, geoCode=eg
+               ↓ fallback
+               direct HTTP
+```
+
+---
+
+## Database Schema
+
+### deals table (Supabase)
+```sql
+id TEXT PRIMARY KEY,           -- MD5(site + url + price)
+product_id TEXT,
+site VARCHAR(32),              -- 'amazon_eg', 'noon_eg', etc.
+title TEXT,
+image_url TEXT,
+product_url TEXT,
+category VARCHAR(32),          -- CHECK constraint on 14 values
+original_price DECIMAL(12,2),
+current_price DECIMAL(12,2),
+discount_percent DECIMAL(5,1),
+savings DECIMAL(12,2),
+currency VARCHAR(8),           -- 'EGP', 'AED', 'SAR'
+verdict VARCHAR(32),           -- 'GENUINE', 'FAKE', 'SUSPICIOUS'
+fake_score DECIMAL(5,2),
+recommendation VARCHAR(32),
+confidence DECIMAL(5,2),
+fraud_reasons JSONB,
+rating DECIMAL(3,1),
+review_count INTEGER,
+is_active BOOLEAN,
+last_seen_at TIMESTAMPTZ,
+created_at TIMESTAMPTZ
+```
+
+### price_snapshots table (TimescaleDB hypertable)
+```sql
+deal_id TEXT,
+product_id TEXT,
+site VARCHAR(32),
+source VARCHAR(32),            -- which scraping strategy was used
+price DECIMAL(12,2),
+original_price DECIMAL(12,2),
+discount_percent DECIMAL(5,1),
+currency VARCHAR(8),
+timestamp TIMESTAMPTZ          -- hypertable partition key
+```
+
+---
+
+## URL Coverage (Final State)
+
+### Amazon EG / AE / SA (identical coverage, different domains)
+
+**Discount pages (23 categories):**
+Smartphones, Laptops, Headphones, TVs, Cameras, Gaming, Electronics, Men's Fashion, Women's Fashion, Shoes, Watches, Bags, Kitchen, Furniture, Beauty, Skincare, Perfume, Sports, Baby, Books, Automotive, Pet Supplies, Grocery
+
+**Bestseller pages (9 categories):**
+Electronics, Fashion, Beauty, Kitchen, Books, Toys, Automotive, Pet Supplies, Grocery
+
+### Noon EG / AE / SA (identical coverage, different locales)
+
+**Discount-sorted pages (22 categories):**
+Electronics, Mobiles & Tablets, Laptops, TVs, Audio, Cameras, Gaming, Women's Clothing, Men's Clothing, Women's Shoes, Men's Shoes, Watches, Bags, Home & Kitchen, Furniture, Beauty & Fragrance, Skincare, Sports, Baby, Grocery, Automotive, Pet Supplies
+
+**Bestseller pages (9 categories):**
+Electronics, Fashion, Beauty, Home & Kitchen, Sports, Baby, Grocery, Automotive, Pet Supplies
+
+### Jumia EG
+
+**Discount pages (25 categories + 3 catalog pages):**
+General catalog pages 1–3, Phones & Tablets, Laptops, TVs, Headphones, Cameras, Gaming, Women's Clothing, Men's Clothing, Women's Shoes, Men's Shoes, Watches, Bags, Furniture, Appliances, Home Living, Health & Beauty, Skincare, Fragrances, Sports, Baby, Books, Automotive, Pet Supplies, Grocery
+
+**Bestseller pages (5):**
+Top-rated catalog, Phones, Beauty, Home, Sports (all with discount filter)
+
+---
+
+## Test Suite
+
+### test_parsing.py — Offline (49 tests, no network, no DB)
+```bash
+python3 test_parsing.py
+```
+Covers: PriceCleaner, category detection, Noon HTML parsing, Noon __NEXT_DATA__ JSON,
+Jumia HTML parsing, deal ID uniqueness, _build_deal edge cases.
+**Result: 49/49 PASS**
+
+### test_live.py — Live network (Cloud Shell only)
+```bash
+export SCRAPEDO_TOKEN="your_token"
+python3 test_live.py
+```
+Tests real Amazon EG, Noon EG, Jumia EG without touching the database.
+
+---
+
+## Deploy Commands
+
+```bash
+# One-time: set project
+gcloud config set project dealhunter-egypt-70d29
+
+# Every deploy
+cd ~/dealhunter-deploy
+git fetch origin && git checkout claude/resolve-user-support-5Eljo && git pull
+gcloud builds submit --config=cloudbuild_scraper.yaml
+gcloud run jobs update dealhunter-scraper --region=us-central1 \
+  --image=gcr.io/dealhunter-egypt-70d29/dealhunter-scraper:latest
+gcloud run jobs execute dealhunter-scraper --region=us-central1 --wait
+```
+
+## Check Results After Deploy
+```bash
+gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=dealhunter-scraper" \
+  --limit=200 --format="value(textPayload)" --freshness=15m \
+  | grep -E "deals|ERROR|WARN|snapshot"
+```
+
+---
+
+## Results: Before vs After
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Noon EG deals/run | 0 | 50+ |
+| Noon AE deals/run | 0 | 10+ |
+| Noon SA deals/run | 0 | 10+ |
+| Amazon EG deals/run | 0 | 20+ |
+| Amazon AE deals/run | 0 | 20+ |
+| Amazon SA deals/run | 21 | 30+ |
+| Jumia EG deals/run | 1 | 85+ |
+| Price snapshots/run | 0 | 116+ |
+| DB errors/run | 10+ | 0 |
+| Cycle time | 1324s | ~400s |
+| Categories covered | partial | 23 per source |
+| Bestseller pages | 0 | 9 per source |
+
+---
+
+## Commit History
+
+| Commit | What changed |
+|--------|-------------|
+| `ae90f63` | Full category + bestseller coverage for all 7 sources |
+| `9ca7748` | Force scrape.do for Amazon EG/AE + expand discount URLs |
+| `4e10932` | Fix migration rollback bug (source column + category constraint) |
+| `6d05b01` | Fix 5 live production bugs (reviews col, 404 URLs, deals-of-the-day) |
+| `46b574f` | Fix PriceCleaner EU decimal + 49-test offline test suite |
+| `9bc593f` | Noon: scrape.do rendered mode + __NEXT_DATA__ parsing |
+| `46ac601` | Playwright Noon + curl_cffi Jumia + schema fixes |
