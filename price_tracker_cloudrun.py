@@ -449,8 +449,9 @@ class TrackerDB:
             return 0
         sql = """
             INSERT INTO price_snapshots
-                (deal_id, product_id, site, source, price, currency, snapshot_type)
-            VALUES (%s, %s, %s, %s, %s, %s, 'catalog')
+                (deal_id, product_id, site, source, price, currency,
+                 snapshot_type, timestamp)
+            VALUES (%s, %s, %s, %s, %s, %s, 'catalog', NOW())
             ON CONFLICT DO NOTHING
         """
         count = 0
