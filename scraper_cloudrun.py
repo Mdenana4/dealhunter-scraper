@@ -281,7 +281,7 @@ _DEAL_URLS: Dict[str, List[str]] = {
         # Bestseller pages
         "https://www.noon.com/saudi-en/electronics-and-mobiles/?sort_by=bestselling&sort_order=desc",
         "https://www.noon.com/saudi-en/fashion/?sort_by=bestselling&sort_order=desc",
-        "https://www.noon.com/saudi-en/beauty-and-fragrance/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/saudi-en/beauty/?sort_by=bestselling&sort_order=desc",
         "https://www.noon.com/saudi-en/home-and-kitchen/?sort_by=bestselling&sort_order=desc",
         "https://www.noon.com/saudi-en/sports-and-outdoors/?sort_by=bestselling&sort_order=desc",
         "https://www.noon.com/saudi-en/baby-products/?sort_by=bestselling&sort_order=desc",
@@ -300,31 +300,31 @@ _DEAL_URLS: Dict[str, List[str]] = {
         "https://www.jumia.com.eg/phones-tablets/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/laptops/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/televisions/?f%5Bn_special_price%5D=1",
-        "https://www.jumia.com.eg/audio-headphones/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/headphones/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/cameras/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/video-games/?f%5Bn_special_price%5D=1",
         # Fashion
         "https://www.jumia.com.eg/womens-clothing/?f%5Bn_special_price%5D=1",
-        "https://www.jumia.com.eg/mens-clothing/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/men-clothing/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/womens-shoes/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/mens-shoes/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/watches/?f%5Bn_special_price%5D=1",
-        "https://www.jumia.com.eg/bags-wallets/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/luggage-bags/?f%5Bn_special_price%5D=1",
         # Home & Kitchen
         "https://www.jumia.com.eg/home-office-furniture/?f%5Bn_special_price%5D=1",
-        "https://www.jumia.com.eg/home-appliances/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/large-appliances/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/small-appliances/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/home-living/?f%5Bn_special_price%5D=1",
         # Beauty
         "https://www.jumia.com.eg/health-beauty/?f%5Bn_special_price%5D=1",
-        "https://www.jumia.com.eg/skincare/?f%5Bn_special_price%5D=1",
-        "https://www.jumia.com.eg/fragrances/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/fragrances-perfumes/?f%5Bn_special_price%5D=1",
         # Other categories
         "https://www.jumia.com.eg/sporting-goods/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/baby-products/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/books/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/automotive/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/pet-supplies/?f%5Bn_special_price%5D=1",
-        "https://www.jumia.com.eg/food-beverage/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/groceries/?f%5Bn_special_price%5D=1",
         # Bestseller pages (top-rated with discount filter)
         "https://www.jumia.com.eg/catalog/?f%5Bn_special_price%5D=1&sort%5Bby%5D=rating&sort%5Bdir%5D=desc",
         "https://www.jumia.com.eg/phones-tablets/?f%5Bn_special_price%5D=1&sort%5Bby%5D=rating&sort%5Bdir%5D=desc",
@@ -1363,17 +1363,20 @@ class DealHunterScraper:
         Force all EG/AE requests through scrape.do; SA works with direct too.
         """
         resp = None
-        if country in ("eg", "ae") and self.proxy_rotator.scrapedo_token:
+        geo = {"eg": "eg", "ae": "ae", "sa": "sa"}.get(country, "")
+        if self.proxy_rotator.scrapedo_token:
             try:
                 encoded = urllib.parse.quote(url, safe="")
                 sd_url = (
                     f"https://api.scrape.do/?token="
                     f"{self.proxy_rotator.scrapedo_token}"
                     f"&url={encoded}&render=false"
+                    + (f"&geoCode={geo}" if geo else "")
                 )
                 r = requests.get(sd_url, timeout=60)
                 if r.status_code == 200:
                     resp = r
+                    logger.debug(f"[Amazon] scrape.do OK ({len(r.text)} bytes) for {url}")
                 else:
                     logger.warning(f"[Amazon] scrape.do HTTP {r.status_code} for {url}")
             except Exception as e:
@@ -1404,8 +1407,11 @@ class DealHunterScraper:
                 break
 
         if not cards:
-            logger.warning(f"[WARN] No deal cards found on Amazon {country}: {url}")
+            # Log a snippet to help diagnose bot pages vs real results
+            snippet = soup.get_text()[:200].replace("\n", " ").strip()
+            logger.warning(f"[Amazon] No cards on {country} ({len(resp.text)}B): {snippet[:120]}")
             return []
+        logger.debug(f"[Amazon] {len(cards)} raw cards on {country}: {url}")
 
         for card in cards:
             try:
