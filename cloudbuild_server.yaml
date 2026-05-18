@@ -1,0 +1,38 @@
+steps:
+  # Build the server image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - -f
+      - Dockerfile.server
+      - -t
+      - gcr.io/dealhunter-egypt-70d29/dealhunter-server:latest
+      - .
+
+  # Push to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - push
+      - gcr.io/dealhunter-egypt-70d29/dealhunter-server:latest
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - dealhunter-server
+      - --image=gcr.io/dealhunter-egypt-70d29/dealhunter-server:latest
+      - --region=us-central1
+      - --platform=managed
+      - --allow-unauthenticated
+      - --port=8080
+      - --min-instances=0
+      - --max-instances=3
+      - --memory=512Mi
+      - --cpu=1
+      - --timeout=60
+      - --set-env-vars=DATABASE_URL=postgresql://postgres:Egypt99%40%4077777@db.rmkaljwjskxihkuvxosc.supabase.co:5432/postgres,FLASK_ENV=production,MIN_DISCOUNT=40
+
+images:
+  - gcr.io/dealhunter-egypt-70d29/dealhunter-server:latest

@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/deal_model.dart';
 
+// TODO: replace with your Cloud Run URL after first deploy
+// Get it from: gcloud run services describe dealhunter-server --region us-central1 --format='value(status.url)'
 const _baseUrl = 'https://dealhunter-scraper.onrender.com';
 
 class ApiService {
