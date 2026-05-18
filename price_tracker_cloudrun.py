@@ -660,7 +660,7 @@ class CatalogScraper:
     # ── HTTP helpers ──────────────────────────────────────────────────────────
 
     def _fetch_via_scrapedo(self, url: str, render: bool = False,
-                             geo: str = "") -> Optional[str]:
+                             geo: str = "", super_proxy: bool = False) -> Optional[str]:
         if not SCRAPEDO_TOKEN:
             return None
         try:
@@ -671,6 +671,7 @@ class CatalogScraper:
                 f"&render={'true' if render else 'false'}"
                 + (f"&wait=5000" if render else "")
                 + (f"&geoCode={geo}" if geo else "")
+                + ("&super=true" if super_proxy else "")
             )
             r = requests.get(sd, timeout=REQUEST_TIMEOUT)
             if r.status_code == 200:
@@ -710,8 +711,8 @@ class CatalogScraper:
                 return r.text
         except Exception:
             pass
-        # fallback to scrape.do super
-        return self._fetch_via_scrapedo(url, render=False)
+        # fallback: scrape.do super=true (Cloudflare bypass — same as System 2)
+        return self._fetch_via_scrapedo(url, render=False, super_proxy=True)
 
     # ── Platform parsers ──────────────────────────────────────────────────────
 
