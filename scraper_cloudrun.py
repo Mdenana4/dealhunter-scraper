@@ -784,6 +784,13 @@ def make_deal_id(site: str, url: str, price: float) -> str:
     return hashlib.md5(f"{site}:{url}:{price}".encode()).hexdigest()
 
 
+def make_product_id(site: str, url: str) -> str:
+    """Stable product identity — same formula as System 1 (price_tracker_cloudrun.py).
+    Strips query string so the same product at different prices maps to the same ID."""
+    key = f"{site}::{url.split('?')[0].rstrip('/')}"
+    return hashlib.md5(key.encode()).hexdigest()
+
+
 def extract_image_url(img_tag: Any, base_url: str = "") -> Optional[str]:
     """Extract image URL from various HTML img tag formats."""
     if img_tag is None:
@@ -1217,6 +1224,30 @@ class DealHunterScraper:
 
     # ── Deal Builders ──
 
+    def _lookup_s1_verdict(self, product_id: str, site: str) -> Optional[dict]:
+        """Query System 1's discount_verdicts table for a cached verdict.
+        Returns dict with verdict/confidence/reason keys, or None if not found."""
+        if not self.db_pool or not product_id:
+            return None
+        try:
+            conn = self._get_db_conn(self.db_pool)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT verdict, confidence, reason
+                        FROM discount_verdicts
+                        WHERE product_id = %s AND site = %s
+                          AND analyzed_at > NOW() - INTERVAL '48 hours'
+                    """, (product_id, site))
+                    row = cur.fetchone()
+                    if row:
+                        return {"verdict": row[0], "confidence": float(row[1] or 0), "reason": row[2]}
+            finally:
+                self._put_db_conn(self.db_pool, conn)
+        except Exception:
+            pass
+        return None
+
     def _build_deal(
         self,
         site: str,
@@ -1259,10 +1290,32 @@ class DealHunterScraper:
             discount["percent"] = MAX_DISCOUNT_THRESHOLD
 
         category = detect_category(title, url)
+        product_id = make_product_id(site, url)
+
+        # ── System 1 verdict lookup ──────────────────────────────────
+        # Query discount_verdicts table written by price_tracker_cloudrun.py.
+        # FAKE    → keep in DB but flagged; app layer decides whether to show.
+        # SUSPICIOUS → flagged with caution recommendation.
+        # GENUINE → confirmed by price history.
+        # UNVERIFIED → no history yet (first 7 days); default to GENUINE.
+        s1 = self._lookup_s1_verdict(product_id, site)
+        if s1 and s1["verdict"] in ("FAKE", "SUSPICIOUS", "GENUINE"):
+            v = s1["verdict"]
+            verdict       = v
+            fake_score    = 1.0 if v == "FAKE" else (0.6 if v == "SUSPICIOUS" else 0.0)
+            recommendation = "avoid" if v == "FAKE" else ("caution" if v == "SUSPICIOUS" else "good_deal")
+            confidence    = s1["confidence"]
+            fraud_reasons = [s1["reason"]] if s1.get("reason") else []
+        else:
+            verdict       = "UNVERIFIED"
+            fake_score    = 0.0
+            recommendation = "good_deal"
+            confidence    = 0.0
+            fraud_reasons = []
 
         deal = {
             "id": make_deal_id(site, url, current),
-            "product_id": "",
+            "product_id": product_id,
             "site": site,
             "title": title.strip()[:500],
             "image_url": (image_url or "")[:2000],
@@ -1273,11 +1326,11 @@ class DealHunterScraper:
             "discount_percent": discount["percent"],
             "savings": discount["savings"],
             "currency": "EGP",
-            "verdict": "GENUINE",
-            "fake_score": 0.0,
-            "recommendation": "good_deal",
-            "confidence": 0.0,
-            "fraud_reasons": [],
+            "verdict": verdict,
+            "fake_score": fake_score,
+            "recommendation": recommendation,
+            "confidence": confidence,
+            "fraud_reasons": fraud_reasons,
             "rating": rating,
             "review_count": reviews,
         }
