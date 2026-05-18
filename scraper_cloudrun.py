@@ -88,16 +88,6 @@ _DEAL_URLS: Dict[str, List[str]] = {
         "https://www.amazon.eg/s?k=automotive&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
         "https://www.amazon.eg/s?k=pet+supplies&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
         "https://www.amazon.eg/s?k=grocery&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
-        # Bestseller pages
-        "https://www.amazon.eg/gp/bestsellers/electronics/",
-        "https://www.amazon.eg/gp/bestsellers/fashion/",
-        "https://www.amazon.eg/gp/bestsellers/beauty/",
-        "https://www.amazon.eg/gp/bestsellers/kitchen/",
-        "https://www.amazon.eg/gp/bestsellers/books/",
-        "https://www.amazon.eg/gp/bestsellers/toys/",
-        "https://www.amazon.eg/gp/bestsellers/automotive/",
-        "https://www.amazon.eg/gp/bestsellers/pet-supplies/",
-        "https://www.amazon.eg/gp/bestsellers/grocery/",
     ],
     # ── Amazon UAE ────────────────────────────────────────────────────────────
     "amazon_ae": [
@@ -125,16 +115,6 @@ _DEAL_URLS: Dict[str, List[str]] = {
         "https://www.amazon.ae/s?k=automotive&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
         "https://www.amazon.ae/s?k=pet+supplies&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
         "https://www.amazon.ae/s?k=grocery&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
-        # Bestseller pages
-        "https://www.amazon.ae/gp/bestsellers/electronics/",
-        "https://www.amazon.ae/gp/bestsellers/fashion/",
-        "https://www.amazon.ae/gp/bestsellers/beauty/",
-        "https://www.amazon.ae/gp/bestsellers/kitchen/",
-        "https://www.amazon.ae/gp/bestsellers/books/",
-        "https://www.amazon.ae/gp/bestsellers/toys/",
-        "https://www.amazon.ae/gp/bestsellers/automotive/",
-        "https://www.amazon.ae/gp/bestsellers/pet-supplies/",
-        "https://www.amazon.ae/gp/bestsellers/grocery/",
     ],
     # ── Amazon Saudi Arabia ───────────────────────────────────────────────────
     "amazon_sa": [
@@ -162,16 +142,6 @@ _DEAL_URLS: Dict[str, List[str]] = {
         "https://www.amazon.sa/s?k=automotive&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
         "https://www.amazon.sa/s?k=pet+supplies&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
         "https://www.amazon.sa/s?k=grocery&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
-        # Bestseller pages
-        "https://www.amazon.sa/gp/bestsellers/electronics/",
-        "https://www.amazon.sa/gp/bestsellers/fashion/",
-        "https://www.amazon.sa/gp/bestsellers/beauty/",
-        "https://www.amazon.sa/gp/bestsellers/kitchen/",
-        "https://www.amazon.sa/gp/bestsellers/books/",
-        "https://www.amazon.sa/gp/bestsellers/toys/",
-        "https://www.amazon.sa/gp/bestsellers/automotive/",
-        "https://www.amazon.sa/gp/bestsellers/pet-supplies/",
-        "https://www.amazon.sa/gp/bestsellers/grocery/",
     ],
     # ── Noon Egypt ────────────────────────────────────────────────────────────
     "noon_eg": [
