@@ -62,37 +62,245 @@ _DEAL_SOURCES = {"amazon_eg", "noon_eg", "jumia_eg"}
 
 # URLs to scrape per source
 _DEAL_URLS: Dict[str, List[str]] = {
+    # ── Amazon Egypt ──────────────────────────────────────────────────────────
     "amazon_eg": [
-        "https://www.amazon.eg/-/en/gp/goldbox",
-        "https://www.amazon.eg/s?k=deals",
+        # Discount pages (≥40% off, sorted by discount)
+        "https://www.amazon.eg/s?k=smartphones&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=laptops&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=headphones&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=television&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=cameras&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=gaming&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=electronics&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=mens+fashion&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=womens+fashion&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=shoes&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=watches&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=bags&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=kitchen&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=furniture&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=beauty&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=skincare&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=perfume&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=sports&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=baby&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=books&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=automotive&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=pet+supplies&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.eg/s?k=grocery&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
     ],
+    # ── Amazon UAE ────────────────────────────────────────────────────────────
     "amazon_ae": [
-        "https://www.amazon.ae/-/en/gp/goldbox",
-        "https://www.amazon.ae/s?k=deals",
+        # Discount pages (≥40% off, sorted by discount)
+        "https://www.amazon.ae/s?k=smartphones&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=laptops&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=headphones&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=television&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=cameras&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=gaming&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=electronics&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=mens+fashion&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=womens+fashion&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=shoes&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=watches&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=bags&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=kitchen&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=furniture&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=beauty&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=skincare&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=perfume&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=sports&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=baby&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=books&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=automotive&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=pet+supplies&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.ae/s?k=grocery&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
     ],
+    # ── Amazon Saudi Arabia ───────────────────────────────────────────────────
     "amazon_sa": [
-        "https://www.amazon.sa/-/en/gp/goldbox",
-        "https://www.amazon.sa/s?k=deals",
+        # Discount pages (≥40% off, sorted by discount)
+        "https://www.amazon.sa/s?k=smartphones&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=laptops&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=headphones&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=television&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=cameras&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=gaming&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=electronics&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=mens+fashion&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=womens+fashion&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=shoes&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=watches&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=bags&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=kitchen&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=furniture&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=beauty&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=skincare&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=perfume&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=sports&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=baby&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=books&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=automotive&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=pet+supplies&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
+        "https://www.amazon.sa/s?k=grocery&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE",
     ],
+    # ── Noon Egypt ────────────────────────────────────────────────────────────
     "noon_eg": [
-        "https://www.noon.com/egypt-en/electronics-and-mobiles/",
-        "https://www.noon.com/egypt-en/fashion/",
-        "https://www.noon.com/egypt-en/home-and-kitchen/",
+        # Electronics — discount sorted
+        "https://www.noon.com/egypt-en/electronics-and-mobiles/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/electronics-and-mobiles/mobiles-and-tablets/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/laptops-and-computers/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/tv-and-audio/tvs/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/electronics-and-mobiles/audio/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/electronics-and-mobiles/cameras/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/gaming/?sort_by=discount_percent&sort_order=d",
+        # Fashion — discount sorted
+        "https://www.noon.com/egypt-en/fashion/womens-clothing/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/fashion/mens-clothing/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/fashion/womens-shoes/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/fashion/mens-shoes/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/fashion/watches/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/fashion/bags-and-luggage/?sort_by=discount_percent&sort_order=d",
+        # Home, Beauty, Sports — discount sorted
+        "https://www.noon.com/egypt-en/home-and-kitchen/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/home-and-kitchen/furniture/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/health-and-beauty/fragrance/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/health-and-beauty/skincare/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/beauty-and-fragrance/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/sports-and-outdoors/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/baby-products/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/grocery/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/automotive/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/egypt-en/pet-supplies/?sort_by=discount_percent&sort_order=d",
+        # Bestseller pages
+        "https://www.noon.com/egypt-en/electronics-and-mobiles/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/egypt-en/fashion/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/egypt-en/beauty-and-fragrance/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/egypt-en/home-and-kitchen/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/egypt-en/sports-and-outdoors/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/egypt-en/baby-products/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/egypt-en/grocery/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/egypt-en/automotive/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/egypt-en/pet-supplies/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/egypt-en/offers/",
     ],
+    # ── Noon UAE ──────────────────────────────────────────────────────────────
     "noon_ae": [
-        "https://www.noon.com/uae-en/electronics-and-mobiles/",
-        "https://www.noon.com/uae-en/fashion/",
-        "https://www.noon.com/uae-en/home-and-kitchen/",
+        # Electronics — discount sorted
+        "https://www.noon.com/uae-en/electronics-and-mobiles/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/electronics-and-mobiles/mobiles-and-tablets/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/laptops-and-computers/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/tv-and-audio/tvs/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/electronics-and-mobiles/audio/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/electronics-and-mobiles/cameras/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/gaming/?sort_by=discount_percent&sort_order=d",
+        # Fashion — discount sorted
+        "https://www.noon.com/uae-en/fashion/womens-clothing/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/fashion/mens-clothing/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/fashion/womens-shoes/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/fashion/mens-shoes/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/fashion/watches/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/fashion/bags-and-luggage/?sort_by=discount_percent&sort_order=d",
+        # Home, Beauty, Sports — discount sorted
+        "https://www.noon.com/uae-en/home-and-kitchen/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/home-and-kitchen/furniture/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/health-and-beauty/fragrance/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/health-and-beauty/skincare/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/beauty-and-fragrance/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/sports-and-outdoors/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/baby-products/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/grocery/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/automotive/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/uae-en/pet-supplies/?sort_by=discount_percent&sort_order=d",
+        # Bestseller pages
+        "https://www.noon.com/uae-en/electronics-and-mobiles/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/uae-en/fashion/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/uae-en/beauty-and-fragrance/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/uae-en/home-and-kitchen/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/uae-en/sports-and-outdoors/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/uae-en/baby-products/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/uae-en/grocery/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/uae-en/automotive/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/uae-en/pet-supplies/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/uae-en/offers/",
     ],
+    # ── Noon Saudi Arabia ─────────────────────────────────────────────────────
     "noon_sa": [
-        "https://www.noon.com/saudi-en/electronics-and-mobiles/",
-        "https://www.noon.com/saudi-en/fashion/",
-        "https://www.noon.com/saudi-en/home-and-kitchen/",
+        # Electronics — discount sorted
+        "https://www.noon.com/saudi-en/electronics-and-mobiles/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/electronics-and-mobiles/mobiles-and-tablets/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/laptops-and-computers/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/tv-and-audio/tvs/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/electronics-and-mobiles/audio/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/electronics-and-mobiles/cameras/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/gaming/?sort_by=discount_percent&sort_order=d",
+        # Fashion — discount sorted
+        "https://www.noon.com/saudi-en/fashion/womens-clothing/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/fashion/mens-clothing/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/fashion/womens-shoes/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/fashion/mens-shoes/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/fashion/watches/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/fashion/bags-and-luggage/?sort_by=discount_percent&sort_order=d",
+        # Home, Beauty, Sports — discount sorted
+        "https://www.noon.com/saudi-en/home-and-kitchen/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/home-and-kitchen/furniture/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/health-and-beauty/fragrance/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/health-and-beauty/skincare/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/beauty-and-fragrance/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/sports-and-outdoors/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/baby-products/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/grocery/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/automotive/?sort_by=discount_percent&sort_order=d",
+        "https://www.noon.com/saudi-en/pet-supplies/?sort_by=discount_percent&sort_order=d",
+        # Bestseller pages
+        "https://www.noon.com/saudi-en/electronics-and-mobiles/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/saudi-en/fashion/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/saudi-en/beauty/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/saudi-en/home-and-kitchen/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/saudi-en/sports-and-outdoors/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/saudi-en/baby-products/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/saudi-en/grocery/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/saudi-en/automotive/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/saudi-en/pet-supplies/?sort_by=bestselling&sort_order=desc",
+        "https://www.noon.com/saudi-en/offers/",
     ],
+    # ── Jumia Egypt ───────────────────────────────────────────────────────────
     "jumia_eg": [
-        "https://www.jumia.com.eg/deals-of-the-day/",
-        "https://www.jumia.com.eg/electronics/",
-        "https://www.jumia.com.eg/fashion/",
+        # General discount catalog
+        "https://www.jumia.com.eg/catalog/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/catalog/?f%5Bn_special_price%5D=1&page=2",
+        "https://www.jumia.com.eg/catalog/?f%5Bn_special_price%5D=1&page=3",
+        # Electronics
+        "https://www.jumia.com.eg/phones-tablets/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/laptops/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/televisions/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/headphones/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/cameras/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/video-games/?f%5Bn_special_price%5D=1",
+        # Fashion
+        "https://www.jumia.com.eg/womens-clothing/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/men-clothing/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/womens-shoes/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/mens-shoes/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/watches/?f%5Bn_special_price%5D=1",
+        # Home & Kitchen
+        "https://www.jumia.com.eg/home-office-furniture/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/small-appliances/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/home-living/?f%5Bn_special_price%5D=1",
+        # Beauty
+        "https://www.jumia.com.eg/health-beauty/?f%5Bn_special_price%5D=1",
+        # Other categories
+        "https://www.jumia.com.eg/sporting-goods/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/baby-products/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/books/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/automotive/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/pet-supplies/?f%5Bn_special_price%5D=1",
+        "https://www.jumia.com.eg/groceries/?f%5Bn_special_price%5D=1",
+        # Bestseller pages (top-rated with discount filter)
+        "https://www.jumia.com.eg/catalog/?f%5Bn_special_price%5D=1&sort%5Bby%5D=rating&sort%5Bdir%5D=desc",
+        "https://www.jumia.com.eg/phones-tablets/?f%5Bn_special_price%5D=1&sort%5Bby%5D=rating&sort%5Bdir%5D=desc",
+        "https://www.jumia.com.eg/health-beauty/?f%5Bn_special_price%5D=1&sort%5Bby%5D=rating&sort%5Bdir%5D=desc",
+        "https://www.jumia.com.eg/home-living/?f%5Bn_special_price%5D=1&sort%5Bby%5D=rating&sort%5Bdir%5D=desc",
+        "https://www.jumia.com.eg/sporting-goods/?f%5Bn_special_price%5D=1&sort%5Bby%5D=rating&sort%5Bdir%5D=desc",
     ],
 }
 
@@ -178,9 +386,8 @@ class PriceCleaner:
 
         text = text.strip()
 
-        # Find the first number group (handles 1,299 and 1.299)
-        # Match digits with optional comma/dot thousand separators
-        m = re.search(r"[\d,]+(?:\.\d+)?", text)
+        # Find the first number group (handles 1,299 / 1.299 / 1.299,00 EU)
+        m = re.search(r"[\d.,]+", text)
         if not m:
             return 0.0
 
@@ -577,6 +784,13 @@ def make_deal_id(site: str, url: str, price: float) -> str:
     return hashlib.md5(f"{site}:{url}:{price}".encode()).hexdigest()
 
 
+def make_product_id(site: str, url: str) -> str:
+    """Stable product identity — same formula as System 1 (price_tracker_cloudrun.py).
+    Strips query string so the same product at different prices maps to the same ID."""
+    key = f"{site}::{url.split('?')[0].rstrip('/')}"
+    return hashlib.md5(key.encode()).hexdigest()
+
+
 def extract_image_url(img_tag: Any, base_url: str = "") -> Optional[str]:
     """Extract image URL from various HTML img tag formats."""
     if img_tag is None:
@@ -665,6 +879,14 @@ class DealHunterScraper:
         """Initialize PostgreSQL connection pools."""
         min_conn = 1
         max_conn = 5
+        # keepalive options prevent Supabase/PgBouncer from silently dropping
+        # idle connections mid-run (SSL SYSCALL EOF after ~60s of inactivity)
+        _keepalive_kwargs = {
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+            "keepalives_count": 5,
+        }
 
         if DATABASE_URL:
             try:
@@ -672,6 +894,7 @@ class DealHunterScraper:
                     minconn=min_conn,
                     maxconn=max_conn,
                     dsn=DATABASE_URL,
+                    **_keepalive_kwargs,
                 )
                 logger.info("[OK] Supabase connection pool initialized")
             except Exception as e:
@@ -686,6 +909,7 @@ class DealHunterScraper:
                     minconn=min_conn,
                     maxconn=max_conn,
                     dsn=TIMESCALE_URL,
+                    **_keepalive_kwargs,
                 )
                 logger.info("[OK] TimescaleDB connection pool initialized")
             except Exception as e:
@@ -726,12 +950,14 @@ class DealHunterScraper:
                             fraud_reasons JSONB DEFAULT '[]',
                             rating DECIMAL(3,1),
                             review_count INTEGER DEFAULT 0,
+                            is_active BOOLEAN DEFAULT TRUE,
+                            last_seen_at TIMESTAMPTZ DEFAULT NOW(),
                             created_at TIMESTAMPTZ DEFAULT NOW()
                         )
                         """
                     )
                     # MIGRATE: Add columns that don't exist yet
-                    migrations = [
+                    for sql in [
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS product_id TEXT",
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS product_url TEXT",
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS savings DECIMAL(12,2) NOT NULL DEFAULT 0",
@@ -742,20 +968,54 @@ class DealHunterScraper:
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS confidence DECIMAL(5,2) DEFAULT 0",
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS fraud_reasons JSONB DEFAULT '[]'",
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS review_count INTEGER DEFAULT 0",
-                    ]
-                    for sql in migrations:
-                        cur.execute(sql)
-                    # MIGRATE: Copy data from old column names
-                    #cur.execute("UPDATE deals SET product_url = url WHERE product_url IS NULL AND url IS NOT NULL")
-                    cur.execute("UPDATE deals SET savings = discount_amount WHERE savings = 0 AND discount_amount > 0")
-                    cur.execute("UPDATE deals SET review_count = reviews WHERE review_count = 0 AND reviews > 0")
-                    cur.execute("UPDATE deals SET currency = 'EGP' WHERE currency IS NULL")
-                    cur.execute("UPDATE deals SET verdict = 'GENUINE' WHERE verdict IS NULL")
-                    # Indexes
-                    cur.execute("CREATE INDEX IF NOT EXISTS idx_deals_site ON deals(site)")
-                    cur.execute("CREATE INDEX IF NOT EXISTS idx_deals_discount ON deals(discount_percent DESC)")
-                    cur.execute("CREATE INDEX IF NOT EXISTS idx_deals_category ON deals(category)")
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ DEFAULT NOW()",
+                    ]:
+                        try:
+                            cur.execute(sql)
+                        except psycopg2.Error:
+                            conn.rollback()
+                    # Commit column additions before risky operations that may rollback
                     conn.commit()
+                    # MIGRATE: Copy data from old column names (guard against missing cols)
+                    for safe_sql in [
+                        "UPDATE deals SET savings = discount_amount WHERE savings = 0 AND discount_amount > 0",
+                        "UPDATE deals SET currency = 'EGP' WHERE currency IS NULL",
+                        "UPDATE deals SET verdict = 'GENUINE' WHERE verdict IS NULL",
+                    ]:
+                        try:
+                            cur.execute(safe_sql)
+                            conn.commit()
+                        except psycopg2.Error:
+                            conn.rollback()
+                    # Fix category check constraint to include all categories we produce
+                    try:
+                        cur.execute("ALTER TABLE deals DROP CONSTRAINT IF EXISTS deals_category_check")
+                        conn.commit()
+                    except psycopg2.Error:
+                        conn.rollback()
+                    try:
+                        cur.execute(
+                            "ALTER TABLE deals ADD CONSTRAINT deals_category_check "
+                            "CHECK (category IS NULL OR category IN ("
+                            "'electronics','fashion','home','sports','beauty',"
+                            "'baby','automotive','books','pets','food','health',"
+                            "'grocery','office','other'))"
+                        )
+                        conn.commit()
+                    except psycopg2.Error:
+                        conn.rollback()
+                    # Indexes
+                    for idx_sql in [
+                        "CREATE INDEX IF NOT EXISTS idx_deals_site ON deals(site)",
+                        "CREATE INDEX IF NOT EXISTS idx_deals_discount ON deals(discount_percent DESC)",
+                        "CREATE INDEX IF NOT EXISTS idx_deals_category ON deals(category)",
+                    ]:
+                        try:
+                            cur.execute(idx_sql)
+                            conn.commit()
+                        except psycopg2.Error:
+                            conn.rollback()
                 self.db_pool.putconn(conn)
                 logger.info("[OK] Supabase deals table ensured with correct schema")
             except Exception as e:
@@ -770,12 +1030,32 @@ class DealHunterScraper:
                         """
                         CREATE TABLE IF NOT EXISTS price_snapshots (
                             deal_id TEXT NOT NULL,
+                            product_id TEXT,
+                            site VARCHAR(32) NOT NULL,
                             price DECIMAL(12,2) NOT NULL,
-                            source VARCHAR(32) NOT NULL,
+                            original_price DECIMAL(12,2),
+                            discount_percent DECIMAL(5,1),
+                            currency VARCHAR(8) DEFAULT 'EGP',
+                            source VARCHAR(32),
                             timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
                         )
                         """
                     )
+                    # Add missing columns for existing tables
+                    for col_sql in [
+                        "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS product_id TEXT",
+                        "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS site VARCHAR(32)",
+                        "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS source VARCHAR(32)",
+                        "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS original_price DECIMAL(12,2)",
+                        "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS discount_percent DECIMAL(5,1)",
+                        "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS currency VARCHAR(8) DEFAULT 'EGP'",
+                    ]:
+                        try:
+                            cur.execute(col_sql)
+                        except psycopg2.Error:
+                            conn.rollback()
+                    # Commit column migrations NOW — before hypertable call which may rollback
+                    conn.commit()
                     # Convert to hypertable if TimescaleDB is available
                     try:
                         cur.execute(
@@ -806,6 +1086,8 @@ class DealHunterScraper:
                         )
                         """
                     )
+                    # Commit CREATE TABLE before hypertable attempt which may rollback
+                    conn.commit()
                     try:
                         cur.execute(
                             """
@@ -816,11 +1098,10 @@ class DealHunterScraper:
                             )
                             """
                         )
+                        conn.commit()
                     except psycopg2.Error:
                         conn.rollback()
                         pass
-
-                    conn.commit()
                 self.ts_pool.putconn(conn)
                 logger.info("[OK] TimescaleDB tables ensured")
             except Exception as e:
@@ -943,6 +1224,30 @@ class DealHunterScraper:
 
     # ── Deal Builders ──
 
+    def _lookup_s1_verdict(self, product_id: str, site: str) -> Optional[dict]:
+        """Query System 1's discount_verdicts table for a cached verdict.
+        Returns dict with verdict/confidence/reason keys, or None if not found."""
+        if not self.db_pool or not product_id:
+            return None
+        try:
+            conn = self._get_db_conn(self.db_pool)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT verdict, confidence, reason
+                        FROM discount_verdicts
+                        WHERE product_id = %s AND site = %s
+                          AND analyzed_at > NOW() - INTERVAL '48 hours'
+                    """, (product_id, site))
+                    row = cur.fetchone()
+                    if row:
+                        return {"verdict": row[0], "confidence": float(row[1] or 0), "reason": row[2]}
+            finally:
+                self._put_db_conn(self.db_pool, conn)
+        except Exception:
+            pass
+        return None
+
     def _build_deal(
         self,
         site: str,
@@ -985,10 +1290,32 @@ class DealHunterScraper:
             discount["percent"] = MAX_DISCOUNT_THRESHOLD
 
         category = detect_category(title, url)
+        product_id = make_product_id(site, url)
+
+        # ── System 1 verdict lookup ──────────────────────────────────
+        # Query discount_verdicts table written by price_tracker_cloudrun.py.
+        # FAKE    → keep in DB but flagged; app layer decides whether to show.
+        # SUSPICIOUS → flagged with caution recommendation.
+        # GENUINE → confirmed by price history.
+        # UNVERIFIED → no history yet (first 7 days); default to GENUINE.
+        s1 = self._lookup_s1_verdict(product_id, site)
+        if s1 and s1["verdict"] in ("FAKE", "SUSPICIOUS", "GENUINE"):
+            v = s1["verdict"]
+            verdict       = v
+            fake_score    = 1.0 if v == "FAKE" else (0.6 if v == "SUSPICIOUS" else 0.0)
+            recommendation = "avoid" if v == "FAKE" else ("caution" if v == "SUSPICIOUS" else "good_deal")
+            confidence    = s1["confidence"]
+            fraud_reasons = [s1["reason"]] if s1.get("reason") else []
+        else:
+            verdict       = "UNVERIFIED"
+            fake_score    = 0.0
+            recommendation = "good_deal"
+            confidence    = 0.0
+            fraud_reasons = []
 
         deal = {
             "id": make_deal_id(site, url, current),
-            "product_id": "",
+            "product_id": product_id,
             "site": site,
             "title": title.strip()[:500],
             "image_url": (image_url or "")[:2000],
@@ -999,11 +1326,11 @@ class DealHunterScraper:
             "discount_percent": discount["percent"],
             "savings": discount["savings"],
             "currency": "EGP",
-            "verdict": "GENUINE",
-            "fake_score": 0.0,
-            "recommendation": "good_deal",
-            "confidence": 0.0,
-            "fraud_reasons": [],
+            "verdict": verdict,
+            "fake_score": fake_score,
+            "recommendation": recommendation,
+            "confidence": confidence,
+            "fraud_reasons": fraud_reasons,
             "rating": rating,
             "review_count": reviews,
         }
@@ -1053,8 +1380,32 @@ class DealHunterScraper:
         country: str,
         proxy: Optional[str] = None,
     ) -> List[dict]:
-        """Scrape a single Amazon deals page."""
-        resp = self._fetch(url, proxy=proxy)
+        """Scrape a single Amazon deals page.
+
+        Amazon EG and AE block Google Cloud Run datacenter IPs (503/403).
+        Force all EG/AE requests through scrape.do; SA works with direct too.
+        """
+        resp = None
+        geo = {"eg": "eg", "ae": "ae", "sa": "sa"}.get(country, "")
+        if self.proxy_rotator.scrapedo_token:
+            try:
+                encoded = urllib.parse.quote(url, safe="")
+                sd_url = (
+                    f"https://api.scrape.do/?token="
+                    f"{self.proxy_rotator.scrapedo_token}"
+                    f"&url={encoded}&render=false"
+                    + (f"&geoCode={geo}" if geo else "")
+                )
+                r = requests.get(sd_url, timeout=60)
+                if r.status_code == 200:
+                    resp = r
+                    logger.debug(f"[Amazon] scrape.do OK ({len(r.text)} bytes) for {url}")
+                else:
+                    logger.warning(f"[Amazon] scrape.do HTTP {r.status_code} for {url}")
+            except Exception as e:
+                logger.warning(f"[Amazon] scrape.do error: {e}")
+        if resp is None:
+            resp = self._fetch(url, proxy=proxy)
         if resp is None:
             return []
 
@@ -1078,9 +1429,25 @@ class DealHunterScraper:
             if cards:
                 break
 
+        # ── Bestseller page layout (different from search results) ──
+        is_bestseller = "/gp/bestsellers/" in url or "/bestsellers/" in url
+        if not cards and is_bestseller:
+            bs_selectors = [
+                "div.p13n-desktop-grid div[id^='gridItemRoot']",
+                "li.zg-item-immersion",
+                "li[id^='p13n-asin-index']",
+                "div.zg_itemWrapper",
+            ]
+            for sel in bs_selectors:
+                cards = soup.select(sel)
+                if cards:
+                    break
+
         if not cards:
-            logger.warning(f"[WARN] No deal cards found on Amazon {country}: {url}")
+            snippet = soup.get_text()[:200].replace("\n", " ").strip()
+            logger.warning(f"[Amazon] No cards on {country} ({len(resp.text)}B): {snippet[:120]}")
             return []
+        logger.debug(f"[Amazon] {len(cards)} raw cards on {country}: {url}")
 
         for card in cards:
             try:
@@ -1115,51 +1482,63 @@ class DealHunterScraper:
                     else:
                         continue
 
-                # Price - current
-                price_whole = card.select_one("span.a-price-whole")
-                price_fraction = card.select_one("span.a-price-fraction")
-                if price_whole:
-                    whole = price_whole.get_text(strip=True).replace(",", "")
-                    fraction = (
-                        price_fraction.get_text(strip=True)
-                        if price_fraction
-                        else "00"
-                    )
-                    current_price_str = f"{whole}.{fraction}"
+                # ── Current price ──
+                # Prefer a-offscreen (clean string like "SAR 599.00") over
+                # splitting whole/fraction because a-price-whole on Middle East
+                # Amazon embeds a nested <span class="a-price-decimal">.</span>
+                # which makes get_text() return "599." and produces "599..00".
+                price_offscreen = card.select_one(
+                    "span.a-price:not(.a-text-price) span.a-offscreen"
+                )
+                if price_offscreen:
+                    current_price_str = price_offscreen.get_text(strip=True)
                 else:
-                    price_el = card.select_one("span.a-price span.a-offscreen")
-                    current_price_str = (
-                        price_el.get_text(strip=True) if price_el else ""
-                    )
+                    price_whole = card.select_one("span.a-price-whole")
+                    price_fraction = card.select_one("span.a-price-fraction")
+                    if price_whole:
+                        # Strip nested spans (a-price-decimal etc.) before reading
+                        for nested in price_whole.find_all("span"):
+                            nested.decompose()
+                        whole = price_whole.get_text(strip=True).replace(",", "").rstrip(".")
+                        frac = price_fraction.get_text(strip=True).replace(".", "").replace(",", "") if price_fraction else "00"
+                        current_price_str = f"{whole}.{frac}" if whole else ""
+                    else:
+                        current_price_str = ""
 
-                # Original price (was / list price)
+                # ── Original / list price ──
                 original_el = (
                     card.select_one("span.a-text-price span.a-offscreen")
                     or card.select_one("span[data-a-color='secondary'] span.a-offscreen")
                     or card.select_one("span.a-price.a-text-price span.a-offscreen")
+                    or card.select_one("span[data-a-strike='true'] span.a-offscreen")
                 )
-                original_price_str = (
-                    original_el.get_text(strip=True) if original_el else ""
-                )
+                original_price_str = original_el.get_text(strip=True) if original_el else ""
 
-                # If no original price, try to find discount badge
+                # ── Fallback: derive original from discount badge ──
                 if not original_price_str:
-                    discount_badge = (
+                    badge_el = (
                         card.select_one("span.a-badge-text")
                         or card.select_one("span.s-coupon-highlight-color")
+                        or card.select_one("span[data-csa-c-type='label']")
                     )
-                    if discount_badge:
-                        badge_text = discount_badge.get_text(strip=True)
-                        # e.g. "-30%"
-                        m = re.search(r"(\d+)", badge_text)
-                        if m and current_price_str:
+                    if badge_el:
+                        badge_text = badge_el.get_text(strip=True)
+                        m = re.search(r"(\d+)\s*%", badge_text)
+                        if m:
                             pct = int(m.group(1))
-                            current_f = self.price_cleaner.clean_price(
-                                current_price_str
-                            )
-                            if current_f > 0 and pct > 0:
-                                original_f = current_f / (1 - pct / 100)
-                                original_price_str = str(round(original_f, 2))
+                            current_f = self.price_cleaner.clean_price(current_price_str)
+                            if current_f > 0 and 5 <= pct <= 95:
+                                original_price_str = str(round(current_f / (1 - pct / 100), 2))
+
+                # ── Last resort for discount-search URLs ──
+                # rh=p_n_pct-off-with-tax guarantees ≥40% discount.
+                # If HTML gives us no original price at all, back-calculate
+                # assuming the minimum 40% so the deal isn't silently dropped.
+                is_discount_search = "pct-off-with-tax" in url
+                if not original_price_str and is_discount_search:
+                    current_f = self.price_cleaner.clean_price(current_price_str)
+                    if current_f > 0:
+                        original_price_str = str(round(current_f / 0.60, 2))
 
                 # Image
                 img = card.select_one("img")
@@ -1270,7 +1649,11 @@ class DealHunterScraper:
     # ── Noon Egypt ──
 
     def scrape_noon_eg(self, proxy: Optional[str] = None) -> List[dict]:
-        """Scrape Noon Egypt deals."""
+        """Scrape Noon Egypt deals.
+
+        Primary: scrape.do rendered (Akamai bypass via their infra).
+        Fallback: stealth Playwright (only if scrape.do unavailable).
+        """
         if not NOON_ENABLED:
             logger.info("[OK] Noon EG disabled by kill switch")
             return []
@@ -1280,7 +1663,7 @@ class DealHunterScraper:
 
         for url in urls:
             try:
-                deals = self._scrape_noon_page(url, "noon_eg", "noon", "eg", proxy)
+                deals = self._scrape_noon_page(url, "noon_eg", "noon", "eg")
                 all_deals.extend(deals)
                 logger.info(
                     f"[OK] Scraped noon_eg ({url}): {len(deals)} deals found"
@@ -1315,155 +1698,229 @@ class DealHunterScraper:
         country: str,
         proxy: Optional[str] = None,
     ) -> List[dict]:
-        """Scrape a single Noon page."""
-        resp = self._fetch(url, proxy=proxy)
-        if resp is None:
-            return []
+        """Scrape a single Noon page.
 
-        soup = BeautifulSoup(resp.text, "lxml")
-        deals: List[dict] = []
+        Noon uses Akamai Bot Management, which blocks Google Cloud Run IPs.
+        The winning strategy is to route through scrape.do's rendered mode —
+        their infrastructure handles Akamai on our behalf and returns fully
+        hydrated React HTML. We then parse data-qa attributes with BeautifulSoup.
 
-        # Noon product grid selectors
-        selectors = [
-            "div[data-qa='product-item']",
-            "div.productPane",
-            "div[data-id]",
-            "div.sc-5e739f1b-0",  # Noon class patterns change frequently
-            "div[class*='product']",
-            "a[href*='/p/']",
-        ]
+        We also try __NEXT_DATA__ JSON (embedded in every Next.js SSR page) as
+        a fast path that doesn't require JavaScript rendering at all.
+        """
+        html: Optional[str] = None
 
-        cards = []
-        for selector in selectors:
-            if selector.startswith("a["):
-                cards = soup.select(selector)
-            else:
-                cards = soup.select(selector)
-            if cards:
-                break
-
-        # Fallback: find all anchor tags with /p/ in href
-        if not cards:
-            all_links = soup.find_all("a", href=re.compile(r"/p/\d+"))
-            # Group by parent to form cards
-            card_parents = {}
-            for link in all_links:
-                parent = link.find_parent("div", recursive=True)
-                if parent:
-                    pid = id(parent)
-                    if pid not in card_parents:
-                        card_parents[pid] = parent
-            cards = list(card_parents.values())
-
-        if not cards:
-            logger.warning(f"[WARN] No deal cards found on Noon {country}: {url}")
-            return []
-
-        for card in cards:
+        # ── Strategy 1: scrape.do rendered (Akamai bypass via their infra) ──
+        if self.proxy_rotator.scrapedo_token:
             try:
-                # Title
-                title_el = (
-                    card.select_one("div[data-qa='product-name']")
-                    or card.select_one("h2")
-                    or card.select_one("p[class*='title']")
-                    or card.select_one("span[class*='title']")
-                    or card.select_one("div[class*='name']")
-                    or card.find("a", href=re.compile(r"/p/\d+"))
+                encoded = urllib.parse.quote(url, safe="")
+                # render=true → execute JS  |  wait=6000 → let React hydrate
+                sd_url = (
+                    f"https://api.scrape.do/?token="
+                    f"{self.proxy_rotator.scrapedo_token}"
+                    f"&url={encoded}&render=true&wait=6000"
                 )
-                title = ""
-                if title_el:
-                    title = title_el.get_text(strip=True)
-                    if not title and title_el.get("title"):
-                        title = title_el["title"]
-                if not title:
+                resp = requests.get(sd_url, timeout=90)
+                if resp.status_code == 200:
+                    html = resp.text
+                    logger.info(f"[NOON] scrape.do rendered OK for {url}")
+                elif resp.status_code == 404:
+                    logger.warning(f"[NOON] URL does not exist (404): {url}")
+                    return []  # dead URL — no point trying Playwright
+                else:
+                    logger.warning(
+                        f"[NOON] scrape.do HTTP {resp.status_code} for {url}"
+                    )
+            except Exception as e:
+                logger.warning(f"[NOON] scrape.do rendered error: {e}")
+
+        # ── Strategy 2: Playwright stealth browser (fallback) ──
+        if not html:
+            return self._scrape_noon_playwright(url, site, country)
+
+        # ── Parse rendered HTML ──
+        soup = BeautifulSoup(html, "lxml")
+
+        # Primary: data-qa product boxes (React-rendered)
+        products = soup.select('[data-qa="plp-product-box"]')
+        logger.info(
+            f"[NOON] {len(products)} product boxes in rendered HTML for {url}"
+        )
+
+        if not products:
+            # Fallback: try __NEXT_DATA__ JSON (embedded in all Next.js pages)
+            return self._parse_noon_next_data(html, site, platform, country)
+
+        deals: List[dict] = []
+        for product in products:
+            try:
+                name_el = product.select_one('[data-qa="plp-product-box-name"]')
+                price_el = product.select_one('[data-qa="plp-product-box-price"]')
+                old_price_el = product.select_one(
+                    '[data-qa="plp-product-box-old-price"]'
+                )
+                discount_el = product.select_one(
+                    '[data-qa="plp-product-box-discount"]'
+                )
+                link_el = product.select_one("a[href]")
+                img_el = product.select_one("img")
+
+                if not name_el or not price_el or not link_el:
                     continue
 
-                # URL
-                link_el = (
-                    card.select_one("a[href*='/p/']")
-                    or card.find("a", href=re.compile(r"/p/\d+"))
+                name = name_el.get_text(strip=True)
+                if not name:
+                    continue
+
+                price_text = price_el.get_text(strip=True)
+                current_price = self.price_cleaner.clean_price(price_text)
+                if current_price < MIN_PRODUCT_PRICE:
+                    continue
+
+                original_price = current_price
+                if old_price_el:
+                    op = self.price_cleaner.clean_price(
+                        old_price_el.get_text(strip=True)
+                    )
+                    if op > current_price:
+                        original_price = op
+
+                if discount_el and original_price <= current_price:
+                    m = re.search(r"(\d+)", discount_el.get_text(strip=True))
+                    if m:
+                        pct = int(m.group(1))
+                        if 0 < pct < 100:
+                            original_price = round(
+                                current_price / (1 - pct / 100), 2
+                            )
+
+                href = link_el.get("href", "")
+                product_url = (
+                    f"https://www.noon.com{href}"
+                    if href.startswith("/")
+                    else href
                 )
-                href = link_el.get("href", "") if link_el else ""
-                product_url = resolve_url(href, f"https://www.noon.com/{country}-en")
                 if not product_url or "/p/" not in product_url:
                     continue
 
-                # Current price
-                price_el = (
-                    card.select_one("strong[class*='amount']")
-                    or card.select_one("div[data-qa='product-price']")
-                    or card.select_one("span[class*='price']")
-                    or card.select_one("div[class*='price'] strong")
-                    or card.select_one("div[class*='salePrice']")
-                )
-                current_price_str = (
-                    price_el.get_text(strip=True) if price_el else ""
+                image_url = (
+                    extract_image_url(img_el, "https://www.noon.com")
+                    if img_el
+                    else ""
                 )
 
-                # Original price
-                original_el = (
-                    card.select_one("span[class*='oldPrice']")
-                    or card.select_one("span[class*='was']")
-                    or card.select_one("div[class*='original'] span")
-                    or card.select_one("span[class*='crossed']")
-                    or card.select_one("span[data-qa='product-old-price']")
+                deal = self._build_deal(
+                    site=site,
+                    platform=platform,
+                    country=country,
+                    title=name,
+                    url=product_url,
+                    current_price=current_price,
+                    original_price=original_price,
+                    image_url=image_url,
                 )
-                original_price_str = (
-                    original_el.get_text(strip=True) if original_el else ""
-                )
+                if deal:
+                    deals.append(deal)
 
-                # Discount percentage (if shown)
-                if not original_price_str and current_price_str:
-                    discount_el = (
-                        card.select_one("span[class*='discount']")
-                        or card.select_one("div[class*='discountBadge']")
+            except Exception as e:
+                logger.debug(f"[NOON] Card parse error: {e}")
+                continue
+
+        return deals
+
+    def _parse_noon_next_data(
+        self, html: str, site: str, platform: str, country: str
+    ) -> List[dict]:
+        """Parse Noon's __NEXT_DATA__ JSON embedded in every Next.js page.
+
+        When the React page is rendered (by scrape.do or direct), Next.js
+        embeds all initial state as JSON in <script id="__NEXT_DATA__">.
+        This is faster and more reliable than DOM parsing.
+        """
+        soup = BeautifulSoup(html, "lxml")
+        script = soup.find("script", {"id": "__NEXT_DATA__"})
+        if not script or not script.string:
+            return []
+
+        try:
+            data = json.loads(script.string)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+        # Navigate the Next.js props tree — Noon's structure varies by page type
+        page_props = data.get("props", {}).get("pageProps", {})
+
+        # Try multiple known paths where Noon hides product data
+        hits: List[dict] = []
+        for path in [
+            ["catalog", "hits"],
+            ["initialData", "hits"],
+            ["initialData", "data", "products"],
+            ["data", "products"],
+            ["products"],
+        ]:
+            obj = page_props
+            for key in path:
+                obj = obj.get(key, {}) if isinstance(obj, dict) else {}
+            if isinstance(obj, list) and obj:
+                hits = obj
+                break
+
+        if not hits:
+            logger.debug(f"[NOON] __NEXT_DATA__ found but no product hits for {site}")
+            return []
+
+        logger.info(f"[NOON] __NEXT_DATA__: {len(hits)} products for {site}")
+        deals: List[dict] = []
+
+        for hit in hits:
+            try:
+                title = hit.get("name", "") or hit.get("title", "")
+                if not title:
+                    continue
+
+                price_obj = hit.get("price", {}) or {}
+                current_price = float(
+                    price_obj.get("salePrice", 0)
+                    or price_obj.get("sellingPrice", 0)
+                    or price_obj.get("price", 0)
+                    or 0
+                )
+                original_price = float(
+                    price_obj.get("oldPrice", 0)
+                    or price_obj.get("originalPrice", 0)
+                    or current_price
+                )
+                if original_price < current_price:
+                    original_price = current_price
+
+                sku = hit.get("sku", "") or hit.get("id", "")
+                url_path = (
+                    hit.get("url", "")
+                    or hit.get("purl", "")
+                    or hit.get("productUrl", "")
+                )
+                if url_path:
+                    product_url = (
+                        f"https://www.noon.com{url_path}"
+                        if url_path.startswith("/")
+                        else url_path
                     )
-                    if discount_el:
-                        discount_text = discount_el.get_text(strip=True)
-                        m = re.search(r"(\d+)", discount_text)
-                        if m:
-                            pct = int(m.group(1))
-                            current_f = self.price_cleaner.clean_price(
-                                current_price_str
-                            )
-                            if current_f > 0 and 0 < pct < 100:
-                                original_f = current_f / (1 - pct / 100)
-                                original_price_str = str(round(original_f, 2))
+                elif sku:
+                    product_url = (
+                        f"https://www.noon.com/{country}-en/product/{sku}/"
+                    )
+                else:
+                    continue
 
-                # Image - handle Noon's lazy-loaded images
-                img = card.select_one("img")
-                image_url = extract_image_url(img, f"https://www.noon.com/{country}-en")
-
-                # Noon often uses placeholder SVGs — try data attributes
-                if not image_url or "placeholder" in image_url.lower():
-                    # Look for background image in style attr
-                    div_with_bg = card.select_one("div[style*='background']")
-                    if div_with_bg:
-                        style = div_with_bg.get("style", "")
-                        m = re.search(r'url\(["\']?(.*?)["\']?\)', style)
-                        if m:
-                            image_url = urllib.parse.urljoin(
-                                f"https://www.noon.com/{country}-en",
-                                m.group(1),
-                            )
-
-                # Rating
-                rating_el = card.select_one("span[class*='rating']")
-                rating = None
-                if rating_el:
-                    rating_text = rating_el.get_text(strip=True)
-                    m = re.search(r"([\d.]+)", rating_text)
-                    if m:
-                        rating = float(m.group(1))
-
-                # Reviews
-                reviews_el = card.select_one("span[class*='review']")
-                reviews = 0
-                if reviews_el:
-                    reviews_text = reviews_el.get_text(strip=True)
-                    m = re.search(r"(\d+)", reviews_text)
-                    if m:
-                        reviews = int(m.group(1))
+                image_keys = hit.get("imageKeys", []) or hit.get("images", [])
+                image_url = ""
+                if image_keys:
+                    k = image_keys[0] if isinstance(image_keys[0], str) else ""
+                    if k:
+                        image_url = (
+                            f"https://f.nooncdn.com/p/pnsku/{k}/45/_/1.jpg"
+                        )
 
                 deal = self._build_deal(
                     site=site,
@@ -1471,25 +1928,242 @@ class DealHunterScraper:
                     country=country,
                     title=title,
                     url=product_url,
-                    current_price=current_price_str,
-                    original_price=original_price_str,
+                    current_price=current_price,
+                    original_price=original_price,
                     image_url=image_url,
-                    rating=rating,
-                    reviews=reviews,
                 )
                 if deal:
                     deals.append(deal)
-
             except Exception as e:
-                logger.debug(f"[DEBUG] Error parsing Noon card: {e}")
+                logger.debug(f"[NOON] __NEXT_DATA__ hit parse error: {e}")
                 continue
 
+        return deals
+
+    def _scrape_noon_playwright(
+        self, url: str, site: str, country: str
+    ) -> List[dict]:
+        """Scrape Noon using headless Chromium with anti-detection patches.
+
+        Noon runs on Next.js with Akamai Bot Management. Static HTTP requests
+        return empty React containers. We need a real (stealth) browser that
+        patches navigator.webdriver and other bot-detection signals so Akamai
+        lets the page hydrate and serve product data.
+        """
+        try:
+            from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+        except ImportError:
+            logger.error("[NOON] playwright not installed — cannot scrape Noon")
+            return []
+
+        deals: List[dict] = []
+        _UA = (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        )
+
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu",
+                        "--window-size=1920,1080",
+                        "--disable-extensions",
+                        "--disable-plugins",
+                    ],
+                )
+                context = browser.new_context(
+                    user_agent=_UA,
+                    viewport={"width": 1920, "height": 1080},
+                    locale="en-US",
+                    timezone_id="Africa/Cairo",
+                    extra_http_headers={
+                        "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
+                        "Accept": (
+                            "text/html,application/xhtml+xml,application/xml;"
+                            "q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8"
+                        ),
+                        "Sec-CH-UA": (
+                            '"Not_A Brand";v="8", "Chromium";v="120", '
+                            '"Google Chrome";v="120"'
+                        ),
+                        "Sec-CH-UA-Mobile": "?0",
+                        "Sec-CH-UA-Platform": '"Windows"',
+                        "Cache-Control": "no-cache",
+                        "Pragma": "no-cache",
+                    },
+                )
+                page = context.new_page()
+
+                # Patch bot-detection properties that Akamai inspects
+                page.add_init_script("""
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined
+                    });
+                    Object.defineProperty(navigator, 'plugins', {
+                        get: () => [{ name: 'Chrome PDF Plugin' },
+                                    { name: 'Chrome PDF Viewer' },
+                                    { name: 'Native Client' }]
+                    });
+                    Object.defineProperty(navigator, 'languages', {
+                        get: () => ['en-US', 'en', 'ar']
+                    });
+                    window.chrome = {
+                        runtime: {},
+                        loadTimes: function() {},
+                        csi: function() {},
+                        app: {}
+                    };
+                    const originalQuery = window.navigator.permissions.query;
+                    window.navigator.permissions.query = (parameters) =>
+                        parameters.name === 'notifications'
+                            ? Promise.resolve({ state: Notification.permission })
+                            : originalQuery(parameters);
+                """)
+
+                # Block images, fonts and trackers — speed up page load
+                page.route(
+                    "**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,otf,ico}",
+                    lambda r: r.abort(),
+                )
+                page.route(
+                    "**/*(analytics|gtm|pixel|facebook|doubleclick|googlesyndication)*",
+                    lambda r: r.abort(),
+                )
+
+                logger.info(f"[NOON] Navigating to {url}")
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=50000)
+                except Exception as nav_err:
+                    logger.warning(f"[NOON] Navigation error for {url}: {nav_err}")
+                    browser.close()
+                    return []
+
+                # Wait for React hydration and product grid
+                try:
+                    page.wait_for_selector(
+                        '[data-qa="plp-product-box"]', timeout=25000
+                    )
+                except PWTimeout:
+                    # Log what actually loaded to help debug
+                    snippet = page.content()[:3000]
+                    logger.warning(
+                        f"[NOON] Product grid did not appear on {url}. "
+                        f"Page snippet: {snippet[:500]}"
+                    )
+                    browser.close()
+                    return []
+
+                # Scroll halfway to trigger lazy-load of lower products
+                page.evaluate(
+                    "window.scrollTo(0, document.body.scrollHeight * 0.5)"
+                )
+                page.wait_for_timeout(1500)
+
+                products = page.query_selector_all('[data-qa="plp-product-box"]')
+                logger.info(
+                    f"[NOON] {len(products)} product boxes found on {url}"
+                )
+
+                for product in products:
+                    try:
+                        name_el = product.query_selector(
+                            '[data-qa="plp-product-box-name"]'
+                        )
+                        price_el = product.query_selector(
+                            '[data-qa="plp-product-box-price"]'
+                        )
+                        old_price_el = product.query_selector(
+                            '[data-qa="plp-product-box-old-price"]'
+                        )
+                        discount_el = product.query_selector(
+                            '[data-qa="plp-product-box-discount"]'
+                        )
+                        link_el = product.query_selector("a[href]")
+                        img_el = product.query_selector("img")
+
+                        if not name_el or not price_el or not link_el:
+                            continue
+
+                        name = name_el.inner_text().strip()
+                        if not name:
+                            continue
+
+                        price_text = price_el.inner_text().strip()
+                        current_price = self.price_cleaner.clean_price(price_text)
+                        if current_price < MIN_PRODUCT_PRICE:
+                            continue
+
+                        original_price = current_price
+                        if old_price_el:
+                            old_text = old_price_el.inner_text().strip()
+                            op = self.price_cleaner.clean_price(old_text)
+                            if op > current_price:
+                                original_price = op
+
+                        # Derive original price from discount badge when not shown
+                        if discount_el and original_price <= current_price:
+                            disc_text = discount_el.inner_text().strip()
+                            m = re.search(r"(\d+)", disc_text)
+                            if m:
+                                pct = int(m.group(1))
+                                if 0 < pct < 100:
+                                    original_price = round(
+                                        current_price / (1 - pct / 100), 2
+                                    )
+
+                        href = link_el.get_attribute("href") or ""
+                        product_url = (
+                            f"https://www.noon.com{href}"
+                            if href.startswith("/")
+                            else href
+                        )
+                        if not product_url or "/p/" not in product_url:
+                            continue
+
+                        image_url = ""
+                        if img_el:
+                            image_url = (
+                                img_el.get_attribute("data-src")
+                                or img_el.get_attribute("src")
+                                or ""
+                            )
+
+                        deal = self._build_deal(
+                            site=site,
+                            platform="noon",
+                            country=country,
+                            title=name,
+                            url=product_url,
+                            current_price=current_price,
+                            original_price=original_price,
+                            image_url=image_url,
+                        )
+                        if deal:
+                            deals.append(deal)
+
+                    except Exception as e:
+                        logger.debug(f"[NOON] Product parse error: {e}")
+                        continue
+
+                browser.close()
+
+        except Exception as e:
+            logger.error(f"[NOON] Playwright failed for {url}: {e}")
+
+        logger.info(f"[NOON] {site}: {len(deals)} deals from {url}")
         return deals
 
     # ── Noon UAE ──
 
     def scrape_noon_ae(self, proxy: Optional[str] = None) -> List[dict]:
-        """Scrape Noon UAE deals."""
+        """Scrape Noon UAE deals via Playwright."""
         if not NOON_ENABLED:
             logger.info("[OK] Noon AE disabled by kill switch")
             return []
@@ -1499,7 +2173,7 @@ class DealHunterScraper:
 
         for url in urls:
             try:
-                deals = self._scrape_noon_page(url, "noon_ae", "noon", "ae", proxy)
+                deals = self._scrape_noon_page(url, "noon_ae", "noon", "ae")
                 all_deals.extend(deals)
                 logger.info(
                     f"[OK] Scraped noon_ae ({url}): {len(deals)} deals found"
@@ -1530,7 +2204,7 @@ class DealHunterScraper:
 
         for url in urls:
             try:
-                deals = self._scrape_noon_page(url, "noon_sa", "noon", "sa", proxy)
+                deals = self._scrape_noon_page(url, "noon_sa", "noon", "sa")
                 all_deals.extend(deals)
                 logger.info(
                     f"[OK] Scraped noon_sa ({url}): {len(deals)} deals found"
@@ -1590,53 +2264,90 @@ class DealHunterScraper:
         country: str,
         proxy: Optional[str] = None,
     ) -> List[dict]:
-        """Scrape a single Jumia deals page."""
-        headers = get_headers(referer="https://www.jumia.com.eg/")
-        resp = self._fetch(url, headers=headers, proxy=proxy)
-        if resp is None:
+        """Scrape a single Jumia deals page.
+
+        Jumia is protected by Cloudflare WAF. Google Cloud Run IPs are blocked
+        directly. We use a three-strategy cascade:
+          1. curl_cffi — impersonates Chrome TLS fingerprint exactly (best bypass)
+          2. scrape.do super mode — residential proxies + anti-bot
+          3. Direct HTTP — last resort (may work on fresh container IPs)
+        """
+        html: Optional[str] = None
+        referer_headers = get_headers(referer="https://www.jumia.com.eg/")
+
+        # ── Strategy 1: curl_cffi TLS impersonation ──
+        try:
+            from curl_cffi import requests as cf_requests
+            cf_resp = cf_requests.get(
+                url,
+                impersonate="chrome120",
+                headers=referer_headers,
+                timeout=35,
+                allow_redirects=True,
+            )
+            if cf_resp.status_code == 200:
+                html = cf_resp.text
+                logger.info(f"[Jumia] curl_cffi strategy OK for {url}")
+            else:
+                logger.warning(
+                    f"[Jumia] curl_cffi HTTP {cf_resp.status_code} for {url}"
+                )
+        except ImportError:
+            logger.warning("[Jumia] curl_cffi not installed — skipping strategy 1")
+        except Exception as e:
+            logger.warning(f"[Jumia] curl_cffi error: {e}")
+
+        # ── Strategy 2: scrape.do super proxy (residential + anti-bot) ──
+        if not html and self.proxy_rotator.scrapedo_token:
+            try:
+                encoded = urllib.parse.quote(url, safe="")
+                super_url = (
+                    f"https://api.scrape.do/?token="
+                    f"{self.proxy_rotator.scrapedo_token}"
+                    f"&url={encoded}&super=true&render=false&geoCode=eg"
+                )
+                sd_resp = requests.get(
+                    super_url,
+                    headers={"Accept": "text/html,application/xhtml+xml,*/*"},
+                    timeout=65,
+                )
+                if sd_resp.status_code == 200:
+                    html = sd_resp.text
+                    logger.info(f"[Jumia] scrape.do super strategy OK for {url}")
+                else:
+                    logger.warning(
+                        f"[Jumia] scrape.do super HTTP {sd_resp.status_code}"
+                    )
+            except Exception as e:
+                logger.warning(f"[Jumia] scrape.do super error: {e}")
+
+        # ── Strategy 3: direct HTTP (last resort) ──
+        if not html:
+            direct_resp = self._fetch(url, headers=referer_headers)
+            if direct_resp and direct_resp.status_code == 200:
+                html = direct_resp.text
+                logger.info(f"[Jumia] direct HTTP strategy OK for {url}")
+
+        if not html:
+            logger.warning(f"[Jumia] All strategies failed for {url}")
             return []
 
-        soup = BeautifulSoup(resp.text, "lxml")
+        # ── Parse HTML ──
+        soup = BeautifulSoup(html, "lxml")
         deals: List[dict] = []
 
-        # Jumia product card selectors
-        selectors = [
-            "article.prd",
-            "div[data-brand]",
-            "a[href*='/product/']",
-            "div.-paxs article",
-            "div.card",
-            "div.sku",
-        ]
-
-        cards = []
-        for selector in selectors:
-            if selector.startswith("a["):
-                # Find parent containers of product links
-                links = soup.select(selector)
-                seen_parents = set()
-                for link in links:
-                    parent = link.find_parent("article") or link.find_parent("div", class_=re.compile(r"prd|card|sku"))
-                    if parent:
-                        pid = id(parent)
-                        if pid not in seen_parents:
-                            seen_parents.add(pid)
-                            cards.append(parent)
-                if cards:
-                    break
-            else:
-                cards = soup.select(selector)
-                if cards:
-                    break
-
-        # Fallback: find all product links
+        # Jumia product card selectors (server-rendered article tags)
+        cards = soup.select("article.prd")
         if not cards:
-            product_links = soup.find_all(
-                "a", href=re.compile(r"/product/|/item/")
-            )
-            seen_parents = set()
-            for link in product_links:
-                parent = link.find_parent("div", recursive=True)
+            cards = soup.select("div[data-brand]")
+        if not cards:
+            # Fallback: group anchors that link to products by nearest article/div
+            links = soup.find_all("a", href=re.compile(r"\.html$"))
+            seen_parents: set = set()
+            for link in links:
+                parent = link.find_parent("article") or link.find_parent(
+                    "div", class_=re.compile(r"prd|card|sku")
+                )
                 if parent:
                     pid = id(parent)
                     if pid not in seen_parents:
@@ -1644,107 +2355,98 @@ class DealHunterScraper:
                         cards.append(parent)
 
         if not cards:
-            logger.warning(f"[WARN] No deal cards found on Jumia: {url}")
+            logger.warning(f"[Jumia] No product cards found in HTML for {url}")
             return []
+
+        logger.info(f"[Jumia] {len(cards)} product cards found on {url}")
 
         for card in cards:
             try:
-                # Title
+                # Title — Jumia uses h3.name or div.name
                 title_el = (
-                    card.select_one("div.name")
-                    or card.select_one("h3.name")
-                    or card.select_one("div[class*='title']")
-                    or card.select_one("span[class*='name']")
+                    card.select_one("h3.name")
+                    or card.select_one("div.name")
+                    or card.select_one("[class*='name']")
                     or card.select_one("h3")
                 )
                 title = title_el.get_text(strip=True) if title_el else ""
                 if not title:
                     continue
 
-                # URL
+                # Product URL — anchor with .html suffix or a.core
                 link_el = (
-                    card.select_one("a[href*='/product/']")
-                    or card.select_one("a[href*='/item/']")
-                    or card.select_one("a.core")
-                    or card.select_one("a.link")
+                    card.select_one("a.core")
+                    or card.select_one("a[href*='.html']")
+                    or card.select_one("a[href]")
                 )
                 href = link_el.get("href", "") if link_el else ""
                 product_url = resolve_url(href, "https://www.jumia.com.eg")
                 if not product_url:
                     continue
 
-                # Current price
+                # Current price — div.prc contains "EGP 1,234"
                 price_el = (
                     card.select_one("div.prc")
                     or card.select_one("span.prc")
-                    or card.select_one("div[data-price]")
-                    or card.select_one("span[class*='price']")
-                    or card.select_one("div[class*='price']")
+                    or card.select_one("[data-price]")
                 )
                 current_price_str = (
                     price_el.get_text(strip=True) if price_el else ""
                 )
 
-                # Original price
+                # Original price — div.old contains crossed-out price
                 original_el = (
                     card.select_one("div.old")
                     or card.select_one("span.old")
-                    or card.select_one("div[class*='oldPrice']")
-                    or card.select_one("span[class*='crossed']")
-                    or card.select_one("div.s-prc-w")
                 )
                 original_price_str = (
                     original_el.get_text(strip=True) if original_el else ""
                 )
 
-                # Discount percentage badge
+                # Discount badge — span.bdg._dsct or span[class*=dsct]
+                # Jumia shows "-40%" in a badge element
                 if not original_price_str and current_price_str:
                     discount_el = (
-                        card.select_one("div.bdg")
-                        or card.select_one("span.bdg")
-                        or card.select_one("span[class*='discount']")
-                        or card.select_one("div[class*='discount']")
+                        card.select_one("span.bdg._dsct")
+                        or card.select_one("span[class*='dsct']")
+                        or card.select_one("div.bdg")
                     )
                     if discount_el:
-                        discount_text = discount_el.get_text(strip=True)
-                        m = re.search(r"(\d+)", discount_text)
+                        m = re.search(r"(\d+)", discount_el.get_text(strip=True))
                         if m:
                             pct = int(m.group(1))
                             current_f = self.price_cleaner.clean_price(
                                 current_price_str
                             )
                             if current_f > 0 and 0 < pct < 100:
-                                original_f = current_f / (1 - pct / 100)
-                                original_price_str = str(round(original_f, 2))
+                                original_price_str = str(
+                                    round(current_f / (1 - pct / 100), 2)
+                                )
 
-                # Image
+                # Image — Jumia lazy-loads with data-src
                 img = card.select_one("img")
                 image_url = extract_image_url(img, "https://www.jumia.com.eg")
 
-                # Rating
+                # Rating — div.stars with data-rate attribute or text
+                rating: Optional[float] = None
                 rating_el = card.select_one("div.stars")
-                rating = None
                 if rating_el:
-                    # Jumia shows stars as a width percentage
-                    rating_text = rating_el.get_text(strip=True)
-                    m = re.search(r"([\d.]+)", rating_text)
-                    if m:
-                        rating = float(m.group(1))
-                    else:
-                        # Try data-rating attribute
-                        rating_data = rating_el.get("data-rating", "")
-                        if rating_data:
-                            try:
-                                rating = float(rating_data)
-                            except (ValueError, TypeError):
-                                pass
+                    rating_data = rating_el.get("data-rate", "")
+                    if rating_data:
+                        try:
+                            rating = float(rating_data)
+                        except (ValueError, TypeError):
+                            pass
+                    if rating is None:
+                        m = re.search(r"([\d.]+)", rating_el.get_text(strip=True))
+                        if m:
+                            rating = float(m.group(1))
 
-                # Reviews
-                reviews_el = card.select_one("div.rev")
+                # Reviews count — div.rev "(123)"
                 reviews = 0
+                reviews_el = card.select_one("div.rev")
                 if reviews_el:
-                    reviews_text = reviews_el.get_text(strip=True)
-                    m = re.search(r"(\d+)", reviews_text)
+                    m = re.search(r"(\d+)", reviews_el.get_text(strip=True))
                     if m:
                         reviews = int(m.group(1))
 
@@ -1764,7 +2466,7 @@ class DealHunterScraper:
                     deals.append(deal)
 
             except Exception as e:
-                logger.debug(f"[DEBUG] Error parsing Jumia card: {e}")
+                logger.debug(f"[Jumia] Card parse error: {e}")
                 continue
 
         return deals
@@ -1776,29 +2478,30 @@ class DealHunterScraper:
     def upsert_deals(self, deals: List[dict]) -> dict:
         """Batch upsert deals to Supabase PostgreSQL.
 
+        Processes in chunks of 25. Each chunk gets its own connection so an
+        SSL drop mid-run only loses that chunk, not the entire batch.
         Returns counts: inserted, updated, unchanged.
         """
         if not deals or not self.db_pool:
-            return {"inserted": 0, "updated": 0, "unchanged": 0}
-
-        conn = self._get_db_conn(self.db_pool)
-        if conn is None:
-            logger.error("[ERROR] No database connection for upsert")
             return {"inserted": 0, "updated": 0, "unchanged": 0}
 
         inserted = 0
         updated = 0
         unchanged = 0
 
-        try:
-            with conn.cursor() as cur:
-                for deal in deals:
-                    try:
-                        # Check if deal exists and if price changed
+        chunk_size = 25
+        for chunk_start in range(0, len(deals), chunk_size):
+            chunk = deals[chunk_start : chunk_start + chunk_size]
+            conn = self._get_db_conn(self.db_pool)
+            if conn is None:
+                logger.error("[ERROR] No database connection for upsert chunk")
+                break
+
+            try:
+                with conn.cursor() as cur:
+                    for deal in chunk:
                         cur.execute(
-                            """
-                            SELECT current_price FROM deals WHERE id = %s
-                            """,
+                            "SELECT current_price FROM deals WHERE id = %s",
                             (deal["id"],),
                         )
                         row = cur.fetchone()
@@ -1878,88 +2581,85 @@ class DealHunterScraper:
                                 )
                                 updated += 1
                             else:
-                                # Price unchanged — just update last_seen_at
                                 cur.execute(
                                     """
-                                    UPDATE deals SET
-                                        last_seen_at = NOW(),
-                                        is_active = %s
+                                    UPDATE deals SET last_seen_at = NOW(), is_active = %s
                                     WHERE id = %s
                                     """,
                                     (deal.get("is_active", True), deal["id"]),
                                 )
                                 unchanged += 1
 
-                    except Exception as e:
-                        logger.error(f"[ERROR] Failed to upsert deal {deal.get('id')}: {e}")
-                        try:
-                            conn.rollback()
-                        except Exception:
-                            pass
-                        continue
-
                 conn.commit()
-        except Exception as e:
-            logger.error(f"[ERROR] Upsert transaction failed: {e}")
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-        finally:
-            self._put_db_conn(self.db_pool, conn)
+            except Exception as e:
+                logger.error(
+                    f"[ERROR] Upsert chunk {chunk_start}-{chunk_start + chunk_size} failed: {e}"
+                )
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            finally:
+                self._put_db_conn(self.db_pool, conn)
 
+        logger.info(f"[OK] Upserted: {inserted} inserted, {updated} updated, {unchanged} unchanged")
         return {"inserted": inserted, "updated": updated, "unchanged": unchanged}
 
     def record_price_snapshots(self, deals: List[dict]) -> int:
-        """Record price snapshots to TimescaleDB hypertable.
+        """Record price snapshots to TimescaleDB.
 
-        Returns number of snapshots recorded.
+        Uses chunked batching with automatic reconnection on SSL/network drops.
+        Each chunk of 10 snapshots gets its own connection attempt so a single
+        dropped connection doesn't wipe out all 43+ inserts.
         """
         if not deals or not self.ts_pool:
             return 0
 
-        conn = self._get_db_conn(self.ts_pool)
-        if conn is None:
-            logger.error("[ERROR] No TimescaleDB connection for snapshots")
-            return 0
+        _SQL = """
+            INSERT INTO price_snapshots
+                (deal_id, product_id, site, source,
+                 price, original_price, discount_percent, currency)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+        """
+
+        def _row(d: dict) -> tuple:
+            return (
+                d["id"],
+                d.get("product_id", ""),
+                d["site"],
+                d["site"],
+                d["current_price"],
+                d["original_price"],
+                d["discount_percent"],
+                d.get("currency", "EGP"),
+            )
 
         count = 0
-        try:
-            with conn.cursor() as cur:
-                for deal in deals:
-                    try:
-                        cur.execute(
-                            """
-                            INSERT INTO price_snapshots
-                                (deal_id, product_id, site, price, original_price, discount_percent, currency)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s)
-                            """,
-                            (
-                                deal["id"],
-                                deal.get("product_id", ""),
-                                deal["site"],
-                                deal["current_price"],
-                                deal["original_price"],
-                                deal["discount_percent"],
-                                deal.get("currency", "EGP"),
-                            ),
-                        )
-                        count += 1
-                    except Exception as e:
-                        logger.debug(
-                            f"[DEBUG] Failed to record snapshot for {deal['id']}: {e}"
-                        )
-                        continue
-                conn.commit()
-        except Exception as e:
-            logger.error(f"[ERROR] Snapshot batch failed: {e}")
+        # Process in chunks of 10 — if one chunk's connection dies, others survive
+        chunk_size = 10
+        for i in range(0, len(deals), chunk_size):
+            chunk = deals[i : i + chunk_size]
+            conn = self._get_db_conn(self.ts_pool)
+            if conn is None:
+                logger.warning("[WARN] No TimescaleDB connection for snapshot chunk")
+                break
             try:
-                conn.rollback()
-            except Exception:
-                pass
-        finally:
-            self._put_db_conn(self.ts_pool, conn)
+                with conn.cursor() as cur:
+                    for deal in chunk:
+                        cur.execute(_SQL, _row(deal))
+                        count += 1
+                conn.commit()
+            except Exception as e:
+                logger.warning(f"[WARN] Snapshot chunk {i}-{i+chunk_size} failed: {e}")
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+            finally:
+                self._put_db_conn(self.ts_pool, conn)
 
+        logger.info(f"[OK] Recorded {count}/{len(deals)} price snapshots")
         return count
 
     def detect_price_changes(self) -> List[dict]:
@@ -2003,7 +2703,7 @@ class DealHunterScraper:
                         COALESCE(ps.price, ls.price) as previous_price,
                         d.site,
                         d.title,
-                        d.url
+                        d.product_url
                     FROM latest_snapshots ls
                     LEFT JOIN previous_snapshots ps ON ls.deal_id = ps.deal_id
                     JOIN deals d ON ls.deal_id = d.id
@@ -2257,129 +2957,3 @@ if __name__ == "__main__":
     result = scraper.run_cycle()
     print(json.dumps(result, indent=2, default=str))
 
-def scrape_noon_playwright(url, site_key="noon_eg", min_discount=40):
-    """Scrape Noon using Playwright - handles client-side rendered React app."""
-    import re
-    from playwright.sync_api import sync_playwright
-    
-    deals = []
-    logger.info(f"[PLAYWRIGHT] Rendering Noon page: {url}")
-    
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto(url, wait_until="networkidle", timeout=30000)
-            
-            # Wait for React hydration
-            page.wait_for_selector('[data-qa="plp-product-box"]', timeout=15000)
-            
-            # Small additional wait for price data to load
-            page.wait_for_timeout(2000)
-            
-            products = page.query_selector_all('[data-qa="plp-product-box"]')
-            logger.info(f"[PLAYWRIGHT] Found {len(products)} products on Noon")
-            
-            for i, product in enumerate(products):
-                try:
-                    name_el = product.query_selector('[data-qa="plp-product-box-name"]')
-                    price_el = product.query_selector('[data-qa="plp-product-box-price"]')
-                    link_el = product.query_selector('a')
-                    
-                    if not all([name_el, price_el, link_el]):
-                        continue
-                    
-                    name = name_el.inner_text().strip()
-                    price_text = price_el.inner_text().strip()
-                    href = link_el.get_attribute('href') or ""
-                    
-                    # Parse price
-                    price_match = re.search(r'[\d,]+\.?\d*', price_text)
-                    if not price_match:
-                        continue
-                    
-                    current_price = float(price_match.group().replace(',', ''))
-                    
-                    # Skip if below minimum
-                    if current_price < 200:
-                        continue
-                    
-                    deal = {
-                        'title': name,
-                        'current_price': current_price,
-                        'original_price': current_price,  # Will be updated if discount found
-                        'discount_percent': 0,
-                        'product_url': f"https://www.noon.com{href}" if href.startswith('/') else href,
-                        'site': site_key,
-                        'category': detect_category(name),
-                    }
-                    deals.append(deal)
-                    
-                except Exception as e:
-                    logger.warning(f"[PLAYWRIGHT] Error parsing product {i}: {e}")
-                    continue
-            
-            browser.close()
-            
-    except Exception as e:
-        logger.error(f"[PLAYWRIGHT] Failed to render Noon: {e}")
-    
-    logger.info(f"[PLAYWRIGHT] Noon {site_key}: {len(deals)} deals extracted")
-    return deals
-
-
-    def _scrape_noon_playwright(self, url: str, site_key: str):
-        """Scrape Noon using Playwright - renders React client-side."""
-        deals = []
-        try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                page = browser.new_page()
-                page.goto(url, wait_until="networkidle", timeout=30000)
-                page.wait_for_selector('[data-qa="plp-product-box"]', timeout=15000)
-                page.wait_for_timeout(3000)
-                
-                products = page.query_selector_all('[data-qa="plp-product-box"]')
-                print(f"[NOON] Found {len(products)} products via Playwright")
-                
-                for product in products:
-                    try:
-                        name_el = product.query_selector('[data-qa="plp-product-box-name"]')
-                        price_el = product.query_selector('[data-qa="plp-product-box-price"]')
-                        link_el = product.query_selector('a')
-                        if not all([name_el, price_el, link_el]): continue
-                        
-                        name = name_el.inner_text().strip()
-                        price_text = price_el.inner_text().strip()
-                        href = link_el.get_attribute('href') or ""
-                        
-                        price_match = re.search(r'[\d,]+\.?\d*', price_text.replace(',', ''))
-                        if not price_match: continue
-                        current_price = float(price_match.group().replace(',', ''))
-                        if current_price < 100: continue
-                        
-                        deal = {
-                            'id': __import__('hashlib').md5(f"{site_key}:{href}:{current_price}".encode()).hexdigest()[:16],
-                            'title': name,
-                            'product_url': f"https://www.noon.com{href}" if href.startswith('/') else href,
-                            'current_price': current_price,
-                            'original_price': current_price,
-                            'discount_percent': 0,
-                            'site': site_key,
-                            'category': 'electronics',
-                            'timestamp': __import__('datetime').datetime.utcnow().isoformat(),
-                            'currency': 'EGP' if 'eg' in site_key else 'AED' if 'ae' in site_key else 'SAR',
-                            'fraud_reasons': [],
-                            'verdict': 'PENDING',
-                            'fake_score': 0,
-                            'confidence': 0,
-                        }
-                        deals.append(deal)
-                    except: pass
-                
-                browser.close()
-        except Exception as e:
-            print(f"[NOON-ERROR] Playwright failed: {e}")
-        
-        print(f"[NOON] {site_key}: extracted {len(deals)} deals")
-        return deals
