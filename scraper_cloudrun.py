@@ -57,6 +57,45 @@ TIMESCALE_URL = os.environ.get(
     os.environ.get("TIMESCALE_DATABASE_URL", ""),
 )
 
+# FCM
+FCM_SERVER_KEY = os.environ.get("FCM_SERVER_KEY", "")
+FCM_SEND_URL = "https://fcm.googleapis.com/fcm/send"
+
+
+def _notify_new_deals(inserted: int, max_discount: int = 0) -> None:
+    """Send FCM push notification to the 'new_deals' topic."""
+    if not FCM_SERVER_KEY:
+        logger.warning("[WARN] FCM_SERVER_KEY not set — skipping notification")
+        return
+    title = f"🔥 {inserted} new deal{'s' if inserted != 1 else ''} just dropped!"
+    body = (
+        f"Up to {max_discount}% off — check it out now!"
+        if max_discount >= 40
+        else "New discounts are live. Go grab them!"
+    )
+    payload = {
+        "to": "/topics/new_deals",
+        "notification": {"title": title, "body": body},
+        "data": {"type": "new_deals", "count": str(inserted)},
+    }
+    try:
+        resp = requests.post(
+            FCM_SEND_URL,
+            json=payload,
+            headers={
+                "Authorization": f"key={FCM_SERVER_KEY}",
+                "Content-Type": "application/json",
+            },
+            timeout=10,
+        )
+        if resp.ok:
+            logger.info(f"[OK] FCM notification sent: {inserted} new deals")
+        else:
+            logger.error(f"[ERROR] FCM notification failed: {resp.status_code} {resp.text}")
+    except Exception as e:
+        logger.error(f"[ERROR] FCM notification exception: {e}")
+
+
 # Deal sources (primary Egypt sources)
 _DEAL_SOURCES = {"amazon_eg", "noon_eg", "jumia_eg"}
 
@@ -2217,6 +2256,9 @@ class DealHunterScraper:
                 f"{upsert_result['updated']} updated, "
                 f"{upsert_result['unchanged']} unchanged"
             )
+            if upsert_result["inserted"] > 0:
+                max_disc = max((d.get("discount_percent", 0) for d in all_deals), default=0)
+                _notify_new_deals(upsert_result["inserted"], int(max_disc))
         else:
             upsert_result = {"inserted": 0, "updated": 0, "unchanged": 0}
             if not self.db_pool:

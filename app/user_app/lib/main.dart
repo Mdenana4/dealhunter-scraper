@@ -46,6 +46,12 @@ class _DealHunterAppState extends ConsumerState<DealHunterApp> {
   Future<void> _initFCM() async {
     final messaging = FirebaseMessaging.instance;
 
+    // Request permission (required on iOS; harmless on Android 13+)
+    await messaging.requestPermission();
+
+    // Subscribe to broadcast topic so the server can push "new deals" alerts
+    await messaging.subscribeToTopic('new_deals');
+
     // Save token on refresh
     messaging.onTokenRefresh.listen(_saveFcmToken);
 
