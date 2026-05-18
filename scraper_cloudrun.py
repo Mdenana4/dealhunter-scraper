@@ -312,15 +312,12 @@ _DEAL_URLS: Dict[str, List[str]] = {
         "https://www.jumia.com.eg/womens-shoes/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/mens-shoes/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/watches/?f%5Bn_special_price%5D=1",
-        "https://www.jumia.com.eg/luggage-bags/?f%5Bn_special_price%5D=1",
         # Home & Kitchen
         "https://www.jumia.com.eg/home-office-furniture/?f%5Bn_special_price%5D=1",
-        "https://www.jumia.com.eg/large-appliances/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/small-appliances/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/home-living/?f%5Bn_special_price%5D=1",
         # Beauty
         "https://www.jumia.com.eg/health-beauty/?f%5Bn_special_price%5D=1",
-        "https://www.jumia.com.eg/fragrances-perfumes/?f%5Bn_special_price%5D=1",
         # Other categories
         "https://www.jumia.com.eg/sporting-goods/?f%5Bn_special_price%5D=1",
         "https://www.jumia.com.eg/baby-products/?f%5Bn_special_price%5D=1",
