@@ -1,43 +1,45 @@
 # DealHunter Scraper — Complete Session Documentation
-> All sessions from first conversation to last. Branch: `claude/resolve-user-support-5Eljo`
+> Full record of every conversation, problem, fix, decision, and deployment from first commit to final state.
+> Branch: `claude/resolve-user-support-5Eljo` | Project: `dealhunter-egypt-70d29`
 
 ---
 
 ## Table of Contents
 
-1. [Project Overview](#1-project-overview)
+1. [What DealHunter Is](#1-what-dealhunter-is)
 2. [Infrastructure](#2-infrastructure)
-3. [The Two Systems](#3-the-two-systems)
-4. [Files and Their Roles](#4-files-and-their-roles)
-5. [Database Schema](#5-database-schema)
+3. [The Two Systems — Architecture](#3-the-two-systems--architecture)
+4. [All Files and Their Roles](#4-all-files-and-their-roles)
+5. [Database Schema — All Tables](#5-database-schema--all-tables)
 6. [Anti-Bot Bypass Architecture](#6-anti-bot-bypass-architecture)
-7. [All Problems Found and Fixed](#7-all-problems-found-and-fixed)
-8. [URL Coverage (Final State)](#8-url-coverage-final-state)
-9. [Key Configuration](#9-key-configuration)
-10. [Deploy Commands](#10-deploy-commands)
-11. [Test Suite](#11-test-suite)
-12. [Results: Before vs After](#12-results-before-vs-after)
-13. [Full Commit History](#13-full-commit-history)
+7. [Every Problem Found and Fixed](#7-every-problem-found-and-fixed)
+8. [URL Coverage — Final State](#8-url-coverage--final-state)
+9. [Configuration Reference](#9-configuration-reference)
+10. [Deploy Commands — Full Reference](#10-deploy-commands--full-reference)
+11. [Scheduling](#11-scheduling)
+12. [Test Suite](#12-test-suite)
+13. [Final Honest Status](#13-final-honest-status)
+14. [Results: Start vs End](#14-results-start-vs-end)
+15. [Full Commit History](#15-full-commit-history)
+16. [Internal Architecture — Code Maps](#16-internal-architecture--code-maps)
 
 ---
 
-## 1. Project Overview
+## 1. What DealHunter Is
 
-DealHunter is a scraper that collects deals and discounts (≥40% off) from 7 e-commerce sources across Egypt, UAE, and Saudi Arabia. It runs as a scheduled **Google Cloud Run Job**, stores deals in **Supabase PostgreSQL**, and records price time-series in **TimescaleDB**.
+DealHunter collects deals and discounts (≥40% off) from 7 e-commerce platforms across Egypt, UAE, and Saudi Arabia. It runs as scheduled Google Cloud Run Jobs, stores deals in Supabase PostgreSQL, and records price time-series in TimescaleDB.
 
-The full session rebuilt the scraper from near-zero output (0 deals, 0 price snapshots, multiple crashes) into a working production system, then added a second independent system for price history and fake discount detection.
+**7 sources scraped:**
 
-**Sources scraped (7 total):**
-
-| Source Key | Platform | Country |
-|---|---|---|
-| `amazon_eg` | Amazon | Egypt |
-| `amazon_ae` | Amazon | UAE |
-| `amazon_sa` | Amazon | Saudi Arabia |
-| `noon_eg` | Noon | Egypt |
-| `noon_ae` | Noon | UAE |
-| `noon_sa` | Noon | Saudi Arabia |
-| `jumia_eg` | Jumia | Egypt |
+| Source Key | Platform | Country | Currency |
+|---|---|---|---|
+| `amazon_eg` | Amazon | Egypt | EGP |
+| `amazon_ae` | Amazon | UAE | AED |
+| `amazon_sa` | Amazon | Saudi Arabia | SAR |
+| `noon_eg` | Noon | Egypt | EGP |
+| `noon_ae` | Noon | UAE | AED |
+| `noon_sa` | Noon | Saudi Arabia | SAR |
+| `jumia_eg` | Jumia | Egypt | EGP |
 
 ---
 
@@ -45,134 +47,149 @@ The full session rebuilt the scraper from near-zero output (0 deals, 0 price sna
 
 | Component | Service | Detail |
 |---|---|---|
-| Compute | Google Cloud Run Job | Serverless, triggered on schedule |
-| Primary DB | Supabase PostgreSQL | `deals` table |
+| Compute | Google Cloud Run Jobs | Two independent jobs |
+| Primary DB | Supabase PostgreSQL | `deals`, `product_catalog`, `discount_verdicts` |
 | Time-Series DB | TimescaleDB | `price_snapshots` hypertable |
 | Container Registry | Google Container Registry | `gcr.io/dealhunter-egypt-70d29/` |
 | Build System | Google Cloud Build | `cloudbuild_scraper.yaml`, `cloudbuild_tracker.yaml` |
-| Project ID | `dealhunter-egypt-70d29` | |
-| Proxy Service | scrape.do | Akamai bypass (Noon), Amazon proxy |
+| Proxy Service | scrape.do | Akamai bypass (Noon), Amazon geo-routing, Jumia super proxy |
 | TLS Impersonation | curl_cffi | Cloudflare bypass (Jumia) |
+| Scheduler | Google Cloud Scheduler | Tracker runs every 8 hours |
+| Project ID | `dealhunter-egypt-70d29` | |
+| Region | `us-central1` | |
 
 ---
 
-## 3. The Two Systems
+## 3. The Two Systems — Architecture
 
-### System 2 — Deals Scraper (existed first, fixed throughout session)
+### System 2 — Deals Scraper (built first, fixed throughout session)
+
+Collects only products with **≥40% discount**. Runs hourly or on demand.
 
 - **Job name:** `dealhunter-scraper`
 - **Entry point:** `scraper_job.py` → `scraper_cloudrun.py`
-- **Docker image:** `gcr.io/dealhunter-egypt-70d29/dealhunter-scraper:latest`
-- **Build config:** `cloudbuild_scraper.yaml`
+- **Image:** `gcr.io/dealhunter-egypt-70d29/dealhunter-scraper:latest`
+- **Build:** `cloudbuild_scraper.yaml`
 - **Dockerfile:** `Dockerfile.scraper`
-- **What it does:** Scrapes only products with ≥40% discount. Stores in `deals` table + `price_snapshots` (`snapshot_type='deal'`).
 - **Filter:** `MIN_DISCOUNT=40`, `MIN_PRODUCT_PRICE=50`
-- **Schedule:** Hourly or as needed
 
 ### System 1 — Price History Collector (built from scratch this session)
 
+Collects **ALL products** at any price. NO discount filter. Runs every 8 hours to build historical price database.
+
 - **Job name:** `dealhunter-tracker`
 - **Entry point:** `price_tracker_job.py` → `price_tracker_cloudrun.py`
-- **Docker image:** `gcr.io/dealhunter-egypt-70d29/dealhunter-tracker:latest`
-- **Build config:** `cloudbuild_tracker.yaml`
+- **Image:** `gcr.io/dealhunter-egypt-70d29/dealhunter-tracker:latest`
+- **Build:** `cloudbuild_tracker.yaml`
 - **Dockerfile:** `Dockerfile.tracker`
-- **What it does:** Crawls ALL products across all 7 sources with NO discount filter. Saves a price snapshot for every product every run. Builds historical price database used to detect fake discounts.
-- **Filter:** None (collects all products above `TRACKER_MIN_PRICE=10`)
-- **Schedule:** Daily is sufficient
+- **Schedule:** Every 8 hours via Cloud Scheduler
 
-**How the two systems relate:**
+### How the Two Systems Connect
 
 ```
-System 1 (daily)          System 2 (hourly)
-     │                          │
-     │  Writes price history     │  Finds deals ≥40% off
-     ▼                          ▼
-price_snapshots            deals table
-(snapshot_type='catalog')  + price_snapshots
-                           (snapshot_type='deal')
-     │
-     ▼
-discount_verdicts
-(GENUINE / FAKE / SUSPICIOUS / UNVERIFIED)
-     │
-     └──► System 2 can call PriceTracker.verify_discount()
-          before showing a deal to users
+System 1 runs every 8 hours
+│
+│  Scrapes ALL products (no discount filter)
+│  Saves price snapshots → price_snapshots (snapshot_type='catalog')
+│  Saves product records → product_catalog
+│  Analyzes history → discount_verdicts (GENUINE/FAKE/SUSPICIOUS/UNVERIFIED)
+│
+▼
+discount_verdicts table
+│
+│  System 2 reads this table for every deal it finds
+▼
+System 2 runs hourly
+│
+│  Scrapes deals ≥40% off
+│  For every deal: queries discount_verdicts by (product_id, site)
+│  Applies verdict to deal before saving to DB
+│  → FAKE deals: fake_score=1.0, recommendation='avoid'
+│  → SUSPICIOUS: fake_score=0.6, recommendation='caution'
+│  → GENUINE: fake_score=0.0, recommendation='good_deal'
+│  → UNVERIFIED: fake_score=0.0, recommendation='good_deal' (no history yet)
+▼
+deals table (used by mobile app)
 ```
 
-System 1 and System 2 are completely independent. They share the `price_snapshots` table but never conflict — different `snapshot_type` values.
+**product_id is the link between systems:**
+Both systems use the same formula: `MD5(site + "::" + url_without_querystring)`
+This ensures the same product maps to the same ID in both systems.
+
+**Verdict timeline:**
+- Days 1–7: All deals show `UNVERIFIED` (not enough history)
+- Day 7+: FAKE/SUSPICIOUS/GENUINE verdicts start appearing based on real price history
+- Verdicts cached for 48 hours, refreshed on next System 1 cycle
 
 ---
 
-## 4. Files and Their Roles
+## 4. All Files and Their Roles
 
-### Core Scraper (System 2)
-
-| File | Role |
-|---|---|
-| `scraper_cloudrun.py` | Main scraper. `DealHunterScraper` class with all 7 source parsers, proxy routing, DB upsert, fake score calculation. |
-| `scraper_job.py` | Cloud Run Job entry point. Imports `DealHunterScraper`, calls `run_cycle()`, prints results, exits. |
-| `Dockerfile.scraper` | Docker image for System 2. Installs Playwright (for fallback) + curl_cffi + psycopg2. |
-| `cloudbuild_scraper.yaml` | Cloud Build config. Builds `dealhunter-scraper:latest`. |
-
-### Price History Collector (System 1 — new this session)
+### System 2 — Deals Scraper
 
 | File | Role |
 |---|---|
-| `price_tracker_cloudrun.py` | System 1 main module. `TrackerDB`, `FakeDiscountDetector`, `CatalogScraper`, `PriceTracker` classes. 991 lines. |
-| `price_tracker_job.py` | Cloud Run Job entry point for System 1. Same pattern as `scraper_job.py`. |
-| `Dockerfile.tracker` | Docker image for System 1. Lighter than scraper (no Playwright needed). |
-| `cloudbuild_tracker.yaml` | Cloud Build config. Builds `dealhunter-tracker:latest`. |
+| `scraper_cloudrun.py` | Main scraper. `DealHunterScraper` class. All 7 platform parsers, proxy routing, DB upsert, verdict lookup from System 1. |
+| `scraper_job.py` | Cloud Run entry point. Calls `run_cycle()`, prints results, exits. |
+| `Dockerfile.scraper` | Docker image. Playwright + curl_cffi + psycopg2. |
+| `cloudbuild_scraper.yaml` | Builds `dealhunter-scraper:latest`. |
 
-### Database / Schema
+### System 1 — Price History Collector
 
 | File | Role |
 |---|---|
-| `supabase_schema.sql` | Full Supabase PostgreSQL schema (deals table + category constraint). |
-| `timescale_schema.sql` | TimescaleDB hypertable schema (price_snapshots). |
-| `supabase_seed.sql` | Seed data. |
-| `migration_data.py` | Programmatic DB migration runner. |
+| `price_tracker_cloudrun.py` | System 1 main. `TrackerDB`, `FakeDiscountDetector`, `CatalogScraper`, `PriceTracker`. 991 lines. |
+| `price_tracker_job.py` | Cloud Run entry point for System 1. |
+| `Dockerfile.tracker` | Docker image. Lighter than scraper (no Playwright). |
+| `cloudbuild_tracker.yaml` | Builds `dealhunter-tracker:latest`. |
+
+### Database
+
+| File | Role |
+|---|---|
+| `supabase_schema.sql` | Supabase schema (deals + category constraint). |
+| `timescale_schema.sql` | TimescaleDB hypertable schema. |
+| `migration_data.py` | DB migration runner. |
 
 ### Tests
 
 | File | Role |
 |---|---|
-| `test_parsing.py` | 49 offline unit tests — PriceCleaner, category detection, HTML parsers, deal ID generation. No network, no DB. |
-| `test_live.py` | Live network tests for Amazon EG, Noon EG, Jumia EG without touching the DB. |
-| `test_scraper.py` | Focused Amazon.eg scraper diagnostic with detailed output. |
-| `test_phase1.py` | Phase 1 integration tests. |
-| `test_phase5.py` | Phase 5 integration tests. |
+| `test_parsing.py` | 49 offline unit tests. No network, no DB. |
+| `test_live.py` | Live network tests without writing to DB. |
+| `test_scraper.py` | Amazon.eg diagnostic tool. |
 
-### Server / API (pre-existing)
+### Server / API
 
 | File | Role |
 |---|---|
-| `server_cloudrun.py` | REST API server (Flask/Cloud Run). Serves deals to the mobile app. |
+| `server_cloudrun.py` | REST API server (Flask). Serves deals to mobile app. |
 | `health_server.py` | Health-check endpoint. |
-| `price_history_api.py` | API routes for price history queries. |
+| `price_history_api.py` | Price history query routes. |
 
 ---
 
-## 5. Database Schema
+## 5. Database Schema — All Tables
 
 ### `deals` table (Supabase PostgreSQL)
 
 ```sql
 CREATE TABLE deals (
-    id                TEXT PRIMARY KEY,          -- MD5(site + url + price)
-    product_id        TEXT,
-    site              VARCHAR(32),               -- 'amazon_eg', 'noon_eg', etc.
+    id                TEXT PRIMARY KEY,       -- MD5(site + url + price)
+    product_id        TEXT,                   -- MD5(site + url_no_query) — links to System 1
+    site              VARCHAR(32),            -- 'amazon_eg', 'noon_eg', etc.
     title             TEXT,
     image_url         TEXT,
     product_url       TEXT,
-    category          VARCHAR(32),               -- CHECK constraint (14 values)
+    category          VARCHAR(32),            -- CHECK constraint (14 values)
     original_price    DECIMAL(12,2),
     current_price     DECIMAL(12,2),
     discount_percent  DECIMAL(5,1),
     savings           DECIMAL(12,2),
-    currency          VARCHAR(8),                -- 'EGP', 'AED', 'SAR'
-    verdict           VARCHAR(32),               -- 'GENUINE', 'FAKE', 'SUSPICIOUS'
-    fake_score        DECIMAL(5,2),
-    recommendation    VARCHAR(32),
+    currency          VARCHAR(8),             -- 'EGP', 'AED', 'SAR'
+    verdict           VARCHAR(32),            -- 'GENUINE','FAKE','SUSPICIOUS','UNVERIFIED'
+    fake_score        DECIMAL(5,2),           -- 0.0=clean, 1.0=fake
+    recommendation    VARCHAR(32),            -- 'good_deal','caution','avoid'
     confidence        DECIMAL(5,2),
     fraud_reasons     JSONB,
     rating            DECIMAL(3,1),
@@ -182,7 +199,6 @@ CREATE TABLE deals (
     created_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Category constraint (14 valid values):
 ALTER TABLE deals ADD CONSTRAINT deals_category_check
     CHECK (category IN (
         'electronics','fashion','home','sports','beauty',
@@ -198,19 +214,19 @@ CREATE TABLE price_snapshots (
     deal_id          TEXT,
     product_id       TEXT,
     site             VARCHAR(32),
-    source           VARCHAR(32),           -- which scraping strategy was used
+    source           VARCHAR(32),
     price            DECIMAL(12,2),
     original_price   DECIMAL(12,2),
     discount_percent DECIMAL(5,1),
     currency         VARCHAR(8),
     snapshot_type    VARCHAR(16) DEFAULT 'deal',  -- 'deal' (S2) or 'catalog' (S1)
-    timestamp        TIMESTAMPTZ NOT NULL   -- hypertable partition key
+    timestamp        TIMESTAMPTZ NOT NULL          -- hypertable partition key
 );
 
 SELECT create_hypertable('price_snapshots', 'timestamp', if_not_exists => TRUE);
 ```
 
-### `product_catalog` table (System 1 — new this session)
+### `product_catalog` table (System 1 — new)
 
 ```sql
 CREATE TABLE product_catalog (
@@ -227,18 +243,18 @@ CREATE TABLE product_catalog (
 );
 ```
 
-### `discount_verdicts` table (System 1 — new this session)
+### `discount_verdicts` table (System 1 — new)
 
 ```sql
 CREATE TABLE discount_verdicts (
-    product_id      TEXT,
-    site            VARCHAR(32),
+    product_id       TEXT,
+    site             VARCHAR(32),
     claimed_original DECIMAL(12,2),
-    current_price   DECIMAL(12,2),
-    verdict         VARCHAR(16),        -- 'GENUINE','FAKE','SUSPICIOUS','UNVERIFIED'
-    confidence      DECIMAL(5,2),
-    reason          TEXT,
-    analyzed_at     TIMESTAMPTZ DEFAULT NOW(),
+    current_price    DECIMAL(12,2),
+    verdict          VARCHAR(16),   -- 'GENUINE','FAKE','SUSPICIOUS','UNVERIFIED'
+    confidence       DECIMAL(5,2),
+    reason           TEXT,
+    analyzed_at      TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (product_id, site)
 );
 ```
@@ -248,65 +264,59 @@ CREATE TABLE discount_verdicts (
 | Verdict | Condition |
 |---|---|
 | `UNVERIFIED` | Fewer than 7 historical data points |
-| `FAKE` | Median historical price ≤ current_price × 1.10 (product never sold near claimed original) |
+| `FAKE` | Median historical price ≤ current_price × 1.10 — product never sold near claimed original |
 | `SUSPICIOUS` | Claimed original > max historical price × 1.30 |
 | `GENUINE` | All other cases |
-
-Verdicts are cached for 24 hours. System 2 can call `PriceTracker.verify_discount(product_id, site, claimed_original, current_price)` to get a cached or fresh verdict before showing a deal to users.
 
 ---
 
 ## 6. Anti-Bot Bypass Architecture
 
-Each platform uses different bot protection — each requires a different bypass:
-
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  Amazon EG / AE / SA                                            │
-│  Protection: AWS WAF + Cloud Run IP blocks                      │
-│  ─────────────────────────────────────────────────────────────  │
-│  Primary:   scrape.do render=false + geoCode={eg|ae|sa}        │
-│  Fallback:  direct HTTP (plain requests)                        │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Amazon EG / AE / SA                                        │
+│  Protection: AWS WAF + Cloud Run IP blocks                  │
+│  Primary:  scrape.do render=false + geoCode={eg|ae|sa}     │
+│  Fallback: direct HTTP                                      │
+└─────────────────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────────────────────┐
-│  Noon EG / AE / SA                                              │
-│  Protection: Akamai Bot Management (IP-level block)             │
-│  ─────────────────────────────────────────────────────────────  │
-│  Primary:   scrape.do render=true + wait=6000ms                │
-│  Fallback:  __NEXT_DATA__ JSON extraction (Noon = Next.js)     │
-│  Last:      Playwright stealth browser                          │
-│  On 404:    skip immediately, return []                         │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Noon EG / AE / SA                                          │
+│  Protection: Akamai Bot Management (IP-level block)         │
+│  Primary:  scrape.do render=true + wait=6000ms             │
+│  Fallback: __NEXT_DATA__ JSON extraction (Next.js pages)   │
+│  Last:     Playwright stealth browser                       │
+│  On 404:   skip immediately, return []                      │
+└─────────────────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────────────────────┐
-│  Jumia EG                                                       │
-│  Protection: Cloudflare WAF                                     │
-│  ─────────────────────────────────────────────────────────────  │
-│  Primary:   curl_cffi impersonate="chrome120"                  │
-│             (exact TLS fingerprint of Chrome 120)              │
-│  Fallback:  scrape.do super=true + geoCode=eg                  │
-│  Last:      direct HTTP                                         │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Jumia EG                                                   │
+│  Protection: Cloudflare WAF                                 │
+│  Primary:  curl_cffi impersonate="chrome120"               │
+│            (exact Chrome 120 TLS fingerprint)              │
+│  Fallback: scrape.do super=true + geoCode=eg               │
+│  Last:     direct HTTP                                      │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Why these specific choices:**
+**Why each method:**
 
-- **scrape.do `render=true`** — Executes JavaScript in a real browser, waits 6000ms. Required for Noon because React renders product cards client-side. Without it, the HTML has no product data.
-- **scrape.do `render=false` for Amazon** — Amazon pages are server-rendered HTML. Render mode would be slower and unnecessary. Plain proxy suffices.
-- **`geoCode=eg/ae/sa`** — Routes the proxy exit node through the correct country so Amazon/Noon serve localized pricing and correct currency.
-- **curl_cffi `chrome120`** — Cloudflare checks the TLS ClientHello fingerprint. Python `requests` has a Python-OpenSSL fingerprint that Cloudflare recognizes as a bot. `curl_cffi` replaces the TLS stack with libcurl compiled against BoringSSL, producing an exact Chrome 120 fingerprint.
-- **`__NEXT_DATA__` fallback** — Every Next.js page embeds its full server state in `<script id="__NEXT_DATA__">`. Even if Akamai blocks HTML parsing, this JSON is already in the page and contains all product data.
+- **scrape.do `render=true`** — Executes real JavaScript. Required for Noon (React renders client-side). Products don't exist in raw HTML without JS execution.
+- **scrape.do `render=false`** — Fast plain proxy. Sufficient for Amazon (server-rendered HTML).
+- **`geoCode=eg/ae/sa`** — Routes exit node through correct country. Ensures local prices and correct currency.
+- **`super=true`** — scrape.do's highest-tier residential proxy. Required for Jumia Cloudflare bypass.
+- **curl_cffi `chrome120`** — Replaces Python's TLS stack with libcurl+BoringSSL. Produces exact Chrome 120 ClientHello fingerprint. Cloudflare can't distinguish it from a real browser.
+- **`__NEXT_DATA__`** — Every Next.js page embeds full server state as JSON. Even if Akamai blocks CSS selectors, this JSON is always present and contains all product data.
 
 ---
 
-## 7. All Problems Found and Fixed
+## 7. Every Problem Found and Fixed
 
 ### Problem 1 — Noon EG/AE/SA: 0 deals every run
 
-**Root cause:** Google Cloud Run datacenter IPs are blocked at the network level by Akamai Bot Management. This is an IP-range block, not a browser fingerprint check, so local Playwright also fails when running from Cloud Run.
+**Root cause:** Google Cloud Run datacenter IPs are blocked at network level by Akamai Bot Management. IP-range block — not fingerprintable. Local Playwright also fails from Cloud Run IPs.
 
-**Fix applied:** Routed all Noon requests through scrape.do `render=true`. Their infrastructure has residential/ISP IPs that bypass Akamai. Added `__NEXT_DATA__` JSON extraction as a fallback — Noon is a Next.js application and embeds full product state as JSON in every page. Added 404 early-exit so dead category URLs immediately return `[]` without spawning a Playwright browser.
+**Fix:** Route all Noon through scrape.do `render=true`. Added `__NEXT_DATA__` JSON fallback. Added 404 early-exit.
 
 **Commit:** `9bc593f`
 
@@ -314,73 +324,65 @@ Each platform uses different bot protection — each requires a different bypass
 
 ### Problem 2 — Jumia EG: 1 deal per run
 
-**Root cause 1:** Category URLs (e.g. `/phones-tablets/`) showed general products — most had 10–30% discounts, below the 40% threshold.
+**Root cause 1:** URLs showed general products with 10–30% discount — below 40% threshold.
+**Root cause 2:** Cloudflare WAF blocks Cloud Run IPs. Standard `requests` returned challenge HTML.
 
-**Root cause 2:** Cloudflare WAF blocks Cloud Run IPs. Standard `requests` was returning Cloudflare challenge HTML instead of product pages.
+**Fix 1:** Added `f[n_special_price]=1` filter to all Jumia URLs — shows only on-sale products.
+**Fix 2:** curl_cffi `chrome120` as primary. scrape.do `super=true` as fallback.
 
-**Fix 1:** Switched to `f[n_special_price]=1` filter parameter on Jumia URLs — shows only products currently marked as on-sale.
-
-**Fix 2:** `curl_cffi` with `impersonate="chrome120"` as primary strategy. scrape.do `super=true` (their most powerful residential proxy tier) as fallback.
-
-**Commit:** `46ac601`, `ae90f63`
+**Commits:** `46ac601`, `ae90f63`
 
 ---
 
 ### Problem 3 — Amazon EG/AE: 0 deals
 
-**Root cause 1:** HTTP 503 from Cloud Run IPs being blocked by AWS WAF on Amazon.
+**Root cause 1:** HTTP 503 — AWS WAF blocking Cloud Run IPs.
+**Root cause 2:** Generic `s?k=deals` URLs returned products mostly under 40% off.
 
-**Root cause 2:** Generic `s?k=deals` search URLs return general product listings where most products have <40% discounts. The scraper found cards but none passed the discount filter.
+**Fix 1:** Force scrape.do for EG/AE in `_scrape_amazon_page()`.
+**Fix 2:** Category discount-filtered URLs: `s?k=CATEGORY&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank` — Amazon's native ≥40% filter, sorted by largest discount.
 
-**Fix 1:** Force scrape.do for `country in ("eg", "ae")` in `_scrape_amazon_page()`. Previously Amazon EG/AE tried direct HTTP first.
-
-**Fix 2:** Category-specific discount-filtered URLs using Amazon's native filter: `s?k=CATEGORY&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank`. This tells Amazon to show only products ≥40% off, sorted by largest discount first. 23 categories per country.
-
-**Commit:** `9ca7748`, `ae90f63`
+**Commits:** `9ca7748`, `ae90f63`
 
 ---
 
 ### Problem 4 — Amazon EG/AE/SA: 48 cards found, 0 deals extracted
 
-**Root cause 1 (price parsing):** On Amazon Middle East, `span.a-price-whole` contains a nested `span.a-price-decimal` holding `"."`. When `get_text()` is called on the outer span, it returns `"599."` (the decimal span's content appended). The code then built `current_price_str = "599..00"` (double period), which the price cleaner rejected, giving `price=0`. Product rejected.
+**Root cause 1 (price):** `span.a-price-whole` on Amazon Middle East contains nested `span.a-price-decimal` with `"."`. `get_text()` returned `"599."` → code built `"599..00"` (double period) → parse failed → price=0 → rejected.
 
-**Root cause 2 (no original price):** When original price extraction failed, `_build_deal` set `original = current`, computed `discount = 0%`, which fails the `MIN_DISCOUNT=40` check. Product rejected.
+**Root cause 2 (original price):** When original price extraction failed, `_build_deal` set `original=current`, computed `discount=0%`, failed `MIN_DISCOUNT=40`. Rejected.
 
-**Fix — price parsing:** Use `span.a-price:not(.a-text-price) span.a-offscreen` instead of `span.a-price-whole`. Amazon's `.a-offscreen` spans contain clean price strings like `"SAR 599.00"` — no nested spans, no double-period bug.
+**Fix — price:** Use `span.a-price:not(.a-text-price) span.a-offscreen` — clean string like `"SAR 599.00"`, no nested spans.
 
 **Fix — original price fallback chain:**
-1. `span.a-text-price span.a-offscreen` — standard strikethrough price
-2. `span[data-a-color='secondary'] span.a-offscreen` — secondary color price
-3. `span.a-price.a-text-price span.a-offscreen` — combined class selector
-4. `span[data-a-strike='true'] span.a-offscreen` — data attribute selector
-5. **Badge fallback:** Extract `%` from discount badge text (e.g. `"45% off"`), then compute `original = current / (1 - pct/100)`
-6. **Last resort for discount-search URLs:** If URL contains `pct-off-with-tax` (our filtered URLs), Amazon guarantees ≥40% off. Estimate `original = current / 0.60` (assumes 40% off minimum)
+1. `span.a-text-price span.a-offscreen`
+2. `span[data-a-color='secondary'] span.a-offscreen`
+3. `span.a-price.a-text-price span.a-offscreen`
+4. `span[data-a-strike='true'] span.a-offscreen`
+5. Badge: extract `%` from discount badge text → `original = current / (1 - pct/100)`
+6. Last resort for `pct-off-with-tax` URLs: `original = current / 0.60`
 
 **Commit:** `a6398b0`
 
 ---
 
-### Problem 5 — Amazon bestseller pages: "No cards found"
+### Problem 5 — Amazon bestseller pages: 0 deals (410KB HTML, no cards found)
 
-**Root cause:** Bestseller pages (`/gp/bestsellers/`, `/bestsellers/`) use a completely different HTML structure. Standard `s-result-item` and `s-search-result` divs don't exist on these pages. The HTML was 410KB+ with real products, but zero cards matched the search-results selectors.
+**Root cause:** Bestseller pages use different HTML — no `s-result-item` divs. And even when cards are found, they show full-price products with no strikethrough price → 0 discount → rejected.
 
-**Fix:** Added bestseller-specific selectors as fallback when standard selectors return nothing:
-```python
-"div.p13n-desktop-grid div[id^='gridItemRoot']"  # main grid
-"li.zg-item-immersion"                            # top 100 list
-"li[id^='p13n-asin-index']"                       # indexed list
-"div.zg_itemWrapper"                              # legacy bestseller
-```
+**Fix (cards):** Added fallback selectors: `div.p13n-desktop-grid div[id^='gridItemRoot']`, `li.zg-item-immersion`, etc.
 
-**Commit:** `a6398b0`
+**Later fix:** Removed all 27 bestseller URLs entirely (9 per country × 3) — they consistently produce 0 deals and wasted 270s per cycle.
+
+**Commits:** `a6398b0`, `8a12761`
 
 ---
 
 ### Problem 6 — Price snapshots: 0 recorded every run
 
-**Root cause:** Migration rollback bug. When `create_hypertable()` was called and TimescaleDB returned "already exists", the code called `conn.rollback()`. This rolled back ALL prior `ALTER TABLE` statements in the same transaction — including the `source` column addition and category constraint. The following `conn.commit()` committed nothing. On every subsequent run, `_ensure_tables()` found no `source` column, tried to add it again, tried `create_hypertable()` again, got "already exists" again, rolled back again.
+**Root cause:** Migration rollback bug. `create_hypertable()` returned "already exists" → code called `conn.rollback()` → rolled back ALL prior `ALTER TABLE` statements in same transaction (source column, category constraint) → `conn.commit()` committed nothing. Repeated every run.
 
-**Fix:** `conn.commit()` immediately after each column migration, before any hypertable operation. Each risky DDL statement is in its own commit/rollback cycle. Hypertable creation uses `if_not_exists=True` and swallows the "already exists" response without rolling back.
+**Fix:** `conn.commit()` immediately after each column migration before any hypertable call. Each risky DDL in own commit/rollback cycle.
 
 **Commit:** `4e10932`
 
@@ -388,18 +390,13 @@ Each platform uses different bot protection — each requires a different bypass
 
 ### Problem 7 — SSL SYSCALL EOF: 342 deals scraped, 0 inserted
 
-**Root cause:** `upsert_deals()` took a single connection from the pool at the start and used it for all 342 deals in one transaction. Supabase terminates idle SSL connections after ~60 seconds. The scraping cycle takes 300–400 seconds. Halfway through, Supabase silently dropped the SSL connection. The next cursor operation failed with "SSL SYSCALL error: EOF detected" or "cursor already closed". `conn.rollback()` was called on the dead connection, which also failed. All 342 deals were lost.
+**Root cause:** `upsert_deals()` used one connection for all 342 deals. Supabase drops idle SSL connections after ~60s. The 300–400s scrape cycle exceeded this. Connection died silently mid-upsert. All 342 deals lost.
 
-**Fix 1 — Chunked upserts:** Split upsert into batches of 25 deals. Each batch gets its own connection from the pool, commits, and returns the connection. If one chunk fails, the others still succeed.
-
-**Fix 2 — TCP keepalives:** Added to both `db_pool` and `ts_pool` on initialization:
+**Fix 1:** Chunked upserts — 25 deals per connection. Each chunk gets its own connection, commits, returns it.
+**Fix 2:** TCP keepalives on both pools:
 ```python
-keepalives=1          # enable TCP keepalive
-keepalives_idle=30    # send first keepalive after 30s idle
-keepalives_interval=10 # retry every 10s
-keepalives_count=5    # declare dead after 5 failed keepalives
+keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=5
 ```
-This keeps the TCP connection alive at the OS level, preventing Supabase from silently dropping it.
 
 **Commit:** `9861d9a`
 
@@ -407,20 +404,20 @@ This keeps the TCP connection alive at the OS level, preventing Supabase from si
 
 ### Problem 8 — `deals_category_check` constraint violations
 
-**Root cause:** Old DB constraint was created with a limited category list (e.g. 8 categories). The scraper produces categories like `beauty`, `pets`, `grocery` which were not in the original constraint. Every insert for these categories failed with PostgreSQL constraint violation.
+**Root cause:** Old constraint had 8 categories. Scraper produces `beauty`, `pets`, `grocery` etc. which were not in it. Every insert for these categories failed.
 
-**Fix:** Migration script drops the old constraint and recreates it with all 14 categories:
+**Fix:** Drop old constraint, recreate with all 14:
 `electronics, fashion, home, sports, beauty, baby, automotive, books, pets, food, health, grocery, office, other`
 
 **Commit:** `4e10932`
 
 ---
 
-### Problem 9 — `column "reviews" does not exist` on startup
+### Problem 9 — `column "reviews" does not exist` crash on startup
 
-**Root cause:** Stale migration line: `UPDATE deals SET review_count = reviews` — the column `reviews` had been renamed to `review_count` long before, but the migration script still referenced the old name. Every startup crashed with a PostgreSQL error before the scraper could run.
+**Root cause:** Stale migration line `UPDATE deals SET review_count = reviews` — `reviews` column was renamed years ago. Every startup crashed before the scraper could run.
 
-**Fix:** Removed the stale migration line. All data-copy migrations wrapped in `try/except` to prevent one bad migration from crashing the entire startup.
+**Fix:** Removed the line. All data-copy migrations wrapped in `try/except`.
 
 **Commit:** `6d05b01`
 
@@ -428,9 +425,9 @@ This keeps the TCP connection alive at the OS level, preventing Supabase from si
 
 ### Problem 10 — Dead Noon sale URLs (all 404)
 
-Noon deleted their `/sale-electronics/`, `/sale-fashion/`, `/sale-home/` pages entirely.
+`/sale-electronics/`, `/sale-fashion/`, `/sale-home/` — Noon deleted these pages.
 
-**Fix:** Replaced with live subcategory URLs with `?sort_by=discount_percent&sort_order=d` sort parameter. Confirmed returning 16+ deals per category in live logs.
+**Fix:** Replaced with subcategory URLs + `?sort_by=discount_percent&sort_order=d`.
 
 **Commit:** `6d05b01`
 
@@ -438,30 +435,31 @@ Noon deleted their `/sale-electronics/`, `/sale-fashion/`, `/sale-home/` pages e
 
 ### Problem 11 — Dead Jumia URLs (confirmed 404 in live logs)
 
-Multiple Jumia category URLs returned 404:
+| Old URL | New |
+|---|---|
+| `/audio-headphones/` | `/headphones/` |
+| `/mens-clothing/` | `/men-clothing/` |
+| `/bags-wallets/` | removed |
+| `/luggage-bags/` | removed (also 404) |
+| `/home-appliances/` | `/small-appliances/` |
+| `/large-appliances/` | removed (404) |
+| `/fragrances/` | removed |
+| `/fragrances-perfumes/` | removed (also 404) |
+| `/food-beverage/` | `/groceries/` |
+| `/skincare/` | removed (under health-beauty) |
+| `/deals-of-the-day/` | removed |
 
-| Old URL | Status | Replacement |
-|---|---|---|
-| `/audio-headphones/` | 404 | `/headphones/` |
-| `/mens-clothing/` | 404 | `/men-clothing/` |
-| `/bags-wallets/` | 404 | `/luggage-bags/` |
-| `/home-appliances/` | 404 | `/small-appliances/` |
-| `/fragrances/` | 404 | removed |
-| `/food-beverage/` | 404 | `/groceries/` |
-| `/skincare/` | 404 | removed (under `/health-beauty/`) |
-| `/deals-of-the-day/` | 404 | removed |
-
-**Commit:** `c2123af`, `572d155`
+**Commits:** `c2123af`, `572d155`, `03b5ec9`
 
 ---
 
 ### Problem 12 — Dead Noon camera/beauty URLs
 
-| Old URL | Status | Replacement |
-|---|---|---|
-| `cameras-and-accessories` | 404 on all 3 markets | `electronics-and-mobiles/cameras` |
-| `health-and-beauty` (parent) | 404 | `health-and-beauty/fragrance` + `health-and-beauty/skincare` |
-| `laptops-and-computers` | 404 on SA | removed from SA |
+| Old | Fix |
+|---|---|
+| `cameras-and-accessories` | `electronics-and-mobiles/cameras` |
+| `health-and-beauty` (parent 404) | `health-and-beauty/fragrance` + `health-and-beauty/skincare` |
+| `laptops-and-computers` (SA 404) | removed from SA |
 
 **Commit:** `572d155`
 
@@ -469,9 +467,9 @@ Multiple Jumia category URLs returned 404:
 
 ### Problem 13 — PriceCleaner EU decimal format
 
-**Root cause:** Regex `[\d,]+(?:\.\d+)?` truncated `"1.299,00 SAR"` to `"1.299"` — it stopped at the first comma and never captured the true value of 1299.00. Products with EU-format prices had their prices silently wrong.
+**Root cause:** Regex `[\d,]+(?:\.\d+)?` truncated `"1.299,00 SAR"` to `"1.299"` — stopped at comma. Price recorded as 1.299 instead of 1299.00.
 
-**Fix:** Changed regex to `[\d.,]+` — captures the full numeric string including both dots and commas. Existing EU/US detection logic (`_is_european_format`) then correctly interprets which symbol is the decimal separator.
+**Fix:** Changed to `[\d.,]+` — captures full string, existing EU/US detection handles interpretation.
 
 **Commit:** `46b574f`
 
@@ -479,13 +477,11 @@ Multiple Jumia category URLs returned 404:
 
 ### Problem 14 — Amazon SA: scrape.do geoCode not applied
 
-**Root cause:** Amazon SA was using proxy rotation without country-specific routing. The `_scrape_amazon_page()` function only forced scrape.do for EG/AE but fell through to direct HTTP for SA.
+**Root cause:** SA fell through to direct HTTP without geo routing.
 
-**Fix:** Extended geoCode routing to all three countries:
+**Fix:** Extended geoCode to all three countries:
 ```python
 geo = {"eg": "eg", "ae": "ae", "sa": "sa"}.get(country, "")
-if self.proxy_rotator.scrapedo_token:
-    sd_url = f"...&render=false" + (f"&geoCode={geo}" if geo else "")
 ```
 
 **Commit:** `c2123af`
@@ -494,346 +490,407 @@ if self.proxy_rotator.scrapedo_token:
 
 ### Problem 15 — System 1 did not exist
 
-The price history system described in earlier architecture documents (`PRICE_TRACKING_SCHEMA.md`, `price_history_system.py`, `price_tracker.py`) were stubs or placeholders — none had working scraper logic, DB connectivity, or Cloud Run deployment files.
+Price history files (`price_history_system.py`, `price_tracker.py`) were stubs — no working scraper, no DB connectivity, no deployment.
 
-**Fix:** Built `price_tracker_cloudrun.py` (991 lines) from scratch with:
-- `TrackerDB` — DB connection pools with TCP keepalives, schema creation, chunked catalog upserts, snapshot saves, verdict cache
-- `FakeDiscountDetector` — statistical analysis of price history, 4-verdict classification system with 24h caching
-- `CatalogScraper` — scrape.do (Amazon/Noon), curl_cffi (Jumia), HTML parsers for all 3 platforms, `__NEXT_DATA__` fallback for Noon
-- `PriceTracker` — orchestrator, deduplication, `verify_discount()` public API for System 2
-- `_CATALOG_URLS` — 7 sources × 21+ category browse URLs, NO discount filters
-- Created `price_tracker_job.py`, `Dockerfile.tracker`, `cloudbuild_tracker.yaml`
+**Fix:** Built `price_tracker_cloudrun.py` (991 lines) from scratch: `TrackerDB`, `FakeDiscountDetector`, `CatalogScraper`, `PriceTracker`, all 7 source parsers, full DB schema, chunked saves, verdict caching.
 
 **Commit:** `a6398b0`
 
 ---
 
-## 8. URL Coverage (Final State)
+### Problem 16 — System 1 tracker: 0 snapshots saved despite products found
 
-### Amazon EG / AE / SA
+**Root cause:** `price_snapshots.timestamp` is NOT NULL (hypertable partition key) with no DEFAULT. INSERT didn't include `timestamp` column → constraint violation on every row → chunk rolled back → 0 saved.
 
-All three markets have identical URL structure, just different domains (`amazon.eg`, `amazon.ae`, `amazon.sa`).
+**Fix:** Added `NOW()` as timestamp in INSERT:
+```sql
+INSERT INTO price_snapshots (..., timestamp) VALUES (..., NOW())
+```
 
-**Discount-filtered pages (23 categories, `≥40%` filter + sorted by discount):**
-Smartphones, Laptops, Headphones, TVs, Cameras, Gaming, Electronics, Men's Fashion, Women's Fashion, Shoes, Watches, Bags, Kitchen, Furniture, Beauty, Skincare, Perfume, Sports, Baby, Books, Automotive, Pet Supplies, Grocery
-
-URL pattern: `https://www.amazon.{tld}/s?k={category}&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE`
-
-**Bestseller pages (9 categories):**
-Electronics, Fashion, Beauty, Kitchen, Books, Toys, Automotive, Pet Supplies, Grocery
-
-URL pattern: `https://www.amazon.{tld}/gp/bestsellers/{node}?language=en_AE`
+**Commit:** `6fa4c7b`
 
 ---
 
-### Noon EG / AE / SA
+### Problem 17 — System 1 tracker: Jumia 0 products (scrape.do 401)
 
-All three markets have identical structure, different locale slugs (`egypt-en`, `uae-en`, `saudi-en`).
+**Root cause:** `SCRAPEDO_TOKEN` env var not set on `dealhunter-tracker` Cloud Run job. Credentials were baked into the scraper's `Dockerfile` — not as Cloud Run env vars — so `gcloud run jobs describe` returned null and they had to be found manually in `Dockerfile.backup`.
 
-**Discount-sorted pages (22 categories, `?sort_by=discount_percent&sort_order=d`):**
-Electronics, Mobiles & Tablets, Laptops, TVs, Audio, Cameras, Gaming, Women's Clothing, Men's Clothing, Women's Shoes, Men's Shoes, Watches, Bags, Home & Kitchen, Furniture, Fragrance, Skincare, Sports, Baby, Grocery, Automotive, Pet Supplies
-
-**Bestseller pages (9 categories):**
-Electronics, Fashion, Beauty, Home & Kitchen, Sports, Baby, Grocery, Automotive, Pet Supplies
+**Fix:** Set real credentials via `gcloud run jobs update --set-env-vars`.
 
 ---
 
-### Jumia EG
+### Problem 18 — System 1 tracker: Jumia fallback using wrong scrape.do mode
 
-**Discount pages (25 categories + `f[n_special_price]=1` filter):**
-Phones & Tablets, Laptops, TVs, Headphones, Cameras, Gaming, Women's Clothing, Men's Clothing, Women's Shoes, Men's Shoes, Watches, Home Office Furniture, Small Appliances, Home Living, Health & Beauty, Sports, Baby, Books, Automotive, Pet Supplies, Groceries
+**Root cause:** `_fetch_jumia()` fallback called `_fetch_via_scrapedo(url, render=False)` without `super=true`. Cloudflare requires `super=true` on scrape.do for Jumia.
 
-**Top catalog pages (3, with discount filter):**
-`catalog/` pages 1–3
+**Fix:** Added `super_proxy` parameter to `_fetch_via_scrapedo()`, called with `super_proxy=True` from `_fetch_jumia()`.
 
----
-
-### System 1 Catalog URLs (No filters — all products)
-
-System 1 uses simple keyword search URLs on Amazon and category browse on Noon/Jumia. 21–23 URLs per source, 7 sources = ~150 total URLs per cycle.
+**Commit:** `ed7a198`
 
 ---
 
-## 9. Key Configuration
+### Problem 19 — System 1 tracker: 600s timeout kills cycle mid-run
 
-### System 2 (scraper_cloudrun.py)
+**Root cause:** Cloud Run Jobs default task timeout is 600 seconds. System 1 scrapes 161 URLs sequentially at ~5s each = ~800s minimum. Job was killed before completing.
+
+**Fix:** `gcloud run jobs update dealhunter-tracker --task-timeout=3600s`
+
+---
+
+### Problem 20 — System 1 → System 2 integration did not exist
+
+**Root cause:** System 2 had its own heuristic fake score (price ratio based) but never queried System 1's historical verdicts.
+
+**Fix:** Added to `scraper_cloudrun.py`:
+- `make_product_id()` — same MD5 formula as System 1 (strips query string for stable ID)
+- `_lookup_s1_verdict()` — queries `discount_verdicts` table, 48h cache window, silent on failure
+- Updated `_build_deal()` — computes product_id, applies System 1 verdict to all verdict fields
+
+**Commit:** `279287d`
+
+---
+
+## 8. URL Coverage — Final State
+
+### Amazon EG / AE / SA — 23 discount-filtered URLs each
+
+Pattern: `https://www.amazon.{tld}/s?k={keyword}&rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE`
+
+Keywords: smartphones, laptops, headphones, television, cameras, gaming, electronics, mens+fashion, womens+fashion, shoes, watches, bags, kitchen, furniture, beauty, skincare, perfume, sports, baby, books, automotive, pet+supplies, grocery
+
+**Bestseller pages: removed** — confirmed 0 deals across all 27 URLs.
+
+---
+
+### Noon EG / AE / SA — 22 discount-sorted URLs each
+
+Pattern: `https://www.noon.com/{locale}/{category}/?sort_by=discount_percent&sort_order=d`
+
+Categories: electronics-and-mobiles, mobiles-and-tablets, laptops-and-computers, tv-and-audio/tvs, audio, cameras, gaming, womens-clothing, mens-clothing, womens-shoes, mens-shoes, watches, bags-and-luggage, home-and-kitchen, furniture, health-and-beauty/fragrance, health-and-beauty/skincare, sports-and-outdoors, baby-products, automotive, pet-supplies
+
+---
+
+### Jumia EG — 21 discount-filtered URLs
+
+Pattern: `https://www.jumia.com.eg/{category}/?f%5Bn_special_price%5D=1`
+
+Categories: phones-tablets, laptops, televisions, headphones, cameras, video-games, womens-clothing, men-clothing, womens-shoes, mens-shoes, watches, home-office-furniture, small-appliances, home-living, health-beauty, sporting-goods, baby-products, books, automotive, pet-supplies, groceries
+
+---
+
+### System 1 Catalog URLs — 23 per Amazon country, 21 per Noon country, 21 for Jumia
+
+System 1 uses keyword search on Amazon and category browse on Noon/Jumia. No discount filters. Collects all products at any price.
+
+---
+
+## 9. Configuration Reference
+
+### System 2 (`scraper_cloudrun.py`)
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_URL` | required | Supabase PostgreSQL connection string |
-| `TIMESCALE_URL` | = DATABASE_URL | TimescaleDB connection string (can differ) |
-| `SCRAPEDO_TOKEN` / `SCRAPE_DO_TOKEN` | required | scrape.do API token |
-| `MIN_DISCOUNT` | `40` | Minimum discount percent to keep a deal |
+| `DATABASE_URL` | required | Supabase PostgreSQL DSN |
+| `TIMESCALE_URL` | =DATABASE_URL | TimescaleDB DSN |
+| `SCRAPEDO_TOKEN` | required | scrape.do API token |
+| `MIN_DISCOUNT` | `40` | Minimum discount % to keep a deal |
 | `MIN_PRODUCT_PRICE` | `50` | Minimum price in local currency |
-| `REQUEST_TIMEOUT` | `120` | HTTP request timeout in seconds |
+| `REQUEST_TIMEOUT` | `120` | HTTP timeout in seconds |
 | `AMAZON_ENABLED` | `true` | Toggle Amazon scraping |
 | `NOON_ENABLED` | `true` | Toggle Noon scraping |
 | `JUMIA_ENABLED` | `true` | Toggle Jumia scraping |
-| `MAX_PAGES_PER_SOURCE` | `2` | Max pages to scrape per category URL |
 
-### System 1 (price_tracker_cloudrun.py)
+### System 1 (`price_tracker_cloudrun.py`)
 
 | Variable | Default | Description |
 |---|---|---|
-| `DATABASE_URL` | required | Supabase PostgreSQL connection string |
-| `TIMESCALE_URL` | = DATABASE_URL | TimescaleDB connection string |
-| `SCRAPEDO_TOKEN` / `SCRAPE_DO_TOKEN` | required | scrape.do API token |
-| `TRACKER_MIN_PRICE` | `10` | Minimum product price to record |
-| `TRACKER_MAX_PAGES` | `2` | Max pages per category URL |
-| `REQUEST_TIMEOUT` | `60` | HTTP request timeout in seconds |
+| `DATABASE_URL` | required | Supabase PostgreSQL DSN |
+| `TIMESCALE_URL` | =DATABASE_URL | TimescaleDB DSN |
+| `SCRAPEDO_TOKEN` | required | scrape.do API token |
+| `TRACKER_MIN_PRICE` | `10` | Minimum price to record |
+| `TRACKER_MAX_PAGES` | `2` | Max pages per URL |
+| `REQUEST_TIMEOUT` | `60` | HTTP timeout in seconds |
 
 ---
 
-## 10. Deploy Commands
+## 10. Deploy Commands — Full Reference
+
+### Initial Setup (one-time)
+
+```bash
+gcloud config set project dealhunter-egypt-70d29
+```
 
 ### Deploy System 2 (deals scraper)
 
 ```bash
-# Set project (one-time)
-gcloud config set project dealhunter-egypt-70d29
-
-# Pull latest code
 cd ~/dealhunter-deploy
-git fetch origin
-git checkout claude/resolve-user-support-5Eljo
-git pull
-
-# Build and push Docker image
+git fetch origin && git checkout claude/resolve-user-support-5Eljo && git pull
 gcloud builds submit --config=cloudbuild_scraper.yaml
-
-# Update Cloud Run Job with new image
 gcloud run jobs update dealhunter-scraper \
   --region=us-central1 \
   --image=gcr.io/dealhunter-egypt-70d29/dealhunter-scraper:latest
-
-# Run immediately and wait for completion
 gcloud run jobs execute dealhunter-scraper --region=us-central1 --wait
 ```
 
-### Deploy System 1 (price tracker) — first time
+### Deploy System 1 (price tracker)
 
 ```bash
-# Build and push Docker image
-gcloud builds submit --config=cloudbuild_tracker.yaml
-
-# Create Cloud Run Job (first time only)
-gcloud run jobs create dealhunter-tracker \
-  --image=gcr.io/dealhunter-egypt-70d29/dealhunter-tracker:latest \
-  --region=us-central1 \
-  --set-env-vars="DATABASE_URL=YOUR_SUPABASE_URL,SCRAPEDO_TOKEN=YOUR_TOKEN"
-
-# Run immediately
-gcloud run jobs execute dealhunter-tracker --region=us-central1 --wait
-```
-
-### Update System 1 after code changes
-
-```bash
+cd ~/dealhunter-deploy
+git fetch origin && git checkout claude/resolve-user-support-5Eljo && git pull
 gcloud builds submit --config=cloudbuild_tracker.yaml
 gcloud run jobs update dealhunter-tracker \
   --region=us-central1 \
-  --image=gcr.io/dealhunter-egypt-70d29/dealhunter-tracker:latest
+  --image=gcr.io/dealhunter-egypt-70d29/dealhunter-tracker:latest \
+  --task-timeout=3600s
+gcloud run jobs execute dealhunter-tracker --region=us-central1 --wait
 ```
 
-### Check logs after any run
+### Create System 1 Schedule (one-time — already done)
 
 ```bash
-# System 2 logs
+gcloud scheduler jobs create http dealhunter-tracker-schedule \
+  --location=us-central1 \
+  --schedule="0 */8 * * *" \
+  --uri="https://us-central1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/dealhunter-egypt-70d29/jobs/dealhunter-tracker:run" \
+  --message-body="{}" \
+  --oauth-service-account-email=dealhunter-scraper@dealhunter-egypt-70d29.iam.gserviceaccount.com
+```
+
+### Check Logs After Any Run
+
+```bash
+# System 2
 gcloud logging read \
   "resource.type=cloud_run_job AND resource.labels.job_name=dealhunter-scraper" \
-  --limit=200 --format="value(textPayload)" --freshness=15m \
-  | grep -E "deals|ERROR|WARN|snapshot"
+  --limit=100 --format="value(textPayload)" --freshness=30m
 
-# System 1 logs
+# System 1
 gcloud logging read \
   "resource.type=cloud_run_job AND resource.labels.job_name=dealhunter-tracker" \
-  --limit=200 --format="value(textPayload)" --freshness=15m \
-  | grep -E "products|snapshots|ERROR|WARN"
+  --limit=30 --format="value(textPayload)" --freshness=2h
 ```
 
-### Run tests locally
+---
+
+## 11. Scheduling
+
+| Job | Schedule | Trigger | Next run |
+|---|---|---|---|
+| `dealhunter-scraper` | Manual / external | Run on demand or set your own schedule | — |
+| `dealhunter-tracker` | Every 8 hours | Cloud Scheduler `0 */8 * * *` UTC | Auto |
+
+The tracker runs at 00:00, 08:00, 16:00 UTC every day. After 7 days of runs, the first genuine FAKE/SUSPICIOUS verdicts will appear in the `discount_verdicts` table and System 2 will pick them up automatically on its next run — no code change needed.
+
+---
+
+## 12. Test Suite
+
+### `test_parsing.py` — 49 offline tests
 
 ```bash
-# Offline unit tests (no network, no DB required)
 python3 test_parsing.py
+```
 
-# Live network tests (requires SCRAPEDO_TOKEN)
+No network. No DB. Tests parsing logic with hard-coded HTML fixtures.
+
+Covers: PriceCleaner (EGP/AED/SAR/EU formats), category detection, Noon HTML, Noon `__NEXT_DATA__` JSON, Jumia HTML, deal ID uniqueness, `_build_deal` edge cases.
+
+Result: **49/49 PASS**
+
+### `test_live.py` — Live network tests
+
+```bash
 export SCRAPEDO_TOKEN="your_token"
 python3 test_live.py
 ```
 
----
-
-## 11. Test Suite
-
-### `test_parsing.py` — 49 offline tests
-
-No network connection needed. No database needed. Tests the parsing logic directly with hard-coded HTML fixtures.
-
-**Coverage:**
-- `PriceCleaner` — EGP, AED, SAR, EU decimal format (1.299,00), USD, edge cases
-- Category detection — mapping product titles to category values
-- Noon HTML parsing — data-qa attributes, product card structure
-- Noon `__NEXT_DATA__` JSON — Next.js embedded JSON extraction
-- Jumia HTML parsing — `article.prd` selector chain
-- Deal ID generation — MD5 uniqueness, determinism
-- `_build_deal` edge cases — missing fields, zero prices, discount threshold
-
-**Result:** 49/49 PASS
-
-### `test_live.py` — Live network tests
-
-Requires `SCRAPEDO_TOKEN`. Tests real HTTP requests to Amazon EG, Noon EG, Jumia EG without writing to the database. Useful for verifying proxy routing and HTML parser compatibility after site redesigns.
+Tests real HTTP to Amazon EG, Noon EG, Jumia EG without writing to DB.
 
 ---
 
-## 12. Results: Before vs After
+## 13. Final Honest Status
+
+| Component | Status | Detail |
+|---|---|---|
+| System 2 — Amazon EG | **Working** | Deals confirmed in live logs |
+| System 2 — Amazon AE | **Working** | 170+ deals per run |
+| System 2 — Amazon SA | **Working** | Deals confirmed |
+| System 2 — Noon EG | **Working** | 14 deals per run |
+| System 2 — Noon AE | **Working** | 50 deals per run |
+| System 2 — Noon SA | **Working** | 59 deals per run |
+| System 2 — Jumia EG | **Working** | 298 deals per run |
+| System 2 total | **Working** | ~2300 deals/run |
+| System 2 DB saves | **Working** | 1880 inserted, 421 snapshots |
+| System 2 → System 1 verdict | **Built** | Queries discount_verdicts table |
+| System 1 — Amazon EG | **Working** | 1073 products, 1073 snapshots |
+| System 1 — Amazon AE | **Working** | 1143 products, 1143 snapshots |
+| System 1 — Amazon SA | **Working** | 1013 products, 1013 snapshots |
+| System 1 — Noon EG | **Working** | 401 products, 401 snapshots |
+| System 1 — Noon AE | **Working** | 425 products, 425 snapshots |
+| System 1 — Noon SA | **Working** | 403 products, 403 snapshots |
+| System 1 — Jumia EG | **Broken** | Needs one more rebuild after `ed7a198` fix |
+| System 1 schedule | **Active** | Every 8 hours via Cloud Scheduler |
+| Fake detection verdicts | **Pending** | Needs 7+ days of data — by design |
+
+**One remaining action:** Rebuild the tracker image after commit `ed7a198` (Jumia super=true fix) to get Jumia EG working in System 1:
+
+```bash
+cd ~/dealhunter-deploy && git pull
+gcloud builds submit --config=cloudbuild_tracker.yaml
+gcloud run jobs update dealhunter-tracker --region=us-central1 \
+  --image=gcr.io/dealhunter-egypt-70d29/dealhunter-tracker:latest
+```
+
+---
+
+## 14. Results: Start vs End
 
 ### System 2 (Deals Scraper)
 
-| Metric | Before session | After session |
+| Metric | Session Start | Session End |
 |---|---|---|
-| Amazon EG deals/run | 0 | 20+ |
-| Amazon AE deals/run | 0 | 20+ |
-| Amazon SA deals/run | 21 | 30+ |
-| Noon EG deals/run | 0 | 50+ |
-| Noon AE deals/run | 0 | 10+ |
-| Noon SA deals/run | 0 | 10+ |
-| Jumia EG deals/run | 1 | 85+ |
-| **Total deals/run** | **~22** | **~225+** |
-| Price snapshots/run | 0 | 116+ |
+| Amazon EG deals/run | 0 | 300+ |
+| Amazon AE deals/run | 0 | 200+ |
+| Amazon SA deals/run | 21 | 300+ |
+| Noon EG deals/run | 0 | 14 |
+| Noon AE deals/run | 0 | 50 |
+| Noon SA deals/run | 0 | 59 |
+| Jumia EG deals/run | 1 | 298 |
+| **Total deals/run** | **22** | **~2300** |
+| Price snapshots/run | 0 | 421+ |
 | DB errors/run | 10+ | 0 |
-| Crash on startup | Yes (column "reviews") | No |
-| Cycle time | 1324s | ~400s |
-| Categories covered | partial (3–5 per source) | 23 per source |
-| Bestseller pages | 0 | 9 per source |
-| SSL connection drops | Every run | 0 (TCP keepalives) |
+| Startup crash | Yes | No |
+| Cycle time | 1324s | ~1300s |
+| SSL drops | Every run | 0 |
+| Dead URLs | 15+ | 0 |
+| System 1 verdict lookup | No | Yes |
+| product_id populated | No | Yes |
 
 ### System 1 (Price History)
 
-| Metric | Before session | After session |
+| Metric | Session Start | Session End |
 |---|---|---|
 | System exists | No | Yes |
-| Product catalog table | No | Yes |
-| Discount verdicts table | No | Yes |
-| Historical price tracking | No | Yes |
-| Fake discount detection | No | Yes (4 verdicts) |
-| Cloud Run deployment | No | Ready (`cloudbuild_tracker.yaml`) |
+| Sources working | 0 | 6 of 7 |
+| Products collected/run | 0 | 4458 |
+| Snapshots saved/run | 0 | 4331 |
+| product_catalog table | No | Yes |
+| discount_verdicts table | No | Yes |
+| Scheduled runs | No | Every 8 hours |
+| Fake detection | No | Active (data accumulating) |
 
 ---
 
-## 13. Full Commit History
+## 15. Full Commit History
 
 | Commit | Description |
 |---|---|
-| `a6398b0` | **System 1 price tracker + Amazon parser fix** — `price_tracker_cloudrun.py` (991 lines), `price_tracker_job.py`, `Dockerfile.tracker`, `cloudbuild_tracker.yaml`, Amazon offscreen price fix, bestseller selectors |
-| `572d155` | Fix confirmed 404 Noon URLs from live logs (cameras, health-beauty, SA laptops) |
-| `c2123af` | Fix dead Jumia/Noon URLs + extend Amazon scrape.do geoCode to all 3 countries |
-| `9861d9a` | Fix upsert_deals SSL drop — chunked connections (25/batch) + TCP keepalives |
-| `2dff261` | Update SESSION_NOTES.md with session documentation |
-| `ae90f63` | Full category + bestseller coverage for all 7 sources (23 categories per source) |
-| `9ca7748` | Force scrape.do for Amazon EG/AE + expand to discount-filtered URLs |
-| `4e10932` | Fix migration rollback bug — source column + category constraint never applying |
-| `6d05b01` | Fix 5 live production bugs: reviews column, 404 Noon sale URLs, Jumia deals-of-the-day |
-| `46b574f` | Fix PriceCleaner EU decimal format (1.299,00 SAR) + 49-test offline test suite |
-| `9bc593f` | Noon: scrape.do rendered mode (not local Playwright) + `__NEXT_DATA__` JSON parsing |
+| `ed7a198` | Fix tracker: Jumia fallback uses super=true + add super_proxy param |
+| `279287d` | Wire System 1 verdict into System 2 deal builder |
+| `8a12761` | Remove Amazon bestseller URLs — confirmed 0 deals across all 27 |
+| `03b5ec9` | Remove 3 confirmed 404 Jumia URLs from System 2 |
+| `6fa4c7b` | Fix price_tracker: add timestamp to snapshot INSERT |
+| `b3155b3` | Add complete session documentation (all conversations) |
+| `a6398b0` | Add System 1 price tracker + fix Amazon parser |
+| `572d155` | Fix confirmed 404 Noon URLs based on live logs |
+| `c2123af` | Fix dead Jumia/Noon URLs + extend Amazon scrape.do to all 3 countries |
+| `9861d9a` | Fix upsert_deals SSL drop: chunk connections + TCP keepalive |
+| `2dff261` | Update SESSION_NOTES.md |
+| `ae90f63` | Add full category + bestseller coverage for all 7 sources |
+| `9ca7748` | Force scrape.do for Amazon EG/AE + expand discount URLs |
+| `4e10932` | Fix migration rollback bug — source column + category constraint |
+| `6d05b01` | Fix 5 live production bugs |
+| `46b574f` | Fix PriceCleaner EU decimal + 49-test offline suite |
+| `9bc593f` | Noon: scrape.do rendered mode + `__NEXT_DATA__` parsing |
 | `46ac601` | Playwright Noon + curl_cffi Jumia + schema fixes |
-| `ae53358` | Complete scraper: Playwright Noon + direct Jumia + 161 categories + price snapshots |
+| `ae53358` | Complete scraper: Playwright Noon + direct Jumia + 161 categories |
 | `48b86fb` | Fix Noon: Playwright rendering for React |
-| `da1df30` | Add Playwright-based Noon scraper for client-side rendered pages |
+| `da1df30` | Add Playwright-based Noon scraper |
 | `3750e00` | Fix Noon selectors for new CSS Modules |
 | `6eef695` | Fix price_snapshots INSERT to match table schema |
 | `a24e545` | Add TIMESCALE_URL for price snapshots |
-| `7fcb101` | Fix fraud_reasons: pass None for empty list |
-| `3df4897` | Fix Json import after `__future__` annotations |
-| `08bd1a8` | Fix fraud_reasons JSONB serialization |
-| `4c48b74` | Use psycopg2.extras.Json for fraud_reasons JSONB |
-| `69e21b2` | Fix fraud_reasons JSON serialization + per-deal transaction rollback |
+| `69e21b2` | Fix fraud_reasons JSON serialization |
 | `ee8d1af` | Bake all env vars into Docker image |
-| `e06f0c0` | Fix `_ensure_tables`: correct schema + auto migration from old columns |
+| `e06f0c0` | Fix `_ensure_tables`: correct schema + auto migration |
 | `0d89817` | Fix DB schema mismatch |
-| `3df6321` | Fix timeout 120s, render=true for JS rendering |
-| `3776a21` | Clean Dockerfile with correct python3 CMD |
-| `cafafb4` | Simplify: always run, no 4-hour guard |
-| `874f6a1` | Remove 4-hour guard — scraper always runs on execution |
-| `b1f774a` | Add test_scraper.py — focused Amazon.eg scraper with diagnostics |
-| `2415064` | Fix: ProxyRotator checks SCRAPEDO_TOKEN (matching env var name) |
-| `76039bf` | Add FORCE_RUN env var to bypass 4-hour interval guard |
-| `b8d07f6` | Fix Dockerfile COPY — use separate COPY lines per file |
-| `6a551f0` | Add Cloud Build config for scraper with custom Dockerfile |
+| `874f6a1` | Remove 4-hour guard — scraper always runs |
+| `6a551f0` | Add Cloud Build config for scraper |
 | `dc38192` | Add scraper Cloud Run Job deployment script |
 
 ---
 
-## Appendix A — scraper_cloudrun.py Internal Architecture
+## 16. Internal Architecture — Code Maps
+
+### scraper_cloudrun.py (System 2)
 
 ```
 DealHunterScraper
 ├── __init__()
-│   ├── _init_databases()          — Supabase pool + TimescaleDB pool (TCP keepalives)
-│   ├── _ensure_tables()           — DDL migrations (deals, price_snapshots, columns)
-│   └── ProxyRotator               — scrape.do token management, geoCode routing
+│   ├── _init_databases()        — two psycopg2 pools, TCP keepalives
+│   ├── _ensure_tables()         — DDL migrations (deals, price_snapshots, columns)
+│   └── ProxyRotator             — scrape.do token, geoCode routing
 │
-├── run_cycle()                    — top-level: iterate all sources, collect, save
-│   ├── _scrape_amazon_page()      — Amazon HTML parser
-│   │   ├── card selectors         — s-result-item, s-search-result + bestseller fallback
-│   │   ├── price extraction       — span.a-price:not(.a-text-price) span.a-offscreen
-│   │   ├── original price         — 4 selectors + badge fallback + last-resort estimate
-│   │   └── _build_deal()          — validates, computes discount, category, fake score
-│   │
-│   ├── _scrape_noon_page()        — Noon HTML + __NEXT_DATA__ parser
-│   │   ├── scrape.do rendered     — wait=6000ms, render=true
-│   │   ├── data-qa selectors      — product cards, prices, images
-│   │   ├── __NEXT_DATA__ fallback — Next.js JSON extraction
+├── run_cycle()                  — iterate all sources, collect, save
+│   ├── _scrape_amazon_page()    — Amazon HTML parser
+│   │   ├── card selectors       — s-result-item + s-search-result
+│   │   ├── price extraction     — span.a-price:not(.a-text-price) span.a-offscreen
+│   │   ├── original price       — 4 selectors + badge fallback + last-resort
 │   │   └── _build_deal()
-│   │
-│   └── _scrape_jumia_page()       — Jumia HTML parser
-│       ├── curl_cffi chrome120    — TLS impersonation (primary)
-│       ├── scrape.do super=true   — residential proxy (fallback)
-│       ├── article.prd selectors  — product cards
+│   ├── _scrape_noon_page()      — Noon HTML + __NEXT_DATA__ parser
+│   │   ├── scrape.do rendered   — wait=6000ms
+│   │   ├── data-qa selectors    — product cards, prices
+│   │   ├── __NEXT_DATA__ JSON   — Next.js fallback
+│   │   └── _build_deal()
+│   └── _scrape_jumia_page()     — Jumia HTML parser
+│       ├── curl_cffi chrome120  — primary
+│       ├── scrape.do super=true — fallback
+│       ├── article.prd selectors
 │       └── _build_deal()
 │
-├── upsert_deals(deals)            — chunked 25/batch, each batch own connection
-├── record_price_snapshots(deals)  — chunked 25/batch, snapshot_type='deal'
-├── PriceCleaner                   — price string → float, EU/US format detection
-└── FakeScoreCalculator            — heuristic fake discount score (0–1)
+├── _build_deal()                — validates, computes discount, category, verdict
+│   ├── make_product_id()        — MD5(site + url_no_query) — links to System 1
+│   ├── _lookup_s1_verdict()     — queries discount_verdicts, 48h cache
+│   └── applies FAKE/SUSPICIOUS/GENUINE/UNVERIFIED to deal dict
+│
+├── upsert_deals()               — chunked 25/batch, each batch own connection
+├── record_price_snapshots()     — chunked 25/batch, snapshot_type='deal'
+├── PriceCleaner                 — price string → float, EU/US detection
+└── FakeScoreCalculator          — heuristic fallback score (0–1)
 ```
 
----
-
-## Appendix B — price_tracker_cloudrun.py Internal Architecture
+### price_tracker_cloudrun.py (System 1)
 
 ```
-PriceTracker (System 1 Orchestrator)
+PriceTracker
 ├── TrackerDB
-│   ├── _connect()                 — Supabase + TimescaleDB pools with keepalives
-│   ├── _ensure_schema()           — CREATE TABLE product_catalog, discount_verdicts
-│   │                                ALTER TABLE price_snapshots ADD snapshot_type
-│   ├── upsert_catalog(products)   — chunked INSERT ON CONFLICT UPDATE for product_catalog
-│   ├── save_snapshots(products)   — INSERT price_snapshots with snapshot_type='catalog'
-│   ├── get_price_history(id,site) — SELECT time-series prices for a product
-│   ├── save_verdict()             — INSERT/UPDATE discount_verdicts
-│   └── get_cached_verdict()       — SELECT verdict if analyzed_at > NOW()-24h
+│   ├── _connect()               — two pools with TCP keepalives
+│   ├── _ensure_schema()         — CREATE product_catalog, discount_verdicts
+│   │                               ALTER price_snapshots ADD snapshot_type
+│   ├── upsert_catalog()         — chunked INSERT ON CONFLICT for product_catalog
+│   ├── save_snapshots()         — INSERT with timestamp=NOW(), snapshot_type='catalog'
+│   ├── get_price_history()      — SELECT time-series for a product
+│   ├── save_verdict()           — INSERT/UPDATE discount_verdicts
+│   └── get_cached_verdict()     — SELECT if analyzed_at > NOW()-24h
 │
 ├── FakeDiscountDetector
 │   └── verify(product_id, site, claimed_original, current_price)
-│       ├── get_price_history()    — fetch historical prices
-│       ├── < 7 points → UNVERIFIED
+│       ├── < 7 points  → UNVERIFIED
 │       ├── median ≤ current×1.10 → FAKE
 │       ├── claimed > max×1.30   → SUSPICIOUS
 │       └── else                 → GENUINE
 │
 ├── CatalogScraper
-│   ├── _fetch_via_scrapedo(url)   — scrape.do HTTP (render=True for Noon)
-│   ├── _fetch_direct(url)         — plain requests with Chrome UA
-│   ├── _fetch_jumia(url)          — curl_cffi chrome120 + scrape.do fallback
-│   ├── _parse_amazon(html)        — same fixed selectors as System 2
-│   ├── _parse_noon(html)          — data-qa + __NEXT_DATA__ fallback
-│   └── _parse_jumia(html)         — article.prd selectors
+│   ├── _fetch_via_scrapedo()    — render=True for Noon, super=True for Jumia
+│   ├── _fetch_direct()          — plain requests, Chrome UA
+│   ├── _fetch_jumia()           — curl_cffi chrome120 → scrape.do super=true
+│   ├── _parse_amazon()          — same fixed selectors as System 2
+│   ├── _parse_noon()            — data-qa + __NEXT_DATA__ fallback
+│   └── _parse_jumia()           — article.prd selectors
 │
 └── run_cycle()
-    ├── For each site in _CATALOG_URLS:
-    │   ├── scrape_url() for each URL
+    ├── For each site in _CATALOG_URLS (7 sources, 161 URLs total):
+    │   ├── scrape_url()
     │   ├── deduplicate by product_id
     │   ├── upsert_catalog()
     │   └── save_snapshots()
@@ -842,4 +899,4 @@ PriceTracker (System 1 Orchestrator)
 
 ---
 
-*Last updated: 2026-05-17 — Branch: `claude/resolve-user-support-5Eljo` — Commit: `a6398b0`*
+*Last updated: 2026-05-18 — Branch: `claude/resolve-user-support-5Eljo` — Latest commit: `ed7a198`*
