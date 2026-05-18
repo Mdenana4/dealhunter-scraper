@@ -565,7 +565,7 @@ def list_deals() -> Response:
         sort_direction = "DESC" if sort_order.lower() == "desc" else "ASC"
 
         # Build query
-        conditions = ["discount_percent >= %s"]
+        conditions = ["discount_percent >= %s", "is_active = true"]
         params: List[Any] = [min_discount]
 
         if source:

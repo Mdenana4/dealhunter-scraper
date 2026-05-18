@@ -985,6 +985,13 @@ class DealHunterScraper:
             discount["percent"] = MAX_DISCOUNT_THRESHOLD
 
         category = detect_category(title, url)
+        _VALID_CATEGORIES = {
+            'electronics', 'fashion', 'home', 'sports', 'beauty',
+            'baby', 'automotive', 'books', 'pets', 'food',
+            'health', 'grocery', 'office', 'other'
+        }
+        if category not in _VALID_CATEGORIES:
+            category = 'other'
 
         deal = {
             "id": make_deal_id(site, url, current),
@@ -1671,6 +1678,8 @@ class DealHunterScraper:
                 href = link_el.get("href", "") if link_el else ""
                 product_url = resolve_url(href, "https://www.jumia.com.eg")
                 if not product_url:
+                    continue
+                if "/customer/account/login/" in product_url:
                     continue
 
                 # Current price
