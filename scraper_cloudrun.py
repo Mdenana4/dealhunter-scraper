@@ -1820,10 +1820,10 @@ class DealHunterScraper:
                                     product_url, category, original_price, current_price,
                                     discount_percent, savings, currency,
                                     verdict, fake_score, recommendation, confidence,
-                                    fraud_reasons, rating, review_count, created_at
+                                    fraud_reasons, rating, review_count, is_active, created_at
                                 ) VALUES (
                                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()
+                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, true, NOW()
                                 )
                                 """,
                                 (
@@ -1867,7 +1867,8 @@ class DealHunterScraper:
                                         category = %s,
                                         rating = %s,
                                         review_count = %s,
-                                        recommendation = %s
+                                        recommendation = %s,
+                                        is_active = true
                                     WHERE id = %s
                                     """,
                                     (

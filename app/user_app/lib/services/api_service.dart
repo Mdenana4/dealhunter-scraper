@@ -2,7 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/deal_model.dart';
 
-const _baseUrl = 'https://dealhunter-scraper-production-88ed.up.railway.app';
+const _baseUrl = 'https://dealhunter-scraper.onrender.com';
 
 class ApiService {
   final Dio _dio;
