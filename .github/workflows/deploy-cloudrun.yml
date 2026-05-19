@@ -1,0 +1,97 @@
+name: Deploy to Google Cloud Run
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: dealhunter-egypt-70d29
+  REGION: us-central1
+
+jobs:
+  # ── Server (Flask API) ──────────────────────────────────────────────────────
+  deploy-server:
+    name: Deploy API Server
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker --quiet
+
+      - name: Build server image
+        run: |
+          docker build \
+            -f Dockerfile.server \
+            -t gcr.io/${{ env.PROJECT_ID }}/dealhunter-server:latest \
+            .
+
+      - name: Push server image
+        run: docker push gcr.io/${{ env.PROJECT_ID }}/dealhunter-server:latest
+
+      - name: Deploy server to Cloud Run
+        run: |
+          gcloud run deploy dealhunter-server \
+            --image=gcr.io/${{ env.PROJECT_ID }}/dealhunter-server:latest \
+            --region=${{ env.REGION }} \
+            --platform=managed \
+            --allow-unauthenticated \
+            --port=8080 \
+            --min-instances=0 \
+            --max-instances=3 \
+            --memory=512Mi \
+            --cpu=1 \
+            --timeout=60 \
+            --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }},FLASK_ENV=production,MIN_DISCOUNT=40,FCM_SERVER_KEY=${{ secrets.FCM_SERVER_KEY }}"
+
+      - name: Print server URL
+        run: |
+          gcloud run services describe dealhunter-server \
+            --region=${{ env.REGION }} \
+            --format='value(status.url)'
+
+  # ── Scraper Job ─────────────────────────────────────────────────────────────
+  deploy-scraper:
+    name: Deploy Scraper Job
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker --quiet
+
+      - name: Build scraper image
+        run: |
+          docker build \
+            -f Dockerfile.scraper \
+            -t gcr.io/${{ env.PROJECT_ID }}/dealhunter-scraper:latest \
+            .
+
+      - name: Push scraper image
+        run: docker push gcr.io/${{ env.PROJECT_ID }}/dealhunter-scraper:latest
+
+      - name: Deploy scraper Cloud Run Job
+        run: |
+          gcloud run jobs deploy dealhunter-scraper \
+            --image=gcr.io/${{ env.PROJECT_ID }}/dealhunter-scraper:latest \
+            --region=${{ env.REGION }} \
+            --task-timeout=3600 \
+            --max-retries=0 \
+            --memory=2Gi \
+            --cpu=2 \
+            --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }},FLASK_ENV=production,MIN_DISCOUNT=40,SCRAPEDO_TOKEN=${{ secrets.SCRAPEDO_TOKEN }},FCM_SERVER_KEY=${{ secrets.FCM_SERVER_KEY }}"
