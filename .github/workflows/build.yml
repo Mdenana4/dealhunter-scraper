@@ -44,7 +44,7 @@ jobs:
       - name: Build APK
         run: |
           cd app/admin_app
-          flutter build apk --release
+          flutter build apk --release --verbose
 
       - name: Find APK
         run: find app/admin_app/build -name "*.apk" 2>/dev/null || echo "No APK found"
