@@ -1,0 +1,41 @@
+name: Auto Deploy All Services
+
+on:
+  push:
+    branches: [ flutter, api, scraper ]
+  workflow_dispatch:
+
+jobs:
+  deploy-railway:
+    if: github.ref == 'refs/heads/scraper'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: railway/cli-deploy@v1
+        with:
+          railway_token: ${{ secrets.RAILWAY_TOKEN }}
+          service: a26bc021-532b-4926-b76d-3f7bf9d4dc4f
+          project: aa7d717f-aa2e-4dee-88e1-2ec3558c8f0b
+          root: scraper
+
+  deploy-render:
+    if: github.ref == 'refs/heads/api'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: curl -s https://api.render.com/v1/services/srv-d7cnfijeo5us73fekul0/deploys -H "Authorization:Bearer ${{ secrets.RENDER_API_KEY }}" -X POST
+
+  build-flutter:
+    if: github.ref == 'refs/heads/flutter'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+      - run: cd flutter && flutter pub get && flutter build apk --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dealhunter-apk
+          path: flutter/build/app/outputs/flutter-apk/app-release.apk
