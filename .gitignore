@@ -18,3 +18,4 @@ build/
 # Android signing keys — never commit
 *.jks
 *.keystore
+.claude/worktrees/
