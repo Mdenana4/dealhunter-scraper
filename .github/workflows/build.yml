@@ -44,7 +44,7 @@ jobs:
       - name: Build APK
         run: |
           cd app/admin_app
-          flutter build apk --release
+          flutter build apk --release --verbose 2>&1 | tail -60
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
