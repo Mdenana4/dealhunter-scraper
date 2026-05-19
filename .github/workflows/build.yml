@@ -33,8 +33,9 @@ jobs:
 
       - name: Create local.properties
         run: |
-          echo "flutter.sdk=$FLUTTER_HOME" > app/admin_app/android/local.properties
+          echo "flutter.sdk=$FLUTTER_ROOT" > app/admin_app/android/local.properties
           echo "sdk.dir=$ANDROID_SDK_ROOT"  >> app/admin_app/android/local.properties
+          cat app/admin_app/android/local.properties
 
       - name: Get dependencies
         run: |
@@ -43,15 +44,16 @@ jobs:
 
       - name: Build APK
         run: |
-          cd app/admin_app
-          flutter build apk --release --android-skip-build-dependency-validation
+          cd app/admin_app/android
+          chmod +x gradlew
+          ./gradlew assembleRelease
 
       - name: Find APK
-        run: find app/admin_app/build -name "*.apk" 2>/dev/null || echo "No APK found"
+        run: find app/admin_app/android/app/build -name "*.apk" 2>/dev/null || echo "No APK found"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-release.apk
-          path: app/admin_app/build/app/outputs/apk/release/app-release.apk
+          path: app/admin_app/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: warn
