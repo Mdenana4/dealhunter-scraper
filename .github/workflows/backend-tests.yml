@@ -15,6 +15,10 @@ on:
       - 'scraper.py'
       - 'requirements.txt'
 
+permissions:
+  contents: read
+  actions: read
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
