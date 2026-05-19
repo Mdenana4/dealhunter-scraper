@@ -44,10 +44,14 @@ jobs:
       - name: Build APK
         run: |
           cd app/admin_app
-          flutter build apk --release --verbose 2>&1 | tail -60
+          flutter build apk --release
+
+      - name: Find APK
+        run: find app/admin_app/build -name "*.apk" 2>/dev/null || echo "No APK found"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-release.apk
-          path: app/admin_app/build/app/outputs/flutter-apk/app-release.apk
+          path: app/admin_app/build/app/outputs/apk/release/app-release.apk
+          if-no-files-found: warn
