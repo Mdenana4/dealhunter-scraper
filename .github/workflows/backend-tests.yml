@@ -19,21 +19,20 @@ permissions:
   contents: read
   actions: read
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
         timeout-minutes: 5
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
         timeout-minutes: 10
@@ -45,22 +44,22 @@ jobs:
 
       - name: Lint with flake8
         run: |
-          # Stop build if there are Python syntax errors or undefined names
           flake8 server.py scraper.py --count --select=E9,F63,F7,F82 --show-source --statistics || true
-          # Exit-zero treats all errors as warnings
           flake8 server.py scraper.py --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics || true
 
   test-dependencies:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
         timeout-minutes: 5
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
         timeout-minutes: 10
@@ -78,13 +77,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
         timeout-minutes: 5
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
         timeout-minutes: 10
