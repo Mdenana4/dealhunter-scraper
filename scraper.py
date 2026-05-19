@@ -18,16 +18,31 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timezone
 import firebase_admin
 from firebase_admin import credentials, firestore, messaging
+from google.cloud.firestore import FieldFilter
 from dotenv import load_dotenv
 from fake_checker import check_price_history
 from price_tracker import record_price as _pt_record, get_triggered_alerts as _pt_alerts
 from scraper_health import health as _health
+from price_history_api import PriceHistoryAPI  # v11.0: System 1 integration
+from price_history_system import start_price_history_system  # v11.0: Start System 1 scheduler
 
 load_dotenv()
 
 MIN_DISCOUNT    = int(os.getenv("MIN_DISCOUNT", 40))
 AMAZON_KEYWORD_ENABLED = os.getenv("AMAZON_KEYWORD_ENABLED", "false").lower() == "true"
-INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 90))
+
+# ═══════════════════════════════════════════════════════════
+# DEAL SOURCES vs PRICE-COLLECTION SOURCES
+# ═══════════════════════════════════════════════════════════
+# Only these sources save deals to the "deals" collection,
+# send FCM notifications, and appear in the app.
+# All other sources (Noon, Jumia, Amazon AE/SA) run in
+# background mode — they ONLY record prices to the
+# price_history database.  After ~60 days this gives us
+# independent price verification for every product.
+# ═══════════════════════════════════════════════════════════
+_DEAL_SOURCES = {"amazon_eg", "noon_eg", "jumia_eg"}
+INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 120))
 SCRAPER_API_KEY = (
     os.getenv("SCRAPER_API_KEY") or
     os.getenv("SCRAPERAPI_KEY") or
@@ -51,6 +66,8 @@ RAPIDAPI_KEY = (
 # Leave as 0 / 9999999 to disable the filter.
 MIN_PRICE = float(os.getenv("MIN_PRICE", 0))
 MAX_PRICE = float(os.getenv("MAX_PRICE", 9999999))
+# Minimum product price threshold for deal eligibility (was hardcoded 200)
+MIN_PRODUCT_PRICE = float(os.environ.get("MIN_PRODUCT_PRICE", "50"))  # Default 50 EGP
 
 
 # ─────────────────────────────────────────────────────
@@ -138,6 +155,28 @@ def check_scraper_control():
 # Cache disabled sources for the duration of each cycle (re-read each cycle)
 _disabled_sources: set = set()
 
+# Dead ASINs cache — ASINs that returned HTTP 502, skipped for 24h to save credits
+# Format: {asin: timestamp_when_marked_dead}
+_dead_asins: dict[str, datetime] = {}
+_DEAD_ASIN_TTL_HOURS = 24
+
+def _is_dead_asin(asin: str) -> bool:
+    """Check if an ASIN was marked dead within the last 24 hours."""
+    if not asin:
+        return False
+    ts = _dead_asins.get(asin)
+    if not ts:
+        return False
+    if datetime.now(timezone.utc) - ts > timedelta(hours=_DEAD_ASIN_TTL_HOURS):
+        del _dead_asins[asin]
+        return False
+    return True
+
+def _mark_dead_asin(asin: str) -> None:
+    """Mark an ASIN as dead (returned HTTP 502) — won't be retried for 24h."""
+    if asin:
+        _dead_asins[asin] = datetime.now(timezone.utc)
+
 def load_disabled_sources():
     """Read disabled source keys from Firestore scraper_control/disabled_sources."""
     global _disabled_sources
@@ -151,7 +190,27 @@ def load_disabled_sources():
     except Exception:
         _disabled_sources = set()
 
+# Sources that ALWAYS run for price-history collection
+# (even when disabled in admin panel).  Only Amazon EG can
+# be fully disabled — every other source is needed to build
+# the long-term price database.
+_PRICE_COLLECTION_SOURCES = {
+    "amazon_ae", "amazon_sa",
+    "noon_eg",   "noon_ae",  "noon_sa",
+    "jumia_eg",
+}
+
 def is_source_enabled(key: str) -> bool:
+    """
+    Return True if the source should run this cycle.
+
+    * Price-collection sources always run — they are needed to
+      build the independent price-history database.
+    * Deal sources (amazon_eg) honour the Firestore disabled list.
+    * B2B / niche sources also honour the disabled list.
+    """
+    if key in _PRICE_COLLECTION_SOURCES:
+        return True
     return key not in _disabled_sources
 
 
@@ -175,14 +234,13 @@ def generate_deal_id(site, url, price):
 def clean_price(text):
     if not text:
         return 0.0
-    text = (str(text)
-            .replace(',', '').replace('EGP', '').replace('ج.م', '')
-            .replace('جنيه', '').replace('جنية', '').strip())
-    text = re.sub(r'[^\d.]', '', text)
-    try:
-        return float(text)
-    except Exception:
+    text = str(text).strip()
+    # Find the FIRST number group (not all — prevents concatenation of multiple prices)
+    m = re.search(r"[\d,]+", text)
+    if not m:
         return 0.0
+    clean = m.group().replace(",", "")
+    return float(clean) if clean else 0.0
 
 def price_in_range(price):
     """Return True if price passes the MIN_PRICE / MAX_PRICE filter."""
@@ -292,19 +350,19 @@ def get_headers(mobile=False):
 
 def detect_category(title):
     t = title.lower()
-    if re.search(r'phone|mobile|iphone|samsung|xiaomi|oppo|vivo|realme|laptop|notebook|tablet|ipad|computer|monitor|keyboard|mouse|headphone|earphone|earbuds|airpods|speaker|digital.?camera|security.?camera|action.?camera|\bcamera\s+\d|\btv\b|television|gaming|playstation|xbox|console|router|charger|cable|power.?bank|smartwatch|flash.?drive|usb|ssd|hard.?disk|printer|drone|\bram\b|processor', t):
+    if re.search(r'phone|mobile|iphone|samsung|xiaomi|oppo|vivo|realme|laptop|notebook|tablet|ipad|computer|monitor|keyboard|mouse|headphone|earphone|earbuds|airpods|speaker|camera|\btv\b|television|gaming|playstation|xbox|console|router|charger|cable|power.?bank|smartwatch|flash.?drive|usb|ssd|hard.?disk|printer|drone|ram|processor', t):
         return "electronics"
     if re.search(r'dress|shirt|shoes|bag|perfume|parfum|fragrance|eau.?de|attar|oud|jeans|jacket|sneaker|sandal|handbag|wallet|belt|hat|cap|suit|blouse|skirt|coat|boots|polo|t-shirt|tshirt|underwear|socks|scarf|glasses|sunglasses|leggings|hoodie|sweatshirt|bra|swimsuit', t):
         return "fashion"
-    if re.search(r'sofa|chair|bed|table|lamp|kitchen|blender|cookware|vacuum|air.?condition|refrigerator|washing.?machine|oven|microwave|curtain|pillow|mattress|shelf|cabinet|wardrobe|fan|heater|iron|kettle|toaster|coffee.?maker|air.?fryer|pressure.?cooker|dishwasher|water.?filter|steamer|garment.?steamer', t):
+    if re.search(r'sofa|chair|bed|table|lamp|kitchen|blender|cookware|vacuum|air.?condition|refrigerator|washing.?machine|oven|microwave|curtain|pillow|mattress|shelf|cabinet|wardrobe|fan|heater|iron|kettle|toaster|coffee.?maker|air.?fryer|pressure.?cooker|dishwasher|water.?filter', t):
         return "home"
-    if re.search(r'cream|serum|shampoo|makeup|skincare|moisturizer|lotion|vitamin|supplement|omega|collagen|fish.?oil|probiotic|face.?wash|nail|lipstick|foundation|mascara|toner|sunscreen|body.?wash|deodorant|cologne|hair.?dryer|straightener|razor|trimmer|toothpaste|toothbrush|oral.?care|diaper|nappy|baby.?wipe|baby.?lotion|baby.?shampoo', t):
+    if re.search(r'cream|serum|shampoo|makeup|skincare|moisturizer|lotion|vitamin|supplement|omega|collagen|fish.?oil|probiotic|face.?wash|nail|lipstick|foundation|mascara|toner|sunscreen|body.?wash|deodorant|cologne|hair.?dryer|straightener|razor|trimmer', t):
         return "beauty"
     if re.search(r'gym|sport|fitness|yoga|bicycle|bike|football|tennis|treadmill|dumbbell|resistance.?band|protein|swimming|basketball|volleyball|badminton|weights|barbell|boxing', t):
         return "sports"
-    if re.search(r'toy|baby|kids|children|doll|lego|puzzle|infant|toddler|stroller|feeding|educational|board.?game|action.?figure', t):
+    if re.search(r'toy|baby|kids|children|doll|lego|puzzle|infant|toddler|stroller|diaper|feeding|educational|board.?game|action.?figure', t):
         return "toys"
-    if re.search(r'car|\bauto\b|vehicle|tire|wheel|motor.?oil|engine|spare.?part|seat.?cover|dashboard|steering|wiper|exhaust', t):
+    if re.search(r'car|auto|vehicle|tire|wheel|motor.?oil|engine|spare.?part|seat.?cover|dashboard|steering|wiper|exhaust', t):
         return "automotive"
     if re.search(r'food|grocery|snack|drink|juice|rice|pasta|oil|sugar|coffee|tea|chocolate|biscuit|chips|sauce|spice|flour|bread|milk|cheese|yogurt|honey|jam|cereal|protein.?bar', t):
         return "grocery"
@@ -345,9 +403,6 @@ _SCRAPERAPI_EXHAUSTED = False  # set True when monthly quota gone
 # Cleared at the end of each run_scraper() call.
 _new_deals_this_run: list = []
 
-# Credit counter for the current cycle. Reset at cycle start, printed in summary.
-_cycle_credits: int = 0
-
 
 def is_blocked_response(resp, min_length=2000):
     """Return True when the response looks like a CAPTCHA or bot-block page."""
@@ -372,77 +427,46 @@ def is_blocked_response(resp, min_length=2000):
 
 def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False,
                         wait_until=None, wait_selector=None, custom_wait=None):
-    """Fetch via scrape.do proxy. 1 credit (HTML), 5 (JS render), 10 (super residential), 25 (super+render)."""
-    global _scrapedo_dead, _cycle_credits
+    """Fetch via scrape.do proxy. 1 credit (HTML), 5 (JS render), 10 (super residential)."""
+    global _scrapedo_dead
     if not SCRAPEDO_TOKEN or _scrapedo_dead:
         return None
-    import gzip as _gz
+    # v10.1: Removed manual gzip decompression — requests handles it automatically
     try:
         params = {
             "token":   SCRAPEDO_TOKEN,
             "url":     url,
-            "render":  "true" if render_js else "false",
+            "render":  "true" if (render_js or super_proxy) else "false",
             "geoCode": country.upper(),
         }
         if super_proxy:
             params["super"] = "true"
-        # Credit accounting: super+render=25, super=10, render=5, plain=1
-        if super_proxy and render_js:
-            _cycle_credits += 25
-        elif super_proxy:
-            _cycle_credits += 10
-        elif render_js:
-            _cycle_credits += 5
-        else:
-            _cycle_credits += 1
         if wait_until:
             params["waitUntil"] = wait_until
         if wait_selector:
             params["waitSelector"] = wait_selector
         if custom_wait:
             params["customWait"] = str(custom_wait)
-        # stream=True lets us read raw bytes before decompression
+        # v11.2: Request uncompressed responses — scrape.do's gzip is
+        # intermittently corrupted ("Error -3 while decompressing data").
+        # Slightly larger payloads, but eliminates decompression failures.
         resp = requests.get(
             "https://api.scrape.do",
             params=params,
             timeout=60,
-            headers={"Accept-Encoding": "gzip, deflate"},
+            headers={"Accept-Encoding": "identity"},  # No compression
             allow_redirects=True,
-            stream=True,
         )
         if resp.status_code in (401, 403):
             print(f"    [scrape.do] HTTP {resp.status_code} — token invalid or credits exhausted, disabling for this session")
             _scrapedo_dead = True
-            resp.close()
             return None
         if resp.status_code not in (200, 301, 302):
             print(f"    [scrape.do] HTTP {resp.status_code} for {url[:60]}")
-            resp.close()
             return None
-        # Read raw bytes without auto-decompression, then decompress manually
-        raw = resp.raw.read(decode_content=False)
-        resp.close()
-        enc = resp.headers.get("Content-Encoding", "").lower()
-        if "gzip" in enc or raw[:2] == b"\x1f\x8b":
-            try:
-                content = _gz.decompress(raw)
-            except Exception:
-                content = raw
-        elif "deflate" in enc:
-            import zlib as _zlib
-            try:
-                content = _zlib.decompress(raw)
-            except Exception:
-                try:
-                    content = _zlib.decompress(raw, -15)
-                except Exception:
-                    content = raw
-        else:
-            content = raw
+        content = resp.content
         if len(content) < 500:
             return None
-        # Patch response so callers can use .content and .text normally
-        resp._content = content
         resp.encoding = resp.apparent_encoding or "utf-8"
         return resp
     except Exception as e:
@@ -451,9 +475,6 @@ def fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False,
 
 
 _AMAZON_API_GEOCODES = {
-    # Egypt, UAE, Saudi Arabia are NOT supported by the scrape.do Amazon
-    # structured API (returns HTTP 400). Only Western markets are supported.
-    # Add a geocode here only after confirming it works.
     "us": "us", "uk": "uk", "de": "de", "fr": "fr",
     "it": "it", "es": "es", "ca": "ca", "au": "au",
     "jp": "jp", "in": "in", "br": "br", "mx": "mx",
@@ -533,10 +554,11 @@ def fetch_amazon_product_detail(asin, country_code):
         return None
 
 
-def fetch_with_scraperapi(url, render_js=True, country="eg"):
+def fetch_with_scraperapi(url, render_js=True, country="eg", _skip_scrapedo=False, premium=False):
     global _SCRAPERAPI_EXHAUSTED
-    # Prefer scrape.do when token is set
-    if SCRAPEDO_TOKEN:
+    # Prefer scrape.do when token is set — UNLESS caller explicitly skips it
+    # (e.g. Jumia already tried scrape.do and got 502; don't retry it here)
+    if not _skip_scrapedo and SCRAPEDO_TOKEN:
         resp = fetch_with_scrapedo(url, render_js=render_js, country=country)
         if resp:
             return resp
@@ -549,7 +571,7 @@ def fetch_with_scraperapi(url, render_js=True, country="eg"):
             "url": url,
             "render": "true" if render_js else "false",
             "country_code": country,
-            "premium": "false",
+            "premium": "true" if premium else "false",
         }
         resp = requests.get("http://api.scraperapi.com", params=params, timeout=60)
         if resp.status_code == 200:
@@ -570,26 +592,17 @@ def fetch_direct(url, mobile=False):
         return None
 
 def fetch_noon_direct(url, country_code="eg"):
-    """Direct fetch for Noon with realistic browser headers. No proxy needed for most pages."""
+    """Direct fetch for Noon pages with proper headers and response validation."""
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Referer": "https://www.noon.com/",
-        "sec-ch-ua": '"Chromium";v="124","Google Chrome";v="124"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "same-origin",
-        "Cache-Control": "max-age=0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Language": "en-US,en;q=0.9",
     }
     try:
-        resp = requests.get(url, headers=headers, timeout=30, allow_redirects=True)
-        return resp
+        resp = requests.get(url, headers=headers, timeout=25, allow_redirects=True)
+        return resp if resp.status_code == 200 and len(resp.text or "") > 5000 else None
     except Exception as e:
-        print(f"    Noon direct error: {e}")
+        print(f"[NOON/DIRECT] Error: {e}")
         return None
 
 
@@ -617,97 +630,116 @@ def _log_scraper_error(scraper: str, url: str, message: str) -> None:
 # SAVE DEAL — Always update Firebase, never skip
 # ─────────────────────────────────────────────────────
 def save_deal(deal):
+    """
+    Save a deal to Firebase.
+
+    Dual-mode behaviour:
+      * _DEAL_SOURCES (e.g. amazon_eg) → full deal save + FCM queue
+      * Background sources (noon_*, jumia, amazon_ae/sa) → price
+        history ONLY; deals are NOT shown in the app.
+    """
     deal_id = deal["deal_id"]
-    ref = db.collection("deals").document(deal_id)
-    try:
-        if deal.get("review_count", 0) == 0:
-            deal["review_count"] = None
+    site    = deal.get("site", "")
+    is_deal_source = site in _DEAL_SOURCES
 
-        existing = ref.get()
-        if existing.exists:
-            old = existing.to_dict()
-            old_price = old.get("current_price", 0)
-            new_price  = deal["current_price"]
+    # ── 1.  Full deal persistence (visible in app) ──
+    if is_deal_source:
+        ref = db.collection("deals").document(deal_id)
+        try:
+            if deal.get("review_count", 0) == 0:
+                deal["review_count"] = None
 
-            update = {
-                "current_price":   new_price,
-                "discount_percent": deal["discount_percent"],
-                "timestamp":       deal["timestamp"],
-            }
-            if deal.get("image_url"):
-                update["image_url"] = deal["image_url"]
-            if deal.get("rating", 0) > 0:
-                update["rating"] = deal["rating"]
-            if deal.get("review_count") is not None:
-                update["review_count"] = deal["review_count"]
-            if deal.get("coupon_codes"):
-                update["coupon_codes"]   = deal["coupon_codes"]
-                update["coupon_display"] = deal.get("coupon_display", "")
+            existing = ref.get()
+            if existing.exists:
+                old = existing.to_dict()
+                old_price = old.get("current_price", 0)
+                new_price  = deal["current_price"]
 
-            kb = deal.get("kanbkam", {})
-            if kb:
-                update.update({
-                    "kanbkam":              kb,
-                    "fake_verdict":         kb.get("verdict", "UNVERIFIED"),
-                    "fake_verdict_ar":      kb.get("verdict_ar", ""),
-                    "fake_emoji":           kb.get("emoji", ""),
-                    "rule_a":               kb.get("rule_a_triggered", False),
-                    "rule_b":               kb.get("rule_b_triggered", False),
-                    "lowest_price_ever":    kb.get("lowest_price", 0),
-                    "highest_price_ever":   kb.get("highest_price", 0),
-                    "suggested_wait_price": kb.get("suggested_wait_price", 0),
-                    "source_used":          kb.get("source_used", ""),
-                })
+                update = {
+                    "current_price":    new_price,
+                    "discount_percent": deal["discount_percent"],
+                    "timestamp":        deal["timestamp"],
+                    "last_scraped":     deal["timestamp"],
+                    "status":           "active",
+                }
+                if deal.get("image_url"):
+                    update["image_url"] = deal["image_url"]
+                if deal.get("rating", 0) > 0:
+                    update["rating"] = deal["rating"]
+                if deal.get("review_count") is not None:
+                    update["review_count"] = deal["review_count"]
+                if deal.get("coupon_codes"):
+                    update["coupon_codes"]   = deal["coupon_codes"]
+                    update["coupon_display"] = deal.get("coupon_display", "")
 
-            ref.update(update)
+                kb = deal.get("kanbkam", {})
+                if kb:
+                    update.update({
+                        "kanbkam":              kb,
+                        "fake_verdict":         kb.get("verdict", "UNVERIFIED"),
+                        "fake_verdict_ar":      kb.get("verdict_ar", ""),
+                        "fake_emoji":           kb.get("emoji", ""),
+                        "rule_a":               kb.get("rule_a_triggered", False),
+                        "rule_b":               kb.get("rule_b_triggered", False),
+                        "lowest_price_ever":    kb.get("lowest_price", 0),
+                        "highest_price_ever":   kb.get("highest_price", 0),
+                        "suggested_wait_price": kb.get("suggested_wait_price", 0),
+                        "source_used":          kb.get("source_used", ""),
+                    })
 
-            if old_price != new_price:
-                ref.collection("price_history").document().set({
-                    "price": new_price, "old_price": old_price, "timestamp": deal["timestamp"]
-                })
-                print(f"  UPDATED: {deal['title'][:45]} | EGP {old_price:,.0f}→{new_price:,.0f} | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
+                ref.update(update)
+
+                if old_price != new_price:
+                    ref.collection("price_history").document().set({
+                        "price": new_price, "old_price": old_price, "timestamp": deal["timestamp"]
+                    })
+                    print(f"  UPDATED: {deal['title'][:45]} | EGP {old_price:,.0f}→{new_price:,.0f} | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
+                else:
+                    print(f"  REFRESH: {deal['title'][:45]} | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
             else:
-                print(f"  REFRESH: {deal['title'][:45]} | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
-        else:
-            ref.set(deal)
-            ref.collection("price_history").document().set({
-                "price": deal["current_price"], "timestamp": deal["timestamp"]
-            })
-            print(f"  NEW:     {deal['title'][:45]} | {deal['discount_percent']}% OFF | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
-            # Queue for batch FCM notification at end of scraper run
-            _new_deals_this_run.append({
-                "title":            deal["title"],
-                "discount_percent": deal.get("discount_percent", 0),
-                "site":             deal.get("site", ""),
-                "site_display":     deal.get("site_display", ""),
-                "currency":         deal.get("currency", "EGP"),
-                "current_price":    deal.get("current_price", 0),
-                "deal_id":          deal.get("deal_id", ""),
-            })
+                deal["last_scraped"] = deal["timestamp"]
+                deal["status"] = "active"
+                ref.set(deal)
+                ref.collection("price_history").document().set({
+                    "price": deal["current_price"], "timestamp": deal["timestamp"]
+                })
+                print(f"  NEW:     {deal['title'][:45]} | {deal['discount_percent']}% OFF | {deal.get('fake_emoji','')} {deal.get('fake_verdict','')}")
+                # Queue for batch FCM notification at end of scraper run
+                _new_deals_this_run.append({
+                    "title":            deal["title"],
+                    "discount_percent": deal.get("discount_percent", 0),
+                    "site":             deal.get("site", ""),
+                    "site_display":     deal.get("site_display", ""),
+                    "currency":         deal.get("currency", "EGP"),
+                    "current_price":    deal.get("current_price", 0),
+                    "deal_id":          deal.get("deal_id", ""),
+                })
+        except Exception as e:
+            print(f"  SAVE ERROR: {e}")
+    else:
+        # Background source — only log price collection (no app deal)
+        print(f"  [PRICE-COLLECT] {deal['title'][:40]} | {deal['current_price']:,.0f} {deal.get('currency','EGP')} | site={site}")
 
-        # ── Record to price_tracker (builds the full price-history schema) ──
-        mc = _SITE_TO_MC.get(deal.get("site", ""))
-        if mc and db:
-            try:
-                _result = _pt_record(
-                    marketplace_country = mc,
-                    product_id          = _tracker_id(deal),
-                    name                = deal["title"],
-                    url                 = deal["product_url"],
-                    price               = float(deal["current_price"]),
-                    original_price      = float(deal["original_price"]) if deal.get("original_price") else None,
-                    currency            = deal.get("currency", "EGP"),
-                    in_stock            = deal.get("availability") != "out_of_stock",
-                    image_url           = deal.get("image_url"),
-                    category            = deal.get("category"),
-                )
-                if _result.get("price_changed"):
-                    _fire_price_alerts(_result)
-            except Exception as _te:
-                print(f"  [TRACKER] {_te}")
-
-    except Exception as e:
-        print(f"  SAVE ERROR: {e}")
+    # ── 2.  Price history (ALL sources — deal or background) ──
+    mc = _SITE_TO_MC.get(site)
+    if mc and db:
+        try:
+            _result = _pt_record(
+                marketplace_country = mc,
+                product_id          = _tracker_id(deal),
+                name                = deal["title"],
+                url                 = deal["product_url"],
+                price               = float(deal["current_price"]),
+                original_price      = float(deal["original_price"]) if deal.get("original_price") else None,
+                currency            = deal.get("currency", "EGP"),
+                in_stock            = deal.get("availability") != "out_of_stock",
+                image_url           = deal.get("image_url"),
+                category            = deal.get("category"),
+            )
+            if _result.get("price_changed"):
+                _fire_price_alerts(_result)
+        except Exception as _te:
+            print(f"  [TRACKER] {_te}")
 
 
 def _notify_new_deals(deals: list) -> None:
@@ -749,31 +781,31 @@ def _notify_new_deals(deals: list) -> None:
 
         best   = qualifying[0]
         count  = len(qualifying)
-        title_text = f"🔥 {count} New Deal{'s' if count > 1 else ''} — {best['site_display'] or best['site']}"
+        price  = best.get("current_price", 0)
+        disc   = best.get("discount_percent", 0)
+        title  = best.get("title", "")[:40]
+        img    = best.get("image_url", "")
+
+        # v10.1: Arabic + emoji FCM notifications (Kansas-style)
         if count == 1:
-            body_text = f"{best['title'][:60]} — {best['discount_percent']}% OFF"
+            title_text = f"🔥👀 صفقة جديدة على {best['site_display'] or best['site']}!"
+            body_text  = f"{title} بـ {price:,.0f} جنيه 😏 ({disc}% خصم)"
         else:
-            body_text = (
-                f"Best: {best['title'][:40]} {best['discount_percent']}% OFF"
-                f" (+{count - 1} more)"
-            )
+            title_text = f"🔥👀 {count} صفقات جديدة على {best['site_display'] or best['site']}!"
+            body_text  = f"أفضلها: {title} بـ {price:,.0f} جنيه ({disc}% خصم) +{count - 1} أخرى"
 
         try:
-            msg_id = messaging.send(messaging.Message(
+            # v11.2: Simplified notification format (matches test endpoint)
+            # Removed data payload and android config — these were causing
+            # delivery issues on some devices. Basic notification only.
+            msg = messaging.Message(
                 topic=topic,
                 notification=messaging.Notification(
                     title=title_text,
                     body=body_text,
                 ),
-                data={
-                    "type":           "new_deals",
-                    "count":          str(count),
-                    "best_discount":  str(best["discount_percent"]),
-                    "best_deal_id":   str(best["deal_id"]),
-                    "site":           str(best["site"]),
-                },
-                android=messaging.AndroidConfig(priority="high"),
-            ))
+            )
+            msg_id = messaging.send(msg)
             print(f"  [FCM-DEALS] ✓ Sent to {topic}: {count} deals, best {best['discount_percent']}% — msg_id={msg_id}")
         except Exception as fcm_err:
             # Log the full error so Railway logs show the root cause
@@ -972,7 +1004,9 @@ def _parse_and_save_rapidapi_products(products, country, marketplace_country,
             if disc == 0:
                 disc = calculate_discount(op, cp)
             if disc >= MIN_DISCOUNT and op <= cp:
-                op = round(cp / (1 - disc / 100))
+                # Cap discount at 99% to prevent division by zero
+                safe_disc = min(disc, 99)
+                op = round(cp / (1 - safe_disc / 100.0))
             if disc < MIN_DISCOUNT:
                 continue
             if currency == "EGP" and not price_in_range(cp):
@@ -992,9 +1026,10 @@ def _parse_and_save_rapidapi_products(products, country, marketplace_country,
 
             cat = detect_category(title)
             print(f"    [{label}/{country}] [{disc}%] {title[:42]}...")
-            kb = check_price_history(
-                asin=asin, product_url=product_url, current_price=cp,
-                original_price=op, title=title, site=marketplace_country,
+            kb = _get_fraud_verdict(
+                source=marketplace_country, asin=asin,
+                current_price=cp, original_price=op,
+                title=title, product_url=product_url, site=marketplace_country,
             )
             time.sleep(0.5)
             deal = build_deal(
@@ -1005,6 +1040,10 @@ def _parse_and_save_rapidapi_products(products, country, marketplace_country,
                 kanbkam_result=kb, currency=currency,
             )
             save_deal(deal)
+            PriceHistoryAPI.request_tracking(
+                source=marketplace_country, asin=asin, title=title,
+                url=product_url, category=cat or "general",
+            )
             saved += 1
         except Exception:
             continue
@@ -1191,9 +1230,53 @@ AMAZON_KEYWORDS = [
     {"k": "yoga mat",         "cat": "sports"},
     {"k": "lego",             "cat": "toys"},
     {"k": "baby stroller",    "cat": "toys"},
-    {"k": "arabic novel",     "cat": "books"},
-    {"k": "protein bar",      "cat": "grocery"},
-    {"k": "organic honey",    "cat": "grocery"},
+    {"k": "baby monitor",     "cat": "toys"},
+    {"k": "remote control car","cat": "toys"},
+    # Electronics — extra
+    {"k": "realme phone",        "cat": "electronics"},
+    {"k": "honor phone",         "cat": "electronics"},
+    {"k": "infinix phone",       "cat": "electronics"},
+    {"k": "tecno phone",         "cat": "electronics"},
+    {"k": "wireless charger",    "cat": "electronics"},
+    {"k": "smart watch",         "cat": "electronics"},
+    {"k": "bluetooth speaker",   "cat": "electronics"},
+    {"k": "usb hub",             "cat": "electronics"},
+    {"k": "gaming mouse",        "cat": "electronics"},
+    {"k": "gaming headset",      "cat": "electronics"},
+    {"k": "monitor screen",      "cat": "electronics"},
+    {"k": "hard drive external", "cat": "electronics"},
+    {"k": "memory card",         "cat": "electronics"},
+    {"k": "flash drive",         "cat": "electronics"},
+    # Home & kitchen
+    {"k": "electric iron",       "cat": "home"},
+    {"k": "stand fan",           "cat": "home"},
+    {"k": "water heater",        "cat": "home"},
+    {"k": "food processor",      "cat": "home"},
+    {"k": "pressure cooker",     "cat": "home"},
+    {"k": "rice cooker",         "cat": "home"},
+    {"k": "electric grill",      "cat": "home"},
+    {"k": "storage organizer",   "cat": "home"},
+    # Fashion
+    {"k": "watch men",           "cat": "fashion"},
+    {"k": "watch women",         "cat": "fashion"},
+    {"k": "backpack",            "cat": "fashion"},
+    {"k": "leather wallet",      "cat": "fashion"},
+    {"k": "running shoes",       "cat": "fashion"},
+    # Beauty & health
+    {"k": "electric shaver",     "cat": "beauty"},
+    {"k": "hair straightener",   "cat": "beauty"},
+    {"k": "face wash",           "cat": "beauty"},
+    {"k": "sunscreen spf",       "cat": "beauty"},
+    # Sports
+    {"k": "resistance bands",    "cat": "sports"},
+    {"k": "dumbbells set",       "cat": "sports"},
+    {"k": "bicycle",             "cat": "sports"},
+    # Baby & toys
+    {"k": "baby monitor",        "cat": "toys"},
+    {"k": "remote control car",  "cat": "toys"},
+    # Grocery
+    {"k": "olive oil",           "cat": "grocery"},
+    {"k": "nuts mixed",          "cat": "grocery"},
 ]
 
 
@@ -1205,148 +1288,262 @@ def _scrape_amazon_deals_page(
     country_code="eg",
 ):
     """Scrape Amazon discount-sorted search page (SSR, works without JS). Returns deal count."""
-    # Amazon's discount-filtered search is server-side rendered — no React hydration needed.
+    # v8 FIX: /gp/goldbox returns keyboard shortcuts page. Use discount-rank search URL.
     # Filters: 40%+ off, sorted by discount rank. Works on EG, AE, SA.
-    deals_url = (
-        f"https://www.{base_domain}/s?"
-        f"rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_AE"
-    )
     print(f"\n[AMAZON/{country_code.upper()}] Scraping deals page...")
     total = 0
+    seen_asins_deals: set = set()
 
-    for page_num in range(1, 4):  # pages 1–3
+    # v8: Multiple URL patterns to try — goldbox is broken, discount-rank works
+    DEALS_URL_PATTERNS = [
+        f"https://www.{base_domain}/s?rh=p_n_pct-off-with-tax%3A40-&s=discount-rank&language=en_US",
+        f"https://www.{base_domain}/gp/goldbox?language=en_US&ref_=nav_cs_gb",
+        f"https://www.{base_domain}/deals?language=en_US",
+    ]
+
+    resp = None
+    url = None
+    for url in DEALS_URL_PATTERNS:
         try:
-            url = deals_url if page_num == 1 else f"{deals_url}&page={page_num}"
-            resp = fetch_with_scrapedo(url, render_js=False, country=country_code)
-            if not resp or is_blocked_response(resp, min_length=5000):
-                resp = fetch_with_scraperapi(url, render_js=False, country=country_code)
-            if is_blocked_response(resp, min_length=5000):
-                print(f"  Deals page {page_num}: blocked/empty (HTTP {resp.status_code if resp else 'no response'}) — skipping")
-                _log_scraper_error(f"amazon_{country_code}", url, "Blocked/CAPTCHA response on deals page")
+            print(f"  Trying deals URL: {url[:60]}...")
+            resp = fetch_with_scrapedo(url, render_js=True, country=country_code, super_proxy=True)
+            if resp and not is_blocked_response(resp, min_length=5000):
+                print(f"  Deals page loaded via scrape.do ({len(resp.content)} bytes)")
                 break
-
-            soup = BeautifulSoup(resp.content, "lxml")
-            # Amazon deals page uses several different card structures depending on locale/year.
-            # Try each selector in order, use the first that yields results.
-            products = (
-                [p for p in soup.find_all("div", attrs={"data-asin": True}) if p.get("data-asin", "").strip()] or
-                soup.find_all("div", attrs={"data-component-type": "s-search-result"}) or
-                soup.find_all("div", attrs={"data-testid": "deal-card"}) or
-                soup.find_all("li", class_=re.compile(r"GridItem|deal-card|s-result-item", re.I)) or
-                soup.find_all("div", class_=re.compile(r"DealCard|deal-card|dealCard", re.I))
-            )
-            if not products:
-                # Log a snippet to help diagnose selector issues
-                body_text = soup.get_text(" ", strip=True)[:200]
-                print(f"  Deals page {page_num}: 0 products — selectors exhausted. Page preview: {body_text!r}")
-                _log_scraper_error(f"amazon_{country_code}", url, "0 products parsed — all selectors failed")
+            print(f"  scrape.do failed, trying ScraperAPI...")
+            resp = fetch_with_scraperapi(url, render_js=True, country=country_code,
+                                         _skip_scrapedo=True, premium=True)
+            if resp and not is_blocked_response(resp, min_length=5000):
+                print(f"  Deals page loaded via ScraperAPI ({len(resp.content)} bytes)")
                 break
-
-            print(f"  Deals page {page_num}: {len(products)} product divs")
-
-            for product in products:
-                try:
-                    asin = product.get("data-asin", "").strip()
-                    if not asin:
-                        continue
-                    if product.get("data-component-type") == "sp-sponsored-result":
-                        continue
-
-                    title_el = (
-                        product.find("h2") or
-                        product.find("span", class_="a-size-medium") or
-                        product.find("span", class_="a-size-base-plus")
-                    )
-                    if not title_el:
-                        continue
-                    title = title_el.get_text(strip=True)
-                    if not title or len(title.split()) < 3:
-                        continue
-
-                    price_el = product.find("span", class_="a-price-whole")
-                    if not price_el:
-                        continue
-                    current_price = clean_price(price_el.get_text(strip=True))
-                    if current_price < 1:
-                        continue
-
-                    original_price = current_price
-                    orig_block = product.find("span", class_="a-price a-text-price")
-                    if orig_block:
-                        orig_el = orig_block.find("span", class_="a-offscreen")
-                        if orig_el:
-                            original_price = clean_price(orig_el.get_text(strip=True)) or current_price
-
-                    # Try to get discount from badge first (most reliable on deals page)
-                    discount = calculate_discount(original_price, current_price)
-                    badge_el = product.find("span", class_="a-badge-text")
-                    if badge_el:
-                        badge_text = badge_el.get_text(strip=True)
-                        nums = re.findall(r'\d+', badge_text)
-                        if nums and int(nums[0]) >= MIN_DISCOUNT:
-                            discount = int(nums[0])
-                            if original_price <= current_price:
-                                original_price = round(current_price / (1 - discount / 100))
-
-                    if discount < MIN_DISCOUNT:
-                        continue
-
-                    img_el    = product.find("img", class_="s-image")
-                    image_url = img_el.get("src", "") if img_el else ""
-
-                    rating = 0.0
-                    rating_el = product.find("span", class_="a-icon-alt")
-                    if rating_el:
-                        try:
-                            rating = float(rating_el.get_text(strip=True).split(" ")[0])
-                        except Exception:
-                            pass
-
-                    product_url = f"https://www.{base_domain}/dp/{asin}?language=en_AE"
-                    cat = detect_category(title)
-
-                    print(f"    [{discount}%] {title[:40]}...")
-                    kb = check_price_history(
-                        asin=asin,
-                        product_url=product_url,
-                        current_price=current_price,
-                        original_price=original_price,
-                        title=title,
-                        site=marketplace_country,
-                    )
-                    time.sleep(1)
-
-                    deal = build_deal(
-                        title=title,
-                        site=marketplace_country,
-                        site_display=site_display,
-                        category=cat,
-                        current_price=current_price,
-                        original_price=original_price,
-                        discount=discount,
-                        image_url=image_url,
-                        product_url=product_url,
-                        rating=rating,
-                        review_count=None,
-                        asin=asin,
-                        kanbkam_result=kb,
-                        currency=currency,
-                    )
-                    save_deal(deal)
-                    total += 1
-                    time.sleep(0.5)
-
-                except Exception:
-                    continue
-
-            time.sleep(3)
-
+            print(f"  Trying direct fetch...")
+            resp = fetch_direct(url)
+            if resp and not is_blocked_response(resp, min_length=5000):
+                print(f"  Deals page loaded via direct ({len(resp.content)} bytes)")
+                break
+            print(f"  URL failed: {url[:60]}")
+            resp = None
         except Exception as e:
-            print(f"  Amazon/{country_code} deals page error (page {page_num}): {e}")
-            break
+            print(f"  URL error {url[:60]}: {e}")
+            resp = None
+
+    if not resp or is_blocked_response(resp, min_length=5000):
+        print(f"  All deals page URLs failed — skipping deals page")
+        _log_scraper_error(f"amazon_{country_code}", str(DEALS_URL_PATTERNS[0]), "All deals page URLs failed")
+        return 0, seen_asins_deals
+
+    soup = BeautifulSoup(resp.content, "lxml")
+    html_text = soup.get_text(" ", strip=True)
+    html_raw = str(soup)
+
+    # v8.1: Aggressive multi-strategy product extraction
+    debug_counts = {}
+
+    # Strategy 1: Any element with data-asin (div, span, a, etc.)
+    _all_asin = [p for p in soup.find_all(attrs={"data-asin": True})
+                 if p.get("data-asin", "").strip() and len(p.get("data-asin", "").strip()) == 10]
+    debug_counts["data-asin"] = len(_all_asin)
+
+    # Strategy 2: s-result-item containers
+    _s_result = soup.find_all("div", class_=re.compile(r"s-result-item", re.I))
+    debug_counts["s-result"] = len(_s_result)
+
+    # Strategy 3: s-card-container / sg-col-inner
+    _s_card = soup.find_all("div", class_=re.compile(r"s-card-container|sg-col-inner", re.I))
+    debug_counts["s-card/sg-col"] = len(_s_card)
+
+    # Strategy 4: component type
+    _comp_type = soup.find_all(attrs={"data-component-type": "s-search-result"})
+    debug_counts["comp-type"] = len(_comp_type)
+
+    # Strategy 5: widget containers
+    _widgets = soup.find_all("div", class_=re.compile(r"s-widget-container", re.I))
+    debug_counts["widgets"] = len(_widgets)
+
+    # Strategy 6: /dp/ product links
+    _dp_links = soup.find_all("a", href=re.compile(r"/dp/[A-Z0-9]{10}", re.I))
+    debug_counts["dp-links"] = len(_dp_links)
+
+    # Strategy 7: ASINs in raw HTML
+    _html_asins = set(re.findall(r"/dp/([A-Z0-9]{10})", html_raw, re.I))
+    debug_counts["html-asins"] = len(_html_asins)
+
+    # Strategy 8: deal cards
+    _deal_cards = (
+        soup.find_all("div", attrs={"data-testid": "deal-card"}) or
+        soup.find_all("div", class_=re.compile(r"DealCard|deal-card", re.I))
+    )
+    debug_counts["deal-cards"] = len(_deal_cards)
+
+    print(f"  Selector debug: {debug_counts}")
+
+    # Pick best product list
+    products = (
+        [p for p in _all_asin if p.get("data-component-type") == "s-search-result"] or
+        _comp_type or
+        [p for p in _all_asin if p.find("h2")] or
+        _s_result or _s_card or _widgets or _all_asin or _deal_cards
+    )
+
+    # Fallback 1: /dp/ links
+    if not products and _dp_links:
+        print(f"  Using /dp/ link extraction: {len(_dp_links)} links")
+        asin_map = {}
+        for link in _dp_links:
+            href = link.get("href", "")
+            m = re.search(r"/dp/([A-Z0-9]{10})", href, re.I)
+            if m:
+                asin = m.group(1).upper()
+                if asin not in asin_map:
+                    asin_map[asin] = link
+        if asin_map:
+            products = list(asin_map.values())
+            print(f"  Extracted {len(products)} unique ASINs")
+
+    # Fallback 2: raw HTML ASINs
+    if not products and _html_asins:
+        print(f"  Using raw HTML ASIN extraction: {len(_html_asins)} ASINs")
+        for asin in _html_asins:
+            stub = soup.new_tag("div")
+            stub.attrs["data-asin"] = asin
+            products.append(stub)
+
+    if not products:
+        print(f"  Deals page: 0 products. Preview: {html_text[:200]!r}")
+        _log_scraper_error(f"amazon_{country_code}", url, "0 products — all selectors failed")
+        return 0, seen_asins_deals
+
+    print(f"  Deals page: {len(products)} product divs")
+
+    for product in products:
+        try:
+            # v8: Handle both div[data-asin] and a[href*=/dp/] elements
+            asin = product.get("data-asin", "").strip()
+            if not asin and product.name == "a":
+                href = product.get("href", "")
+                m = re.search(r"/dp/([A-Z0-9]{10})", href, re.I)
+                if m:
+                    asin = m.group(1).upper()
+            if not asin:
+                continue
+            if asin in seen_asins_deals:
+                continue
+            if product.get("data-component-type") == "sp-sponsored-result":
+                continue
+
+            # v8: Handle both div containers and <a> link elements
+            if product.name == "a":
+                title = product.get_text(strip=True) or product.get("title", "")
+                if not title:
+                    # Try to find title in parent container
+                    parent = product.find_parent("div")
+                    if parent:
+                        title_el = (
+                            parent.find("h2") or
+                            parent.find("span", class_="a-size-medium") or
+                            parent.find("span", class_="a-size-base-plus")
+                        )
+                        if title_el:
+                            title = title_el.get_text(strip=True)
+            else:
+                title_el = (
+                    product.find("h2") or
+                    product.find("span", class_="a-size-medium") or
+                    product.find("span", class_="a-size-base-plus")
+                )
+                title = title_el.get_text(strip=True) if title_el else ""
+            if not title or len(title.split()) < 3:
+                continue
+
+            # v8: For <a> link products, search in parent container for prices
+            search_root = product
+            if product.name == "a":
+                for _ in range(3):
+                    search_root = search_root.find_parent("div")
+                    if not search_root:
+                        break
+                    if search_root.find("span", class_="a-price-whole"):
+                        break
+
+            price_el = search_root.find("span", class_="a-price-whole")
+            if not price_el:
+                continue
+            current_price = clean_price(price_el.get_text(strip=True))
+            if current_price < 1:
+                continue
+
+            original_price = current_price
+            orig_block = search_root.find("span", class_="a-price a-text-price")
+            if orig_block:
+                orig_el = orig_block.find("span", class_="a-offscreen")
+                if orig_el:
+                    original_price = clean_price(orig_el.get_text(strip=True)) or current_price
+
+            discount = calculate_discount(original_price, current_price)
+            badge_el = search_root.find("span", class_="a-badge-text")
+            if badge_el:
+                badge_text = badge_el.get_text(strip=True)
+                nums = re.findall(r'\d+', badge_text)
+                if nums and int(nums[0]) >= MIN_DISCOUNT:
+                    discount = int(nums[0])
+                    if original_price <= current_price:
+                        original_price = round(current_price / (1 - discount / 100))
+
+            if discount < MIN_DISCOUNT:
+                continue
+
+            img_el = search_root.find("img", class_="s-image")
+            image_url = img_el.get("src", "") if img_el else ""
+
+            rating = 0.0
+            rating_el = search_root.find("span", class_="a-icon-alt")
+            if rating_el:
+                try:
+                    rating = float(rating_el.get_text(strip=True).split(" ")[0])
+                except Exception:
+                    pass
+
+            product_url = f"https://www.{base_domain}/dp/{asin}?language=en_US"
+            cat = detect_category(title)
+
+            print(f"    [{discount}%] {title[:40]}...")
+            kb = _get_fraud_verdict(
+                source=marketplace_country, asin=asin,
+                current_price=current_price, original_price=original_price,
+                title=title, product_url=product_url, site=marketplace_country,
+            )
+            time.sleep(1)
+
+            deal = build_deal(
+                title=title,
+                site=marketplace_country,
+                site_display=site_display,
+                category=cat,
+                current_price=current_price,
+                original_price=original_price,
+                discount=discount,
+                image_url=image_url,
+                product_url=product_url,
+                rating=rating,
+                review_count=None,
+                asin=asin,
+                kanbkam_result=kb,
+                currency=currency,
+            )
+            save_deal(deal)
+            PriceHistoryAPI.request_tracking(
+                source=marketplace_country, asin=asin, title=title,
+                url=product_url, category=cat or "general",
+            )
+            seen_asins_deals.add(asin)
+            total += 1
+            time.sleep(0.5)
+
+        except Exception:
+            continue
 
     print(f"[AMAZON/{country_code.upper()}] Deals page done. {total} deals.")
-    return total
+    return total, seen_asins_deals
 
 
 def _scrape_amazon_region(
@@ -1355,16 +1552,18 @@ def _scrape_amazon_region(
     site_display="Amazon Egypt",
     currency="EGP",
     country_code="eg",
+    skip_asins: set = None,
+    force_api_scan: bool = False,
 ):
     """Scrape any Amazon regional store. Called by the three wrappers below."""
     print(f"\n[AMAZON/{country_code.upper()}] Starting — {site_display}...")
     total = 0
 
-    if not AMAZON_KEYWORD_ENABLED:
+    if not AMAZON_KEYWORD_ENABLED and not force_api_scan:
         print(f"  [AMAZON/{country_code.upper()}] keyword scan disabled (AMAZON_KEYWORD_ENABLED=false)")
         return 0
 
-    seen_asins: set = set()  # deduplicate across all keywords (avoids 20+ adidas variants)
+    seen_asins: set = set(skip_asins or [])  # pre-seed with deals-page ASINs to skip duplicates
 
     for item in AMAZON_KEYWORDS:
         try:
@@ -1376,7 +1575,7 @@ def _scrape_amazon_region(
             if api_products:
                 saved_this_keyword = 0
                 for p in api_products:
-                    if saved_this_keyword >= 6:
+                    if saved_this_keyword >= 10:
                         break
                     asin  = (p.get("asin") or "").strip()
                     title = (p.get("title") or "").strip()
@@ -1409,12 +1608,14 @@ def _scrape_amazon_region(
                     rating = float(pdp.get("rating") or 0)
                     rc     = int(pdp.get("total_ratings") or 0)
                     cat    = detect_category(title) or item["cat"]
-                    product_url = f"https://www.{base_domain}/dp/{asin}?language=en_AE"
+                    product_url = f"https://www.{base_domain}/dp/{asin}?language=en_US"
 
                     print(f"    [amz-api✓] {title[:40]} | {discount}% off")
-                    kb = check_price_history(asin=asin, product_url=product_url,
-                                             current_price=cp, original_price=op,
-                                             title=title, site=marketplace_country)
+                    kb = _get_fraud_verdict(
+                        source=marketplace_country, asin=asin,
+                        current_price=cp, original_price=op,
+                        title=title, product_url=product_url, site=marketplace_country,
+                    )
                     deal = build_deal(title=title, site=marketplace_country,
                                       site_display=site_display, category=cat,
                                       current_price=cp, original_price=op,
@@ -1423,6 +1624,10 @@ def _scrape_amazon_region(
                                       review_count=rc, asin=asin,
                                       kanbkam_result=kb, currency=currency)
                     save_deal(deal)
+                    PriceHistoryAPI.request_tracking(
+                        source=marketplace_country, asin=asin, title=title,
+                        url=product_url, category=cat or "general",
+                    )
                     total += 1
                     saved_this_keyword += 1
                     time.sleep(1)
@@ -1431,7 +1636,7 @@ def _scrape_amazon_region(
                 continue  # structured API succeeded — skip HTML fallback
 
             # ── Strategy B: HTML keyword search (fallback) ─────────────────
-            url = f"https://www.{base_domain}/s?k={item['k'].replace(' ', '+')}&language=en_AE"
+            url = f"https://www.{base_domain}/s?k={item['k'].replace(' ', '+')}&language=en_US"
             resp = fetch_with_scrapedo(url, render_js=True, country=country_code)
             if not resp or is_blocked_response(resp, min_length=5000):
                 resp = fetch_with_scraperapi(url, render_js=True, country=country_code)
@@ -1450,7 +1655,7 @@ def _scrape_amazon_region(
 
             for product in products:
                 try:
-                    if saved_this_keyword >= 6:
+                    if saved_this_keyword >= 10:
                         break  # cap at 6 deals per keyword to avoid 20+ adidas variants
                     asin = product.get("data-asin", "").strip()
                     if not asin:
@@ -1522,7 +1727,7 @@ def _scrape_amazon_region(
                             except Exception:
                                 pass
 
-                    product_url = f"https://www.{base_domain}/dp/{asin}?language=en_AE"
+                    product_url = f"https://www.{base_domain}/dp/{asin}?language=en_US"
                     cat = detect_category(title)
                     if cat == "general":
                         cat = item["cat"]
@@ -1532,13 +1737,10 @@ def _scrape_amazon_region(
                         continue
 
                     print(f"    Checking: {title[:35]}...")
-                    kb = check_price_history(
-                        asin=asin,
-                        product_url=product_url,
-                        current_price=current_price,
-                        original_price=original_price,
-                        title=title,
-                        site=marketplace_country,
+                    kb = _get_fraud_verdict(
+                        source=marketplace_country, asin=asin,
+                        current_price=current_price, original_price=original_price,
+                        title=title, product_url=product_url, site=marketplace_country,
                     )
                     time.sleep(1)
 
@@ -1560,6 +1762,10 @@ def _scrape_amazon_region(
                     )
                     seen_asins.add(asin)
                     save_deal(deal)
+                    PriceHistoryAPI.request_tracking(
+                        source=marketplace_country, asin=asin, title=title,
+                        url=product_url, category=cat or "general",
+                    )
                     total += 1
                     saved_this_keyword += 1
                     time.sleep(0.5)
@@ -1577,26 +1783,1019 @@ def _scrape_amazon_region(
     return total
 
 
+
+#
+# ENGINE #1: DISCOVERY — Find new discounted ASINs
+# ENGINE #2: TRACKING — Monitor prices on known ASINs
+#
+# HTML-based adaptation (geocode=EG returns HTTP 400 from scrape.do structured API)
+#
+
+import requests
+import time
+import random
+import re
+import os
+from datetime import datetime, timezone
+
+# ─── CONFIGURATION ───
+ENGINE1_DISCOVERY_ENABLED = os.getenv("ENGINE1_DISCOVERY_ENABLED", "false").lower() == "true"
+ENGINE2_TRACKING_ENABLED  = os.getenv("ENGINE2_TRACKING_ENABLED", "true").lower() == "true"
+ENGINE1_INTERVAL_HOURS    = int(os.getenv("ENGINE1_INTERVAL_HOURS", 4))  # Run every N hours
+
+# v10.1: Expanded categories for broader ASIN discovery
+_DISCOVERY_CATEGORIES = [
+    {"name": "Electronics",     "url": "https://www.amazon.eg/s?k=electronics&pct-off=40-&language=en_US"},
+    {"name": "Smartphones",     "url": "https://www.amazon.eg/s?k=smartphone&pct-off=40-&language=en_US"},
+    {"name": "Laptops",         "url": "https://www.amazon.eg/s?k=laptop&pct-off=40-&language=en_US"},
+    {"name": "Headphones",      "url": "https://www.amazon.eg/s?k=headphones&pct-off=40-&language=en_US"},
+    {"name": "TVs",             "url": "https://www.amazon.eg/s?k=television&pct-off=40-&language=en_US"},
+    {"name": "Gaming",          "url": "https://www.amazon.eg/s?k=gaming&pct-off=40-&language=en_US"},
+    {"name": "Home & Kitchen",  "url": "https://www.amazon.eg/s?k=home+kitchen&pct-off=40-&language=en_US"},
+    {"name": "Beauty",          "url": "https://www.amazon.eg/s?k=beauty&pct-off=40-&language=en_US"},
+    # v10.1: Added 4 new categories
+    {"name": "Watches",         "url": "https://www.amazon.eg/s?k=watch&pct-off=40-&language=en_US"},
+    {"name": "Tablets",         "url": "https://www.amazon.eg/s?k=tablet&pct-off=40-&language=en_US"},
+    {"name": "Cameras",         "url": "https://www.amazon.eg/s?k=camera&pct-off=40-&language=en_US"},
+    {"name": "Sports",          "url": "https://www.amazon.eg/s?k=sports&pct-off=40-&language=en_US"},
+]
+
+# Bestseller pages
+_BESTSELLER_PAGES = [
+    {"name": "Electronics",     "url": "https://www.amazon.eg/gp/bestsellers/electronics?language=en_US"},
+    {"name": "Fashion",         "url": "https://www.amazon.eg/gp/bestsellers/fashion?language=en_US"},
+    {"name": "Beauty",          "url": "https://www.amazon.eg/gp/bestsellers/beauty?language=en_US"},
+    {"name": "Home",            "url": "https://www.amazon.eg/gp/bestsellers/home?language=en_US"},
+    {"name": "Automotive",      "url": "https://www.amazon.eg/gp/bestsellers/automotive?language=en_US"},
+]
+
+# Anti-block state
+_amazon_block_until = 0       # Timestamp to resume after block
+_amazon_fail_count  = 0       # Failed requests this cycle
+_amazon_total_count = 0       # Total requests this cycle
+_amazon_paused      = False   # Circuit breaker
+
+# Credit counter
+_credit_stats = {"scrape_do": 0, "scraperapi": 0, "direct": 0}
+
+
+def _should_run_discovery():
+    """Check if discovery should run based on interval (default: every 4h)."""
+    if not ENGINE1_DISCOVERY_ENABLED:
+        return False
+    try:
+        doc = db.collection("scraper_state").document("engine1_last_run").get()
+        if doc.exists:
+            last_run = doc.to_dict().get("timestamp")
+            if last_run:
+                last = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
+                hours_since = (datetime.now(timezone.utc) - last).total_seconds() / 3600
+                print(f"[AMAZON-DISCOVERY] Last discovery run: {hours_since:.1f}h ago (interval: {ENGINE1_INTERVAL_HOURS}h)")
+                return hours_since >= ENGINE1_INTERVAL_HOURS
+        print("[AMAZON-DISCOVERY] No previous run — starting fresh")
+        return True
+    except Exception as e:
+        print(f"[AMAZON-ERROR] Engine1 schedule check failed: {e}")
+        return True
+
+
+def _extract_asins_from_html(html_text, html_raw):
+    """Extract ASINs from Amazon HTML using multiple strategies."""
+    asins = set()
+
+    # Strategy 1: /dp/ASIN links
+    dp_matches = re.findall(r'/dp/([A-Z0-9]{10})', html_raw, re.I)
+    asins.update(m.upper() for m in dp_matches)
+
+    # Strategy 2: data-asin attributes
+    asin_matches = re.findall(r'data-asin="([A-Z0-9]{10})"', html_raw, re.I)
+    asins.update(m.upper() for m in asin_matches)
+
+    # Strategy 3: ASIN in URL parameters
+    param_matches = re.findall(r'[?&]asin=([A-Z0-9]{10})', html_raw, re.I)
+    asins.update(m.upper() for m in param_matches)
+
+    # Strategy 4: /gp/product/ASIN
+    gp_matches = re.findall(r'/gp/product/([A-Z0-9]{10})', html_raw, re.I)
+    asins.update(m.upper() for m in gp_matches)
+
+    # v10.1 Strategy 5: ASIN in search result cards (data-asin in s-search-result)
+    # Amazon search pages use div[data-component-type="s-search-result"] with data-asin
+    card_matches = re.findall(r'<div[^>]*data-component-type="s-search-result"[^>]*data-asin="([A-Z0-9]{10})"', html_raw, re.I)
+    asins.update(m.upper() for m in card_matches)
+
+    # v10.1 Strategy 6: Generic ASIN pattern (10-char alphanumeric after "ASIN" keyword)
+    asin_text_matches = re.findall(r'[\"\s]ASIN[\"\s]*[:=]?\s*["\']?([A-Z0-9]{10})["\']?', html_raw, re.I)
+    asins.update(m.upper() for m in asin_text_matches)
+
+    return asins
+
+
+def _save_tracked_asins(new_asins, source="discovery"):
+    """Save ASINs to Firestore tracking collection."""
+    added = 0
+    for asin in new_asins:
+        try:
+            ref = db.collection("asin_tracking").document(asin)
+            doc = ref.get()
+            if not doc.exists:
+                ref.set({
+                    "asin": asin,
+                    "source": source,
+                    "discovered_at": datetime.now(timezone.utc).isoformat(),
+                    "last_checked": None,
+                    "check_count": 0,
+                    "enabled": True,
+                })
+                added += 1
+        except Exception as e:
+            print(f"[AMAZON-ERROR] Failed to save ASIN {asin}: {e}")
+    return added
+
+
+def _get_tracked_asins(limit=50):
+    """Get ASINs to track from Firestore."""
+    try:
+        # Single-field query (auto-indexed) — filter/sort in Python
+        docs = (
+            db.collection("asin_tracking")
+            .where("enabled", "==", True)
+            .limit(limit * 2)  # Get extra to account for filtering
+            .stream()
+        )
+        asins = []
+        for doc in docs:
+            d = doc.to_dict()
+            asins.append({
+                "asin": d.get("asin"),
+                "doc_id": doc.id,
+                "last_checked": d.get("last_checked") or "",
+            })
+        # Sort by last_checked in Python (None first = never checked)
+        asins.sort(key=lambda x: x["last_checked"] or "0")
+        return asins[:limit]
+    except Exception as e:
+        print(f"[AMAZON-ERROR] Failed to get tracked ASINs: {e}")
+        return []
+
+
+def _update_asin_checked(asin):
+    """Update last_checked timestamp for an ASIN."""
+    try:
+        ref = db.collection("asin_tracking").document(asin)
+        doc = ref.get()
+        if doc.exists:
+            d = doc.to_dict()
+            ref.update({
+                "last_checked": datetime.now(timezone.utc).isoformat(),
+                "check_count": d.get("check_count", 0) + 1,
+            })
+    except Exception as e:
+        print(f"[AMAZON-ERROR] Failed to update ASIN {asin}: {e}")
+
+
+def _check_anti_block():
+    """Check if we should pause due to anti-block rules."""
+    global _amazon_paused, _amazon_fail_count, _amazon_total_count
+
+    now = time.time()
+
+    # Resume after pause
+    if _amazon_paused and now >= _amazon_block_until:
+        print("[AMAZON-BLOCK] Pause complete — resuming Amazon requests")
+        _amazon_paused = False
+        _amazon_fail_count = 0
+        _amazon_total_count = 0
+        return True
+
+    if _amazon_paused:
+        remaining = int(_amazon_block_until - now)
+        print(f"[AMAZON-BLOCK] Amazon paused — {remaining}s remaining")
+        return False
+
+    # Circuit breaker: >50% failure rate
+    if _amazon_total_count > 0:
+        fail_rate = _amazon_fail_count / _amazon_total_count
+        if fail_rate > 0.5 and _amazon_total_count >= 5:
+            _amazon_paused = True
+            _amazon_block_until = now + 900  # 15 minutes
+            print(f"[AMAZON-BLOCK] Critical failure rate: {fail_rate:.0%} — pausing 15min")
+            return False
+
+    return True
+
+
+def _record_request(success=True):
+    """Record request result for anti-block monitoring."""
+    global _amazon_fail_count, _amazon_total_count
+    _amazon_total_count += 1
+    if not success:
+        _amazon_fail_count += 1
+
+
+def _random_delay(min_sec=2, max_sec=8):
+    """Random delay between requests."""
+    delay = random.uniform(min_sec, max_sec)
+    time.sleep(delay)
+    return delay
+
+
+def _fetch_amazon_html(url, render_js=False):
+    """Fetch Amazon page with full proxy cascade. Logs credits used."""
+    global _scrapedo_dead, _SCRAPERAPI_EXHAUSTED
+
+    # Try 1: scrape.do
+    if SCRAPEDO_TOKEN and not _scrapedo_dead:
+        try:
+            api_url = f"https://api.scrape.do/?token={SCRAPEDO_TOKEN}&url={url}"
+            if render_js:
+                api_url += "&render=true"
+            api_url += "&super=true"  # Always residential
+
+            resp = requests.get(api_url, timeout=45)
+            _credit_stats["scrape_do"] += 1
+            print(f"[AMAZON-CREDIT] scrape.do +1 (total: {_credit_stats['scrape_do']})")
+
+            if resp.status_code == 200 and len(resp.text) > 5000:
+                _record_request(success=True)
+                return resp.text
+            elif resp.status_code in (401, 403):
+                _scrapedo_dead = True
+                print(f"[AMAZON-BLOCK] scrape.do auth failed — marking dead")
+            elif resp.status_code == 503:
+                _record_request(success=False)
+                print(f"[AMAZON-BLOCK] scrape.do 503 — possible CAPTCHA")
+            else:
+                _record_request(success=False)
+        except Exception as e:
+            _record_request(success=False)
+            print(f"[AMAZON-ERROR] scrape.do fetch failed: {e}")
+
+    # Try 2: ScraperAPI
+    if SCRAPER_API_KEY and not _SCRAPERAPI_EXHAUSTED:
+        try:
+            api_url = f"http://api.scraperapi.com?api_key={SCRAPER_API_KEY}&url={url}&country_code=eg"
+            if render_js:
+                api_url += "&render=true"
+
+            resp = requests.get(api_url, timeout=45)
+            _credit_stats["scraperapi"] += 1
+            print(f"[AMAZON-CREDIT] ScraperAPI +1 (total: {_credit_stats['scraperapi']})")
+
+            if resp.status_code == 200 and len(resp.text) > 5000:
+                _record_request(success=True)
+                return resp.text
+            elif resp.status_code == 503:
+                _record_request(success=False)
+                print(f"[AMAZON-BLOCK] ScraperAPI 503")
+            else:
+                _record_request(success=False)
+        except Exception as e:
+            _record_request(success=False)
+            print(f"[AMAZON-ERROR] ScraperAPI fetch failed: {e}")
+
+    # Try 3: Direct
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.0",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        }
+        resp = requests.get(url, headers=headers, timeout=30)
+        _credit_stats["direct"] += 1
+
+        if resp.status_code == 200 and len(resp.text) > 5000:
+            _record_request(success=True)
+            return resp.text
+        else:
+            _record_request(success=False)
+    except Exception as e:
+        _record_request(success=False)
+        print(f"[AMAZON-ERROR] Direct fetch failed: {e}")
+
+    return None
+
+
+# ═══════════════════════════════════════════════════════════════
+# ENGINE #1: DISCOVERY
+# ═══════════════════════════════════════════════════════════════
+
+def _engine1_discovery():
+    """
+    Engine #1: Discover new discounted ASINs from category pages.
+    v10.1: Added pagination (pages 1-3) and raw HTML extraction fix.
+    """
+    print(f"\n[AMAZON-DISCOVERY] === Engine #1: Discovery Starting ===")
+    print(f"[AMAZON-DISCOVERY] Categories: {len(_DISCOVERY_CATEGORIES)}, Bestsellers: {len(_BESTSELLER_PAGES)}")
+
+    if not _check_anti_block():
+        print("[AMAZON-DISCOVERY] Skipped — anti-block pause active")
+        return 0
+
+    total_new = 0
+    all_asins = set()
+
+    # ─── Category Pages (with pagination) ───
+    for cat in _DISCOVERY_CATEGORIES:
+        try:
+            cat_new = 0
+            for page_num in range(1, 4):  # Pages 1, 2, 3
+                paginated_url = cat["url"] + f"&page={page_num}"
+                print(f"[AMAZON-DISCOVERY] {cat['name']} page {page_num}...")
+                html = _fetch_amazon_html(paginated_url)
+                if not html:
+                    print(f"[AMAZON-DISCOVERY] ✗ Failed {cat['name']} p{page_num}")
+                    break  # Stop pagination on failure
+
+                # v10.1: Pass raw response content for regex extraction
+                raw_html = html if isinstance(html, str) else (html.text if hasattr(html, 'text') else str(html))
+                asins = _extract_asins_from_html(raw_html, raw_html)
+                print(f"[AMAZON-DISCOVERY] {cat['name']} p{page_num}: {len(asins)} ASINs")
+
+                if len(asins) < 3:
+                    break  # Last page or empty — stop paginating
+
+                all_asins.update(asins)
+                added = _save_tracked_asins(asins, source=f"category:{cat['name']}")
+                cat_new += added
+                total_new += added
+
+                _random_delay(2, 4)
+
+            print(f"[AMAZON-DISCOVERY] {cat['name']}: {cat_new} new ASINs saved")
+
+        except Exception as e:
+            print(f"[AMAZON-ERROR] Discovery category {cat['name']}: {e}")
+            continue
+
+    # ─── Bestseller Pages ───
+    for page in _BESTSELLER_PAGES:
+        try:
+            print(f"[AMAZON-DISCOVERY] Scraping bestseller: {page['name']}")
+            html = _fetch_amazon_html(page["url"])
+            if not html:
+                print(f"[AMAZON-DISCOVERY] ✗ Failed to load bestseller {page['name']}")
+                continue
+
+            raw_html = html if isinstance(html, str) else (html.text if hasattr(html, 'text') else str(html))
+            asins = _extract_asins_from_html(raw_html, raw_html)
+            print(f"[AMAZON-DISCOVERY] Bestseller {page['name']}: found {len(asins)} ASINs")
+            all_asins.update(asins)
+
+            added = _save_tracked_asins(asins, source=f"bestseller:{page['name']}")
+            total_new += added
+            print(f"[AMAZON-DISCOVERY] Bestseller {page['name']}: {added} new ASINs saved")
+
+            _random_delay(2, 5)
+
+        except Exception as e:
+            print(f"[AMAZON-ERROR] Discovery bestseller {page['name']}: {e}")
+            continue
+
+    # Record last run time
+    try:
+        db.collection("scraper_state").document("engine1_last_run").set({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "asins_found": len(all_asins),
+            "new_saved": total_new,
+        })
+    except Exception as e:
+        print(f"[AMAZON-ERROR] Failed to record Engine1 run: {e}")
+
+    print(f"[AMAZON-DISCOVERY] === Engine #1 Complete: {total_new} new ASINs saved ===")
+    return total_new
+
+
+# ═══════════════════════════════════════════════════════════════
+# ENGINE #2: TRACKING
+# ═══════════════════════════════════════════════════════════════
+
+def _engine2_tracking(seen_asins=None):
+    """
+    Engine #2: Scrape pct-off search pages to find CURRENTLY discounted products.
+    Extracts deals directly from search results where discounts are confirmed.
+    """
+    print(f"\n[AMAZON-TRACKING] === Engine #2: Tracking Starting ===")
+
+    if seen_asins is None:
+        seen_asins = set()
+
+    if not _check_anti_block():
+        print("[AMAZON-TRACKING] Skipped — anti-block pause active")
+        return 0
+
+    # v10.3: Full category coverage per user spec (23 categories)
+    tracking_categories = [
+        # Electronics & Tech
+        {"name": "Electronics",     "url": "https://www.amazon.eg/s?k=electronics&pct-off=40-&language=en_US"},
+        {"name": "Smartphones",     "url": "https://www.amazon.eg/s?k=smartphone&pct-off=40-&language=en_US"},
+        {"name": "Headphones",      "url": "https://www.amazon.eg/s?k=headphones&pct-off=40-&language=en_US"},
+        {"name": "Laptops",         "url": "https://www.amazon.eg/s?k=laptop&pct-off=40-&language=en_US"},
+        {"name": "TVs",             "url": "https://www.amazon.eg/s?k=television&pct-off=40-&language=en_US"},
+        {"name": "Cameras",         "url": "https://www.amazon.eg/s?k=camera&pct-off=40-&language=en_US"},
+        {"name": "Gaming",          "url": "https://www.amazon.eg/s?k=gaming&pct-off=40-&language=en_US"},
+        # Fashion
+        {"name": "Men's Fashion",   "url": "https://www.amazon.eg/s?k=men+clothing&pct-off=40-&language=en_US"},
+        {"name": "Women's Fashion", "url": "https://www.amazon.eg/s?k=women+clothing&pct-off=40-&language=en_US"},
+        {"name": "Shoes",           "url": "https://www.amazon.eg/s?k=shoes&pct-off=40-&language=en_US"},
+        {"name": "Watches",         "url": "https://www.amazon.eg/s?k=watch&pct-off=40-&language=en_US"},
+        {"name": "Bags",            "url": "https://www.amazon.eg/s?k=bag&pct-off=40-&language=en_US"},
+        # Home & Kitchen
+        {"name": "Home & Kitchen",  "url": "https://www.amazon.eg/s?k=home+kitchen&pct-off=40-&language=en_US"},
+        {"name": "Furniture",       "url": "https://www.amazon.eg/s?k=furniture&pct-off=40-&language=en_US"},
+        # Beauty
+        {"name": "Beauty",          "url": "https://www.amazon.eg/s?k=beauty&pct-off=40-&language=en_US"},
+        {"name": "Skincare",        "url": "https://www.amazon.eg/s?k=skincare&pct-off=40-&language=en_US"},
+        {"name": "Perfume",         "url": "https://www.amazon.eg/s?k=perfume&pct-off=40-&language=en_US"},
+        # Sports & Lifestyle
+        {"name": "Sports",          "url": "https://www.amazon.eg/s?k=sports&pct-off=40-&language=en_US"},
+        {"name": "Baby Products",   "url": "https://www.amazon.eg/s?k=baby&pct-off=40-&language=en_US"},
+        # Food & Grocery
+        {"name": "Grocery",         "url": "https://www.amazon.eg/s?k=grocery&pct-off=40-&language=en_US"},
+        # Other
+        {"name": "Books",           "url": "https://www.amazon.eg/s?k=books&pct-off=40-&language=en_US"},
+        {"name": "Automotive",      "url": "https://www.amazon.eg/s?k=car+accessories&pct-off=40-&language=en_US"},
+        {"name": "Pet Supplies",    "url": "https://www.amazon.eg/s?k=pet+supplies&pct-off=40-&language=en_US"},
+    ]
+
+    deals_found = 0
+    total_checked = 0
+
+    for cat in tracking_categories:
+        try:
+            if not _check_anti_block():
+                break
+
+            print(f"[AMAZON-TRACKING] Checking category: {cat['name']}")
+            html = _fetch_amazon_html(cat["url"])
+            if not html:
+                continue
+
+            products = _extract_products_from_search(html)
+            print(f"[AMAZON-TRACKING] {cat['name']}: {len(products)} products")
+
+            for prod in products:
+                asin = prod.get("asin", "")
+                if not asin or asin in seen_asins:
+                    continue
+
+                cp = prod.get("current_price", 0)
+                op = prod.get("original_price", 0)
+                discount = prod.get("discount", 0)
+                title = prod.get("title", "")
+
+                total_checked += 1
+
+                if discount < MIN_DISCOUNT:
+                    continue
+                if not price_in_range(cp):
+                    continue
+                if not title or len(title.split()) < 3:
+                    continue
+
+                print(f"[AMAZON-TRACKING] {title[:50]}... | EGP {cp:,.0f} (was {op:,.0f}) = {discount}% off")
+
+                # ─── FRAUD CHECK #1: Own DB ───
+                fraud_result = _verify_fraud(asin, cp, op, title)
+                print(f"[AMAZON-FRAUD] ASIN {asin}: {fraud_result}")
+                if fraud_result == "FAKE":
+                    print(f"[AMAZON-FRAUD] BLOCKED FAKE deal — not saving ASIN {asin}")
+                    continue
+
+                # ─── FRAUD VERIFICATION: System 1 (own price history database) ───
+                # v11.0: Replaced Kanbkam/Safqa with System 1 — our own price history database.
+                # System 1 proactively collects price snapshots and detects fake discounts
+                # using real historical data instead of external APIs.
+                cat_name = detect_category(title)
+                product_url = f"https://www.amazon.eg/dp/{asin}?language=en_US"
+
+                # ─── SYSTEM 1: Query verdict from price history database ───
+                sys1_result = PriceHistoryAPI.query_verdict(
+                    source="amazon_eg", asin=asin,
+                    current_price=cp, list_price=op, title=title,
+                )
+
+                # ─── FRAUD CHECK #2: System 1 verdict ───
+                kb_verdict = sys1_result.get("verdict", "UNVERIFIED")
+                if kb_verdict == "FAKE":
+                    print(f"[AMAZON-FRAUD] BLOCKED FAKE deal — System 1 FAKE for ASIN {asin}")
+                    continue
+
+                print(f"[AMAZON-FRAUD] Final verdict: {kb_verdict} — saving deal")
+
+                # v11.0: Use System 1's computed fake_score and recommendation
+                fake_score = sys1_result.get("fake_score", 50.0)
+                trend = sys1_result.get("trend", "stable")
+                recommendation = sys1_result.get("recommendation", "research_first")
+                print(f"  [ANALYTICS] trend={trend} fake_score={fake_score:.1f} recommendation={recommendation}")
+
+                # ─── SAVE DEAL ───
+                # v11.0: Use System 1 result as kanbkam_result for backward compat
+                kb_result = sys1_result.copy()
+                kb_result["verdict"] = kb_verdict
+
+                deal = build_deal(
+                    title=title, site="amazon_eg", site_display="Amazon Egypt",
+                    category=cat_name, current_price=cp, original_price=op,
+                    discount=discount, image_url=prod.get("image_url", ""),
+                    product_url=product_url, rating=prod.get("rating", 0.0),
+                    review_count=None, asin=asin,
+                    kanbkam_result=kb_result,
+                    currency="EGP",
+                )
+                save_deal(deal)
+                seen_asins.add(asin)
+                deals_found += 1
+
+                if fraud_result in ("GENUINE", "SUSPICIOUS"):
+                    print(f"[AMAZON-NOTIFY] Deal saved — ASIN={asin} discount={discount}%")
+                    # v11.0: Tell System 1 to track this product
+                    PriceHistoryAPI.request_tracking(
+                        source="amazon_eg", asin=asin, title=title,
+                        url=f"https://www.amazon.eg/dp/{asin}?language=en_US",
+                        category=cat_name or "general",
+                    )
+
+                _random_delay(2, 5)
+
+            _random_delay(3, 6)
+
+        except Exception as e:
+            print(f"[AMAZON-ERROR] Tracking {cat['name']}: {e}")
+            continue
+
+    print(f"[AMAZON-TRACKING] === Engine #2 Complete: {deals_found} deals ===")
+    return deals_found
+
+
+
+def _extract_product_info(html, asin):
+    """Extract product info from Amazon product page HTML."""
+    info = {
+        "title": "",
+        "current_price": 0.0,
+        "original_price": 0.0,
+        "discount": 0,
+        "image_url": "",
+        "rating": 0.0,
+    }
+
+    try:
+        # Title
+        title_match = re.search(r'<span[^>]*id="productTitle"[^>]*>(.*?)</span>', html, re.S)
+        if title_match:
+            info["title"] = re.sub(r'<[^>]+>', '', title_match.group(1)).strip()
+
+        if not info["title"]:
+            # Try meta title
+            meta_match = re.search(r'<title>(.*?)</title>', html, re.I)
+            if meta_match:
+                info["title"] = meta_match.group(1).replace("Amazon.eg:", "").replace(": Buy Online", "").strip()
+
+        # Price extraction
+        # Current price: a-price-whole or a-offscreen in price block
+        price_patterns = [
+            r'<span[^>]*class="a-price-whole"[^>]*>([\d,]+)',
+            r'<span[^>]*class="a-offscreen"[^>]*>([\d,]+\.?\d*)',
+            r'"price":\s*"([\d,]+\.?\d*)"',
+            r'"priceAmount":\s*([\d.]+)',
+        ]
+        for pat in price_patterns:
+            m = re.search(pat, html, re.I)
+            if m:
+                try:
+                    info["current_price"] = float(m.group(1).replace(",", ""))
+                    break
+                except ValueError:
+                    continue
+
+        # Original price / list price
+        list_patterns = [
+            r'<span[^>]*class="a-price a-text-price"[^>]*>.*?<span[^>]*class="a-offscreen"[^>]*>([\d,]+\.?\d*)',
+            r'"listPrice":\s*"([\d,]+\.?\d*)"',
+            r'"wasPrice":\s*"([\d,]+\.?\d*)"',
+        ]
+        for pat in list_patterns:
+            m = re.search(pat, html, re.S | re.I)
+            if m:
+                try:
+                    info["original_price"] = float(m.group(1).replace(",", ""))
+                    break
+                except ValueError:
+                    continue
+
+        # If no list price found, use current as original
+        if info["original_price"] <= 0:
+            info["original_price"] = info["current_price"]
+
+        # Calculate discount
+        if info["original_price"] > info["current_price"] > 0:
+            info["discount"] = int(((info["original_price"] - info["current_price"]) / info["original_price"]) * 100)
+
+        # Image
+        img_patterns = [
+            r'"hiRes":"(https://[^"]+images-amazon[^"]*)"',
+            r'"large":"(https://[^"]+images-amazon[^"]*)"',
+            r'id="landingImage"[^>]*src="(https://[^"]+)"',
+        ]
+        for pat in img_patterns:
+            m = re.search(pat, html, re.I)
+            if m:
+                info["image_url"] = m.group(1)
+                break
+
+        # Rating
+        rating_match = re.search(r'"ratingValue":\s*"?([\d.]+)"?', html)
+        if rating_match:
+            try:
+                info["rating"] = float(rating_match.group(1))
+            except ValueError:
+                pass
+
+        # Validate
+        if not info["title"] or info["current_price"] <= 0:
+            return None
+
+        return info
+
+    except Exception as e:
+        print(f"[AMAZON-ERROR] Product info extraction failed for {asin}: {e}")
+        return None
+
+
+def _extract_products_from_search(html):
+    """
+    Extract full product info from Amazon search result page HTML.
+    Returns list of dicts with: asin, title, current_price, original_price,
+    discount, image_url, rating
+    """
+    from bs4 import BeautifulSoup
+    import re
+
+    soup = BeautifulSoup(html, "lxml")
+    products = []
+
+    # Find all product containers using multiple strategies
+    containers = []
+
+    # Strategy 1: div[data-asin] with data-component-type
+    for div in soup.find_all("div", attrs={"data-asin": True}):
+        asin = div.get("data-asin", "").strip()
+        if asin and len(asin) == 10:
+            containers.append(div)
+
+    # Strategy 2: s-result-item
+    if not containers:
+        containers = soup.find_all("div", class_=re.compile(r"s-result-item", re.I))
+
+    # Strategy 3: s-card-container
+    if not containers:
+        containers = soup.find_all("div", class_=re.compile(r"s-card-container", re.I))
+
+    # Strategy 4: widget containers
+    if not containers:
+        containers = soup.find_all("div", class_=re.compile(r"s-widget-container", re.I))
+
+    seen_asins = set()
+    for container in containers:
+        try:
+            # ASIN
+            asin = container.get("data-asin", "").strip()
+            if not asin or len(asin) != 10 or asin in seen_asins:
+                continue
+            seen_asins.add(asin)
+
+            # Skip sponsored
+            if container.get("data-component-type") == "sp-sponsored-result":
+                continue
+
+            # Title
+            title = ""
+            title_el = (
+                container.find("h2") or
+                container.find("span", class_="a-size-medium") or
+                container.find("span", class_="a-size-base-plus") or
+                container.find("a", class_="a-link-normal")
+            )
+            if title_el:
+                title = title_el.get_text(strip=True)
+
+            if not title or len(title.split()) < 3:
+                continue
+
+            # Current price
+            current_price = 0.0
+            price_el = container.find("span", class_="a-price-whole")
+            if price_el:
+                text = price_el.get_text(strip=True).replace(",", "")
+                try:
+                    current_price = float(text)
+                except ValueError:
+                    pass
+
+            if current_price <= 0:
+                # Try a-offscreen in price block
+                price_block = container.find("span", class_=re.compile(r"a-price", re.I))
+                if price_block:
+                    offscreen = price_block.find("span", class_="a-offscreen")
+                    if offscreen:
+                        text = offscreen.get_text(strip=True)
+                        m = re.search(r'[\d,]+\.?\d*', text.replace(",", ""))
+                        if m:
+                            try:
+                                current_price = float(m.group())
+                            except ValueError:
+                                pass
+
+            if current_price <= 0:
+                continue
+
+            # Original price (list price)
+            original_price = current_price
+            list_block = container.find("span", class_="a-price a-text-price")
+            if list_block:
+                list_offscreen = list_block.find("span", class_="a-offscreen")
+                if list_offscreen:
+                    text = list_offscreen.get_text(strip=True)
+                    m = re.search(r'[\d,]+\.?\d*', text.replace(",", ""))
+                    if m:
+                        try:
+                            original_price = float(m.group())
+                        except ValueError:
+                            pass
+
+            # Discount from badge
+            discount = 0
+            badge_el = container.find("span", class_="a-badge-text")
+            if badge_el:
+                badge_text = badge_el.get_text(strip=True)
+                nums = re.findall(r'\d+', badge_text)
+                if nums:
+                    discount = int(nums[0])
+
+            # If no badge discount, calculate from prices
+            if discount == 0 and original_price > current_price > 0:
+                discount = int(((original_price - current_price) / original_price) * 100)
+
+            # Image
+            image_url = ""
+            img_el = container.find("img", class_="s-image")
+            if img_el:
+                image_url = img_el.get("src", "") or img_el.get("data-src", "")
+
+            # Rating
+            rating = 0.0
+            rating_el = container.find("span", class_="a-icon-alt")
+            if rating_el:
+                try:
+                    rating_text = rating_el.get_text(strip=True)
+                    rating = float(rating_text.split(" ")[0])
+                except (ValueError, IndexError):
+                    pass
+
+            products.append({
+                "asin": asin,
+                "title": title,
+                "current_price": current_price,
+                "original_price": original_price if original_price > current_price else current_price,
+                "discount": discount,
+                "image_url": image_url,
+                "rating": rating,
+            })
+
+        except Exception:
+            continue
+
+    return products
+
+
+def _verify_fraud(asin, current_price, original_price, title):
+    """
+    v11.1: Legacy Tier 1 fraud check using old products/{asin}/price_history schema.
+    New code uses _get_fraud_verdict() which calls System 1 (price_history DB) first,
+    with fallback to check_price_history() (Kanbkam/Safqa). Kept for compatibility.
+    Returns: GENUINE, SUSPICIOUS, or FAKE
+    """
+    try:
+        docs = (
+            db.collection("products").document(asin)
+            .collection("price_history")
+            .order_by("timestamp", direction="DESCENDING")
+            .limit(30)
+            .stream()
+        )
+        prices = [d.to_dict().get("price", 0) for d in docs if d.to_dict().get("price", 0) > 0]
+
+        if prices:
+            hist_high = max(prices)
+            hist_low = min(prices)
+
+            if original_price > hist_high * 1.5 and hist_high > 0:
+                print(f"[AMAZON-FRAUD] FAKE — list_price={original_price} vs historical_high={hist_high}")
+                return "FAKE"
+
+            if current_price <= hist_low * 1.05 and hist_low > 0:
+                print(f"[AMAZON-FRAUD] GENUINE — price {current_price} at historical low {hist_low}")
+                return "GENUINE"
+
+            print(f"[AMAZON-FRAUD] SUSPICIOUS — price {current_price} in range [{hist_low}, {hist_high}]")
+            return "SUSPICIOUS"
+
+    except Exception as e:
+        print(f"[AMAZON-FRAUD] Tier 1 failed: {e}")
+
+    return "SUSPICIOUS"
+
+
+def _compute_fake_score(history_result) -> float:
+    """
+    v11.1: Compute fake_score (0.0-100.0) from _get_fraud_verdict() result.
+    Works with both System 1 (own DB) and legacy Kanbkam/Safqa responses.
+    0.0 = likely genuine    50.0 = uncertain    100.0 = likely fake
+    """
+    if not isinstance(history_result, dict):
+        return 50.0
+
+    score = 50.0
+
+    # Kanbkam verdict weight
+    kanbkam = history_result.get("verdict", "UNVERIFIED")
+    if kanbkam == "FAKE":
+        score = 100.0
+    elif kanbkam == "SUSPICIOUS":
+        score = 70.0
+    elif kanbkam == "GENUINE":
+        score = 10.0
+    elif kanbkam == "UNVERIFIED":
+        score = 50.0
+
+    # Safqa result weight
+    safqa = history_result.get("safqa", "")
+    if safqa and safqa != "not found":
+        safqa_price = history_result.get("safqa_price", 0)
+        current_price = history_result.get("current_price", 0)
+        if safqa_price > 0 and current_price > 0:
+            diff = abs(safqa_price - current_price) / current_price
+            if diff > 0.3:  # >30% price mismatch
+                score = max(score, 80.0)
+            else:
+                score = min(score, 20.0)  # Safqa confirms price
+    else:
+        score += 5.0  # No Safqa data = slight uncertainty
+
+    # Trend signal
+    trend = history_result.get("trend", "stable")
+    if trend == "rising":
+        score += 5.0
+    elif trend == "falling":
+        score -= 5.0
+
+    return max(0.0, min(100.0, round(score, 1)))
+
+
+def _get_fraud_verdict(source: str, asin: str, current_price: float, original_price: float, title: str = "", product_url: str = "", site: str = "") -> dict:
+    """
+    v11.1: Unified fraud verdict — System 1 (own DB) first, fallback to Kanbkam/Safqa.
+    All scraper engines call this instead of check_price_history() directly.
+    Returns a dict compatible with build_deal(kanbkam_result=...).
+    """
+    # ── Tier 1: System 1 (our own price history database) ──
+    try:
+        sys1 = PriceHistoryAPI.query_verdict(
+            source=source, asin=asin,
+            current_price=current_price, list_price=original_price, title=title,
+        )
+        verdict = sys1.get("verdict", "UNVERIFIED")
+        confidence = sys1.get("confidence", 0.0)
+
+        # If System 1 has a definitive answer, use it
+        if verdict in ("FAKE", "GENUINE") or confidence >= 0.5:
+            print(f"[FRAUD-VERDICT] System 1: {verdict} (conf={confidence:.2f}) for {source}_{asin}")
+            return sys1
+
+        # System 1 says UNVERIFIED or low confidence — fall through to external check
+        print(f"[FRAUD-VERDICT] System 1: {verdict} (conf={confidence:.2f}) — falling back to Kanbkam/Safqa")
+
+    except Exception as e:
+        print(f"[FRAUD-VERDICT] System 1 error: {e} — falling back")
+        sys1 = {"verdict": "UNVERIFIED", "fake_score": 50.0, "recommendation": "research_first", "confidence": 0.0, "trend": "stable", "reasons": [f"System 1 error: {e}"]}
+
+    # ── Tier 2: External APIs (Kanbkam + Safqa) ──
+    try:
+        ext = check_price_history(
+            asin=asin, product_url=product_url or "",
+            current_price=current_price, original_price=original_price,
+            title=title, site=site or source,
+        )
+        if isinstance(ext, dict) and ext.get("verdict") != "UNVERIFIED":
+            # Merge: keep System 1 structure, use external verdict
+            merged = sys1.copy()
+            merged["verdict"] = ext.get("verdict", "UNVERIFIED")
+            merged["fake_score"] = ext.get("fake_score", sys1.get("fake_score", 50.0))
+            merged["recommendation"] = ext.get("recommendation", sys1.get("recommendation", "research_first"))
+            merged["reasons"] = ext.get("reasons", sys1.get("reasons", [])) + ["Enhanced by external API"]
+            merged["confidence"] = max(sys1.get("confidence", 0.0), 0.4)
+            merged["source_used"] = ext.get("source_used", "kanbkam/safqa")
+            print(f"[FRAUD-VERDICT] External API: {merged['verdict']} for {source}_{asin}")
+            return merged
+    except Exception as e:
+        print(f"[FRAUD-VERDICT] External API error: {e}")
+
+    # Nothing worked — return System 1 UNVERIFIED
+    return sys1
+
+
+def _get_recommendation(fake_score: float) -> str:
+    """
+    v10.0: Convert fake_score (0.0-100.0) to user-facing recommendation.
+    0-25  = buy_now        (confirmed genuine)
+    25-45 = good_deal      (likely OK, limited data)
+    45-65 = research_first (uncertain, check before buying)
+    65-85 = wait           (suspicious discount pattern)
+    85+   = avoid          (likely fake inflated price)
+    """
+    if fake_score < 25.0:
+        return "buy_now"
+    if fake_score < 45.0:
+        return "good_deal"
+    if fake_score < 65.0:
+        return "research_first"
+    if fake_score < 85.0:
+        return "wait"
+    return "avoid"
+
+
+# ═══════════════════════════════════════════════════════════════
+# MAIN ENTRY POINT (replaces old scrape_amazon)
+# ═══════════════════════════════════════════════════════════════
+
 def scrape_amazon():
-    """Amazon Egypt — keyword HTML scraper via scrape.do."""
-    print("\n[AMAZON/EG] Skipping RapidAPI (free plan 403) — going straight to HTML scraper")
-    return _scrape_amazon_region()
+    """
+    Two-Engine Amazon Egypt System:
+    - Engine #1: Discovery (every 4h) — finds new discounted ASINs
+    - Engine #2: Tracking (every cycle) — checks prices on known ASINs
+    - Falls back to deals page if both engines fail
+    """
+    print("\n[AMAZON/EG] === Two-Engine System Starting ===")
+    total_deals = 0
+    seen_asins = set()
+
+    # ─── Engine #1: Discovery ───
+    if ENGINE1_DISCOVERY_ENABLED and _should_run_discovery():
+        new_asins = _engine1_discovery()
+        print(f"[AMAZON-DISCOVERY] {new_asins} new ASINs added to tracking")
+    else:
+        print(f"[AMAZON-DISCOVERY] Skipped (enabled={ENGINE1_DISCOVERY_ENABLED})")
+
+    # ─── Engine #2: Tracking ───
+    if ENGINE2_TRACKING_ENABLED:
+        tracking_deals = _engine2_tracking(seen_asins=seen_asins)
+        total_deals += tracking_deals
+        print(f"[AMAZON-TRACKING] {tracking_deals} deals from tracking")
+    else:
+        print(f"[AMAZON-TRACKING] Skipped (enabled={ENGINE2_TRACKING_ENABLED})")
+
+    # ─── Fallback: Deals page (if engines produced nothing) ───
+    if total_deals == 0:
+        print(f"[AMAZON/EG] Engines produced 0 deals — trying deals page fallback")
+        deals_total, seen = _scrape_amazon_deals_page()
+        if deals_total > 0:
+            print(f"[AMAZON/EG] Deals page fallback: {deals_total} deals")
+            total_deals += deals_total
+            seen_asins.update(seen)
+
+    # ─── Credit Report ───
+    print(f"[AMAZON-CREDIT] Credits used this cycle:")
+    for service, count in _credit_stats.items():
+        if count > 0:
+            print(f"  {service}: {count}")
+
+    print(f"[AMAZON/EG] === Done. {total_deals} total deals ===")
+    return total_deals
 
 def scrape_amazon_ae():
-    """Amazon UAE — keyword HTML scraper via scrape.do."""
-    print("\n[AMAZON/AE] Skipping RapidAPI — going straight to HTML scraper")
-    return _scrape_amazon_region("amazon.ae", "amazon_ae", "Amazon UAE", "AED", "ae")
+    """Amazon UAE — DEAL DISCOVERY SUSPENDED. Price history continues via price_tracker.py."""
+    print("\n[AMAZON/AE] ⏸ Deal discovery SUSPENDED — skipping new deal scrape")
+    print("  Price history collection continues via background re-check")
+    return 0
 
 def scrape_amazon_sa():
-    """Amazon Saudi Arabia — keyword HTML scraper via scrape.do."""
-    print("\n[AMAZON/SA] Skipping RapidAPI — going straight to HTML scraper")
-    return _scrape_amazon_region("amazon.sa", "amazon_sa", "Amazon Saudi Arabia", "SAR", "sa")
+    """Amazon Saudi Arabia — DEAL DISCOVERY SUSPENDED. Price history continues via price_tracker.py."""
+    print("\n[AMAZON/SA] ⏸ Deal discovery SUSPENDED — skipping new deal scrape")
+    print("  Price history collection continues via background re-check")
+    return 0
 
 
 # ─────────────────────────────────────────────────────
 # JUMIA EGYPT — Static HTML
 # ─────────────────────────────────────────────────────
 def scrape_jumia():
+    """Jumia Egypt — 22 categories, static HTML selectors."""
+    return _scrape_jumia()
+
+
+def _scrape_jumia():
+    """Jumia Egypt scraper — 22 categories, static HTML selectors."""
     print("\n[JUMIA] Starting...")
     total = 0
     pages = [
@@ -1608,16 +2807,30 @@ def scrape_jumia():
         ("https://www.jumia.com.eg/sporting-goods/?sort=discountPercent", "sports"),
         ("https://www.jumia.com.eg/beauty-health/?sort=discountPercent", "beauty"),
         ("https://www.jumia.com.eg/baby-products/?sort=discountPercent", "toys"),
+        ("https://www.jumia.com.eg/groceries/", "grocery"),
     ]
 
     for url, default_cat in pages:
         try:
-            # scrape.do plain HTML first (1 credit), fallback to ScraperAPI
-            resp = fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=False)
-            if not resp or is_blocked_response(resp, min_length=3000):
-                resp = fetch_with_scraperapi(url, render_js=False, country="eg")
+            # scrape.do plain HTML first (1 credit)
+            # Try scrape.do with residential proxy (super_proxy=True, 10 credits).
+            # Jumia blocks scrape.do datacenter IPs (causes 502); residential bypasses this.
+            resp = fetch_with_scrapedo(url, render_js=False, country="eg", super_proxy=True)
+            _scrapedo_ok = resp and not is_blocked_response(resp, min_length=3000)
+            print(f"  [JUMIA] scrape.do residential {'OK' if _scrapedo_ok else ('502' if not resp else 'blocked')} for {url[:55]}")
+            if not _scrapedo_ok:
+                print(f"  [JUMIA] scrape.do blocked → ScraperAPI residential fallback")
+                resp = fetch_with_scraperapi(url, render_js=False, country="eg",
+                                             _skip_scrapedo=True, premium=True)
+                _sa_ok = resp and not is_blocked_response(resp, min_length=3000)
+                print(f"  [JUMIA] ScraperAPI {'OK' if _sa_ok else 'FAILED'} for {url[:55]}")
+                if not _sa_ok:
+                    print(f"  [JUMIA] ScraperAPI blocked → direct fetch (server IP)")
+                    resp = fetch_direct(url, mobile=True)
+                    _direct_ok = resp and not is_blocked_response(resp, min_length=1000)
+                    print(f"  [JUMIA] Direct fetch {'OK' if _direct_ok else 'FAILED'} for {url[:55]}")
             if is_blocked_response(resp, min_length=3000):
-                print(f"  [JUMIA] blocked/empty: {url[:55]}...")
+                print(f"  [JUMIA] all methods blocked: {url[:55]}...")
                 _log_scraper_error("jumia_eg", url, "Blocked/empty response")
                 time.sleep(5)
                 continue
@@ -1686,19 +2899,9 @@ def scrape_jumia():
                     if discount < MIN_DISCOUNT:
                         continue
 
-                    # Bug 3 fix: prefer <a class="core"> which wraps the whole
-                    # card on Jumia, rather than the first <a> (may be an image link).
-                    link_el = (
-                        p.find("a", class_="core") or
-                        p.find("a", href=lambda h: h and h.endswith(".html")) or
-                        p.find("a", href=True)
-                    )
+                    link_el = p.find("a", href=True)
                     href = link_el["href"] if link_el else ""
-                    if not href or href in ("/", "#"):
-                        continue
                     product_url = href if href.startswith("http") else "https://www.jumia.com.eg" + href
-                    if not product_url.startswith("https://www.jumia.com.eg/"):
-                        continue
 
                     img_el    = p.find("img")
                     image_url = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
@@ -1723,17 +2926,15 @@ def scrape_jumia():
                         except Exception:
                             pass
 
-                    cat = detect_category(title) or default_cat
+                    cat = detect_category(title)
+                    if cat == "general":
+                        cat = default_cat
 
-                    print(f"  [JUMIA-D] {title[:40]!r} cp={current_price} "
-                          f"op={original_price} disc={discount}% cat={cat}")
-
-                    kb = check_price_history(
-                        product_url=product_url,
-                        current_price=current_price,
-                        original_price=original_price,
-                        title=title,
-                        site="jumia_eg"
+                    asin = product_url.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(product_url.encode()).hexdigest()
+                    kb = _get_fraud_verdict(
+                        source="jumia_eg", asin=asin,
+                        current_price=current_price, original_price=original_price,
+                        title=title, product_url=product_url, site="jumia_eg"
                     )
 
                     deal = build_deal(
@@ -1751,6 +2952,10 @@ def scrape_jumia():
                         kanbkam_result=kb
                     )
                     save_deal(deal)
+                    PriceHistoryAPI.request_tracking(
+                        source="jumia_eg", asin=asin, title=title,
+                        url=product_url, category=cat or "general",
+                    )
                     total += 1
 
                 except Exception:
@@ -1849,16 +3054,15 @@ def scrape_btech():
                     product_url = href if href.startswith("http") else "https://btech.com" + href
 
                     img_el    = p.find("img")
-                    image_url = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+                    image_url = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
 
                     cat = detect_category(title) or default_cat
 
-                    kb = check_price_history(
-                        product_url=product_url,
-                        current_price=current_price,
-                        original_price=original_price,
-                        title=title,
-                        site="btech_eg"
+                    asin = product_url.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(product_url.encode()).hexdigest()
+                    kb = _get_fraud_verdict(
+                        source="btech_eg", asin=asin,
+                        current_price=current_price, original_price=original_price,
+                        title=title, product_url=product_url, site="btech_eg"
                     )
 
                     deal = build_deal(
@@ -1874,6 +3078,10 @@ def scrape_btech():
                         kanbkam_result=kb
                     )
                     save_deal(deal)
+                    PriceHistoryAPI.request_tracking(
+                        source="btech_eg", asin=asin, title=title,
+                        url=product_url, category=cat or "general",
+                    )
                     total += 1
 
                 except Exception:
@@ -2003,12 +3211,11 @@ def scrape_carrefour():
 
                 cat = detect_category(title) or default_cat
 
-                kb = check_price_history(
-                    product_url=product_url,
-                    current_price=current_price,
-                    original_price=original_price,
-                    title=title,
-                    site="carrefour_eg"
+                asin = code or hashlib.md5(product_url.encode()).hexdigest()
+                kb = _get_fraud_verdict(
+                    source="carrefour_eg", asin=asin,
+                    current_price=current_price, original_price=original_price,
+                    title=title, product_url=product_url, site="carrefour_eg"
                 )
 
                 deal = build_deal(
@@ -2026,6 +3233,10 @@ def scrape_carrefour():
                     kanbkam_result=kb
                 )
                 save_deal(deal)
+                PriceHistoryAPI.request_tracking(
+                    source="carrefour_eg", asin=asin, title=title,
+                    url=product_url, category=cat or "general",
+                )
                 total += 1
 
             except Exception:
@@ -2109,13 +3320,21 @@ def scrape_sharaf_dg():
                             purl = "https://www.sharafdg.com" + purl
                         img = item.get("image", item.get("imageUrl", ""))
                         cat = detect_category(title) or default_cat
-                        kb = check_price_history(product_url=purl, current_price=cp,
-                                                 original_price=op, title=title, site="sharaf_dg_eg")
+                        asin = purl.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(purl.encode()).hexdigest()
+                        kb = _get_fraud_verdict(
+                            source="sharaf_dg_eg", asin=asin,
+                            current_price=cp, original_price=op,
+                            title=title, product_url=purl, site="sharaf_dg_eg"
+                        )
                         deal = build_deal(title=title, site="sharaf_dg_eg",
                                           site_display="Sharaf DG Egypt", category=cat,
                                           current_price=cp, original_price=op, discount=disc,
                                           image_url=img, product_url=purl, kanbkam_result=kb)
                         save_deal(deal)
+                        PriceHistoryAPI.request_tracking(
+                            source="sharaf_dg_eg", asin=asin, title=title,
+                            url=purl, category=cat or "general",
+                        )
                         total += 1
                     except Exception:
                         continue
@@ -2167,16 +3386,15 @@ def scrape_sharaf_dg():
                     product_url = href if href.startswith("http") else "https://www.sharafdg.com" + href
 
                     img_el    = p.find("img")
-                    image_url = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+                    image_url = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
 
                     cat = detect_category(title) or default_cat
 
-                    kb = check_price_history(
-                        product_url=product_url,
-                        current_price=current_price,
-                        original_price=original_price,
-                        title=title,
-                        site="sharaf_dg_eg"
+                    asin = product_url.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(product_url.encode()).hexdigest()
+                    kb = _get_fraud_verdict(
+                        source="sharaf_dg_eg", asin=asin,
+                        current_price=current_price, original_price=original_price,
+                        title=title, product_url=product_url, site="sharaf_dg_eg"
                     )
 
                     deal = build_deal(
@@ -2192,6 +3410,10 @@ def scrape_sharaf_dg():
                         kanbkam_result=kb
                     )
                     save_deal(deal)
+                    PriceHistoryAPI.request_tracking(
+                        source="sharaf_dg_eg", asin=asin, title=title,
+                        url=product_url, category=cat or "general",
+                    )
                     total += 1
 
                 except Exception:
@@ -2210,6 +3432,14 @@ def scrape_sharaf_dg():
 # ─────────────────────────────────────────────────────
 # NOON EGYPT — ScraperAPI + JSON extraction
 # ─────────────────────────────────────────────────────
+
+
+def _noon_real_image(img_url: str) -> str:
+    """Filter out Noon placeholder SVG — return real image URL or empty string."""
+    if not img_url or "media-placeholder.svg" in img_url or "noon-assets" in img_url:
+        return ""
+    return img_url
+
 def _process_noon_item(src, default_cat, region_path="egypt-en", currency="EGP"):
     """Parse a single Noon product dict. Returns tuple or None."""
     title = (src.get("name") or src.get("title") or src.get("productName") or "").strip()
@@ -2236,7 +3466,8 @@ def _process_noon_item(src, default_cat, region_path="egypt-en", currency="EGP")
         op = cp
 
     disc = calculate_discount(op, cp)
-    if disc < MIN_DISCOUNT:
+    # Accept if either our calculated disc OR the stored disc_percent meets MIN_DISCOUNT
+    if disc < MIN_DISCOUNT and int(disc_stored or 0) < MIN_DISCOUNT:
         return None
 
     img_keys = src.get("image_keys") or []
@@ -2263,11 +3494,6 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
     Returns count of deals saved.
     """
     saved = 0
-    import re as _re
-    _SOCIAL_RE = _re.compile(
-        r'sold|bought|orders|purchases|reviews?|ratings?|customers?',
-        _re.IGNORECASE
-    )
 
     # ── Helper: walk any JSON tree for product-shaped objects ─────────────
     def _walk(obj, depth=0):
@@ -2294,13 +3520,16 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
         for item in items:
             try:
                 src = item.get("_source", item)
+                sku = src.get("sku") or src.get("product_id") or src.get("id") or ""
                 parsed = _process_noon_item(src, default_cat, region_path, currency)
                 if not parsed:
                     continue
                 title, cp, op, disc, img, purl, rating, rc, cat = parsed
-                kb = check_price_history(product_url=purl, current_price=cp,
-                                         original_price=op, title=title,
-                                         site=marketplace_country)
+                kb = _get_fraud_verdict(
+                    source=marketplace_country, asin=sku,
+                    current_price=cp, original_price=op,
+                    title=title, product_url=purl, site=marketplace_country,
+                )
                 deal = build_deal(title=title, site=marketplace_country,
                                   site_display=site_display, category=cat,
                                   current_price=cp, original_price=op,
@@ -2308,6 +3537,10 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                                   rating=rating, review_count=rc,
                                   kanbkam_result=kb, currency=currency)
                 save_deal(deal)
+                PriceHistoryAPI.request_tracking(
+                    source=marketplace_country, asin=sku, title=title,
+                    url=purl, category=cat or "general",
+                )
                 count += 1
             except Exception:
                 continue
@@ -2418,17 +3651,25 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
             href = link_el["href"] if link_el else ""
             purl = ("https://www.noon.com" + href if href.startswith("/") else href)
             img_el = p.find("img")
-            img = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+            img = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
             cat = detect_category(title) or default_cat
-            kb = check_price_history(product_url=purl, current_price=cp,
-                                     original_price=op, title=title,
-                                     site=marketplace_country)
+            _sku_m = re.search(r'/[A-Za-z0-9]{5,}/p/', href)
+            _sku = _sku_m.group(0).split("/p/")[0].strip("/") if _sku_m else ""
+            kb = _get_fraud_verdict(
+                source=marketplace_country, asin=_sku,
+                current_price=cp, original_price=op,
+                title=title, product_url=purl, site=marketplace_country,
+            )
             deal = build_deal(title=title, site=marketplace_country,
                               site_display=site_display, category=cat,
                               current_price=cp, original_price=op,
                               discount=disc, image_url=img, product_url=purl,
                               kanbkam_result=kb, currency=currency)
             save_deal(deal)
+            PriceHistoryAPI.request_tracking(
+                source=marketplace_country, asin=_sku, title=title,
+                url=purl, category=cat or "general",
+            )
             saved += 1
         except Exception:
             continue
@@ -2439,6 +3680,7 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
     # Method D: product link scan
     # Noon URL pattern: /region-lang/product-slug/SKU/p/?o=...
     # The SKU sits BEFORE /p/, not after — fix the regex accordingly.
+    import re as _re
     noon_sku_re = _re.compile(r'/[A-Za-z0-9]{5,}/p/', _re.IGNORECASE)
     all_a_tags = soup.find_all("a", href=True)
     p_hrefs = [a["href"] for a in all_a_tags if "/p/" in (a.get("href") or "")]
@@ -2514,22 +3756,14 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                 # fall through to Stage 2 text scan instead of hard-skipping.
                 cp = op = None
                 if _cp_el and _op_el:
-                    _cp_raw = _cp_el.get_text(strip=True)
-                    _op_raw = _op_el.get_text(strip=True)
-                    # Reject if either element contains social-proof text:
-                    # clean_price("592 Ratings") → 592, which fools the ratio check.
-                    if _SOCIAL_RE.search(_cp_raw) or _SOCIAL_RE.search(_op_raw):
-                        print(f"    [noon parse] S1-social href={href[:45]} "
-                              f"cp_raw={_cp_raw[:30]!r} op_raw={_op_raw[:30]!r}")
+                    _cp_v = clean_price(_cp_el.get_text(strip=True))
+                    _op_v = clean_price(_op_el.get_text(strip=True))
+                    if (_cp_v and _op_v and _cp_v >= 200 and _op_v > _cp_v
+                            and 1.15 <= _op_v / _cp_v <= 8.0):
+                        cp, op = _cp_v, _op_v
                     else:
-                        _cp_v = clean_price(_cp_raw)
-                        _op_v = clean_price(_op_raw)
-                        if (_cp_v and _op_v and _cp_v >= 200 and _op_v > _cp_v
-                                and 1.15 <= _op_v / _cp_v <= 8.0):
-                            cp, op = _cp_v, _op_v
-                        else:
-                            print(f"    [noon parse] S1-reject href={href[:45]} "
-                                  f"cp={_cp_v} op={_op_v}")
+                        print(f"    [noon parse] S1-reject href={href[:45]} "
+                              f"cp={_cp_v} op={_op_v}")
 
                 # ── Stage 2: title-excluded text scan (fallback) ───────────
                 if cp is None:
@@ -2546,22 +3780,6 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                     _title_excl = title_el_excl.get_text(" ", strip=True) if title_el_excl else ""
                     full_text = container.get_text(" ", strip=True)
                     price_text = full_text.replace(_title_excl, " ") if _title_excl else full_text
-
-                    # Strip non-price numbers BEFORE extracting candidates.
-                    # "380+ sold recently" → 380 looks like a price but isn't.
-                    # "999 Ratings"        → 999 looks like a price but isn't.
-                    # Pattern: number (optional +/k) then a social-proof word.
-                    price_text = _re.sub(
-                        r'[\d][\d,\.]*[\+k]?\s*(?:sold\s*recently|sold|bought|orders|'
-                        r'purchases|people\s*bought|items?\s*sold|reviews?|ratings?|'
-                        r'customers?|verified\s*purchase)',
-                        ' ', price_text, flags=_re.IGNORECASE
-                    )
-                    # Also handle reversed form: "Ratings 999" / "Reviews: 500"
-                    price_text = _re.sub(
-                        r'(?:ratings?|reviews?)\s*:?\s*[\d][\d,\.]*',
-                        ' ', price_text, flags=_re.IGNORECASE
-                    )
 
                     # Standalone number regex: non-alphanumeric boundary on both
                     # sides excludes "83J" (model code), "16G" (RAM), "144Hz".
@@ -2609,24 +3827,43 @@ def _parse_noon_products(content, default_cat, region_path, currency, marketplac
                     continue
 
                 disc = calculate_discount(op, cp)
+                # Detect category early so electronics can use a lower threshold
                 cat = detect_category(title) or default_cat
+                # Electronics (phones, laptops, TVs) are high-value — notify at 15%+
+                # even though general threshold is 40%. A 15% off a 60,000 EGP laptop
+                # saves 9,000 EGP which is highly relevant.
+                _eff_min_discount = 15 if cat == "electronics" else MIN_DISCOUNT
 
-                if disc < MIN_DISCOUNT:
+                if _d_debug_count < 8:
+                    _nlinks = len(container.find_all("a", href=noon_sku_re))
+                    print(f"    [noon parse] D-debug lvl={_lvl} links={_nlinks} cat={cat} "
+                          f"href={href[:45]} op={op} cp={cp} disc={disc}")
+
+                if disc < _eff_min_discount:
+                    if _d_debug_count < 5:
+                        _d_debug_count += 1
                     break
                 if not price_in_range(cp):
                     break
 
                 img_el = container.find("img")
-                img = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
-                kb = check_price_history(product_url=purl, current_price=cp,
-                                         original_price=op, title=title,
-                                         site=marketplace_country)
+                raw_img = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
+                img = _noon_real_image(raw_img)
+                kb = _get_fraud_verdict(
+                    source=marketplace_country, asin=_sku,
+                    current_price=cp, original_price=op,
+                    title=title, product_url=purl, site=marketplace_country,
+                )
                 deal = build_deal(title=title, site=marketplace_country,
                                   site_display=site_display, category=cat,
                                   current_price=cp, original_price=op,
                                   discount=disc, image_url=img, product_url=purl,
                                   kanbkam_result=kb, currency=currency)
                 save_deal(deal)
+                PriceHistoryAPI.request_tracking(
+                    source=marketplace_country, asin=_sku, title=title,
+                    url=purl, category=cat or "general",
+                )
                 saved += 1
                 _link_saved = True
                 break
@@ -2689,11 +3926,9 @@ def _scrape_noon_region(
         print(f"  [NOON/{country_code.upper()}] all methods blocked — 0 products expected")
         return resp2  # caller handles empty result
 
-    # ── Phase 1: Deals / sale pages (server-side rendered, most reliable) ──
+    # ── Phase 1: Deals / sale pages (REDUCED to save credits) ──
     deals_pages = [
         f"https://www.noon.com/{region_path}/sale/?limit=48&sort%5Bby%5D=discount_percent&sort%5Bdir%5D=desc",
-        f"https://www.noon.com/{region_path}/offers/?limit=48&sort%5Bby%5D=discount_percent",
-        f"https://www.noon.com/{region_path}/category/deals/?limit=48",
     ]
     for dp_url in deals_pages:
         try:
@@ -2712,13 +3947,13 @@ def _scrape_noon_region(
             print(f"  [NOON/{country_code.upper()}] Deals page error: {e}")
             _log_scraper_error(marketplace_country, dp_url, str(e))
 
-    # ── Phase 2: Category search terms ─────────────────────────────────────
+    # ── Phase 2: Category search terms (REDUCED to save credits) ──
     search_terms = [
-        ("iphone",          "electronics"), ("samsung galaxy",  "electronics"),
-        ("laptop",          "electronics"), ("tv",              "electronics"),
-        ("perfume",         "fashion"),     ("refrigerator",    "home"),
-        ("washing machine", "home"),        ("skincare",        "beauty"),
-        ("makeup",          "beauty"),      ("headphones",      "electronics"),
+        ("samsung galaxy",  "electronics"), ("iphone",     "electronics"),
+        ("laptop",          "electronics"), ("headphones", "electronics"),
+        ("nike shoes",      "fashion"),     ("perfume",    "fashion"),
+        ("refrigerator",    "home"),        ("skincare",   "beauty"),
+        ("rice", "grocery"), ("oil", "grocery"), ("milk", "grocery"),
     ]
 
     for term, default_cat in search_terms:
@@ -2745,16 +3980,34 @@ def _scrape_noon_region(
 
 
 def scrape_noon():
-    """Noon Egypt (EGP)."""
-    return _scrape_noon_region()
+    """Noon Egypt — background price collection."""
+    return _scrape_noon_region(
+        region_path="egypt-en",
+        marketplace_country="noon_eg",
+        site_display="Noon Egypt",
+        currency="EGP",
+        country_code="eg",
+    )
 
 def scrape_noon_ae():
-    """Noon UAE (AED)."""
-    return _scrape_noon_region("uae-en", "noon_ae", "Noon UAE", "AED", "ae")
+    """Noon UAE — background price collection."""
+    return _scrape_noon_region(
+        region_path="uae-en",
+        marketplace_country="noon_ae",
+        site_display="Noon UAE",
+        currency="AED",
+        country_code="ae",
+    )
 
 def scrape_noon_sa():
-    """Noon Saudi Arabia (SAR)."""
-    return _scrape_noon_region("saudi-en", "noon_sa", "Noon Saudi Arabia", "SAR", "sa")
+    """Noon Saudi Arabia — background price collection."""
+    return _scrape_noon_region(
+        region_path="saudi-en",
+        marketplace_country="noon_sa",
+        site_display="Noon Saudi Arabia",
+        currency="SAR",
+        country_code="sa",
+    )
 
 
 # ─────────────────────────────────────────────────────
@@ -2846,12 +4099,14 @@ def scrape_hyperone():
                     product_url = href if href.startswith("http") else "https://www.hyperone.com.eg" + href
 
                     img_el    = p.find("img")
-                    image_url = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+                    image_url = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
                     cat       = detect_category(title) or default_cat
 
-                    kb = check_price_history(
-                        product_url=product_url, current_price=current_price,
-                        original_price=original_price, title=title, site="hyperone_eg"
+                    asin = product_url.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(product_url.encode()).hexdigest()
+                    kb = _get_fraud_verdict(
+                        source="hyperone_eg", asin=asin,
+                        current_price=current_price, original_price=original_price,
+                        title=title, product_url=product_url, site="hyperone_eg"
                     )
 
                     deal = build_deal(
@@ -2861,6 +4116,10 @@ def scrape_hyperone():
                         image_url=image_url, product_url=product_url, kanbkam_result=kb
                     )
                     save_deal(deal)
+                    PriceHistoryAPI.request_tracking(
+                        source="hyperone_eg", asin=asin, title=title,
+                        url=product_url, category=cat or "general",
+                    )
                     total += 1
 
                 except Exception:
@@ -2934,9 +4193,11 @@ def scrape_sahla():
                                 rc     = int(item.get("reviews_count", item.get("review_count", 0)) or 0) or None
                                 cat    = detect_category(title)
 
-                                kb = check_price_history(
-                                    product_url=purl, current_price=cp,
-                                    original_price=op, title=title, site="sahla_eg"
+                                asin = str(pid) or hashlib.md5(purl.encode()).hexdigest()
+                                kb = _get_fraud_verdict(
+                                    source="sahla_eg", asin=asin,
+                                    current_price=cp, original_price=op,
+                                    title=title, product_url=purl, site="sahla_eg"
                                 )
 
                                 deal = build_deal(
@@ -2946,6 +4207,10 @@ def scrape_sahla():
                                     rating=rating, review_count=rc, kanbkam_result=kb
                                 )
                                 save_deal(deal)
+                                PriceHistoryAPI.request_tracking(
+                                    source="sahla_eg", asin=asin, title=title,
+                                    url=purl, category=cat or "general",
+                                )
                                 total += 1
                             except Exception:
                                 continue
@@ -3003,12 +4268,14 @@ def scrape_sahla():
                         purl    = href if href.startswith("http") else "https://sahlaapp.com" + href
 
                         img_el = p.find("img")
-                        img    = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+                        img    = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
                         cat    = detect_category(title)
 
-                        kb = check_price_history(
-                            product_url=purl, current_price=cp,
-                            original_price=op, title=title, site="sahla_eg"
+                        asin = purl.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(purl.encode()).hexdigest()
+                        kb = _get_fraud_verdict(
+                            source="sahla_eg", asin=asin,
+                            current_price=cp, original_price=op,
+                            title=title, product_url=purl, site="sahla_eg"
                         )
 
                         deal = build_deal(
@@ -3017,6 +4284,10 @@ def scrape_sahla():
                             discount=disc, image_url=img, product_url=purl, kanbkam_result=kb
                         )
                         save_deal(deal)
+                        PriceHistoryAPI.request_tracking(
+                            source="sahla_eg", asin=asin, title=title,
+                            url=purl, category=cat or "general",
+                        )
                         total += 1
                     except Exception:
                         continue
@@ -3108,12 +4379,14 @@ def scrape_custom_sources():
                         purl    = href if href.startswith("http") else site_url.rstrip("/") + "/" + href.lstrip("/")
 
                         img_el = product.find("img")
-                        img    = (img_el.get("src") or img_el.get("data-src") or "") if img_el else ""
+                        img    = (img_el.get("data-src") or img_el.get("src") or "") if img_el else ""
                         cat    = detect_category(title)
 
-                        kb = check_price_history(
-                            product_url=purl, current_price=cp,
-                            original_price=op, title=title, site=site_id
+                        asin = purl.rstrip("/").split("/")[-1].split("?")[0] or hashlib.md5(purl.encode()).hexdigest()
+                        kb = _get_fraud_verdict(
+                            source=site_id, asin=asin,
+                            current_price=cp, original_price=op,
+                            title=title, product_url=purl, site=site_id
                         )
 
                         deal = build_deal(
@@ -3122,13 +4395,17 @@ def scrape_custom_sources():
                             discount=disc, image_url=img, product_url=purl, kanbkam_result=kb
                         )
                         save_deal(deal)
+                        PriceHistoryAPI.request_tracking(
+                            source=site_id, asin=asin, title=title,
+                            url=purl, category=cat or "general",
+                        )
                         total += 1
                         products_found += 1
                     except Exception:
                         continue
 
             try:
-                docs = db.collection("admin").where("site_url", "==", site_url).limit(1).get()
+                docs = db.collection("admin").where(filter=FieldFilter("site_url", "==", site_url)).limit(1).get()
                 for doc in docs:
                     doc.reference.update({"last_scraped": now_iso(), "last_count": products_found})
             except Exception:
@@ -3190,9 +4467,6 @@ def run_scraper():
 
 
 def _run_scraper_inner():
-    global _cycle_credits
-    _cycle_credits = 0
-
     if not check_scraper_control():
         return
 
@@ -3208,6 +4482,7 @@ def _run_scraper_inner():
     print(f"{'=' * 62}")
 
     total = 0
+    source_counts: dict = {}
     load_disabled_sources()
     if _disabled_sources:
         print(f"  Disabled sources: {', '.join(sorted(_disabled_sources))}")
@@ -3217,24 +4492,29 @@ def _run_scraper_inner():
         if not is_source_enabled(key):
             print(f"\n[{key.upper()}] ⏸ disabled by admin — skipping")
             _health.record(key, 0)
+            source_counts[key] = 0
             return
         try:
             n = fn()
             _health.record(key, n)
             total += n
+            source_counts[key] = n
         except Exception as e:
             print(f"❌ [{key.upper()}]: {e}")
             _health.record(key, 0)
+            source_counts[key] = 0
 
     # ── Egypt ────────────────────────────────────────────────────────────────
     run("amazon_eg",     scrape_amazon)
+    # Background price collection (no app deals, no notifications)
+    run("noon_eg",       scrape_noon)
     run("jumia_eg",      scrape_jumia)
+    # B2B / niche sources — admin-controlled
     run("btech_eg",      scrape_btech)
     run("carrefour_eg",  scrape_carrefour)
     run("sharaf_dg_eg",  scrape_sharaf_dg)
     run("hyperone_eg",   scrape_hyperone)
     run("sahla_eg",      scrape_sahla)
-    run("noon_eg",       scrape_noon)
 
     # ── UAE ──────────────────────────────────────────────────────────────────
     run("amazon_ae",     scrape_amazon_ae)
@@ -3251,24 +4531,206 @@ def _run_scraper_inner():
     update_analytics()
     _health.flush()   # write health summary + send FCM alert if anything broke
 
+    # ── Re-check stale deals and mark expired ones ───────────────────────────
+    _recheck_expired_deals()
+
     # ── Purge deals that slipped through with wrong prices ────────────────────
     _purge_bad_deals()
 
     # ── Send deal notifications to users ─────────────────────────────────────
     # _new_deals_this_run was populated by save_deal() for every brand-new deal.
-    print(f"\n  [FCM-DEALS] New deals this cycle: {len(_new_deals_this_run)}")
+    _new_deals_count = len(_new_deals_this_run)
+    print(f"\n  [FCM-DEALS] New deals this cycle: {_new_deals_count}")
     _notify_new_deals(_new_deals_this_run)
     _new_deals_this_run.clear()  # reset for next cycle
 
     _cycle_end = now_str()
     print(f"\n{'=' * 62}")
     print(f"  CYCLE COMPLETE: {_cycle_end}")
-    print(f"  TOTAL DEALS THIS CYCLE: {total}")
-    print(f"  NEW DEALS NOTIFIED:     {len(_new_deals_this_run)}")
-    print(f"  CREDITS USED THIS CYCLE: {_cycle_credits:,}  (≈{_cycle_credits/250000*100:.2f}% of 250k plan)")
+    # Per-source breakdown
+    _region_groups = [
+        ("Egypt",        ["amazon_eg", "jumia_eg", "btech_eg", "carrefour_eg",
+                          "sharaf_dg_eg", "hyperone_eg", "sahla_eg", "noon_eg"]),
+        ("UAE",          ["amazon_ae", "noon_ae", "sharaf_dg_ae"]),
+        ("Saudi Arabia", ["amazon_sa", "noon_sa"]),
+    ]
+    for region_label, keys in _region_groups:
+        region_lines = [(k, source_counts[k]) for k in keys if k in source_counts]
+        if not any(v > 0 for _, v in region_lines):
+            continue
+        print(f"  ── {region_label} ──")
+        for k, v in region_lines:
+            label = k.replace("_", " ").title()
+            print(f"    {label:<22} {v:>4} deals")
+    print(f"  {'─' * 32}")
+    print(f"  {'TOTAL':<22} {total:>4} deals")
+    print(f"  NEW DEALS NOTIFIED:     {_new_deals_count}")
     print(f"  PROXY: scrape.do={'dead' if _scrapedo_dead else ('active' if SCRAPEDO_TOKEN else 'not set')}")
     print(f"  Next cycle in: {INTERVAL} min")
     print(f"{'=' * 62}\n")
+
+
+def _recheck_expired_deals():
+    """
+    Re-fetch product pages for deals not seen in the last 90 minutes.
+    If the discount is still ≥ MIN_DISCOUNT, update last_scraped + keep active.
+    Otherwise mark status='expired'. Expired deals older than 7 days are deleted.
+    Capped at 50 re-checks per source per cycle to avoid credit burn.
+    """
+    try:
+        from datetime import timedelta
+        now_dt = datetime.now(timezone.utc)
+        stale_cutoff   = now_dt - timedelta(minutes=90)
+        expired_cutoff = now_dt - timedelta(days=7)
+
+        docs = list(db.collection("deals").stream())
+        checked = {}              # source → count
+        consecutive_failures = {} # source → consecutive HTTP failure count
+        expired_count = 0
+        deleted_count = 0
+        skipped_suspended = 0
+
+        for d in docs:
+            data = d.to_dict() or {}
+            status = data.get("status", "active")
+
+            # Delete expired deals older than 7 days
+            if status == "expired":
+                ts = data.get("last_scraped") or data.get("timestamp")
+                ts_dt = None
+                if ts:
+                    if hasattr(ts, "tzinfo"):
+                        ts_dt = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+                    elif isinstance(ts, str):
+                        try:
+                            ts_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        except Exception:
+                            pass
+                if ts_dt and ts_dt < expired_cutoff:
+                    db.collection("deals").document(d.id).delete()
+                    deleted_count += 1
+                continue
+
+            # Check if last_scraped is stale
+            ls = data.get("last_scraped")
+            if not ls:
+                continue
+            if hasattr(ls, "tzinfo"):
+                ls_dt = ls if ls.tzinfo else ls.replace(tzinfo=timezone.utc)
+            elif isinstance(ls, str):
+                try:
+                    ls_dt = datetime.fromisoformat(ls.replace("Z", "+00:00"))
+                except Exception:
+                    continue
+            else:
+                continue
+
+            if ls_dt >= stale_cutoff:
+                continue  # recently seen, skip
+
+            site = data.get("site", "")
+
+            # Skip rechecks for suspended sources entirely
+            if site in _disabled_sources:
+                skipped_suspended += 1
+                continue
+
+            # Skip source after 5 consecutive failures this cycle
+            if consecutive_failures.get(site, 0) >= 5:
+                continue
+
+            checked.setdefault(site, 0)
+            if checked[site] >= 50:
+                continue
+            checked[site] += 1
+
+            product_url = data.get("product_url", "")
+            if not product_url:
+                continue
+
+            # Extract ASIN from product URL for dead-product cache
+            asin = data.get("asin", "")
+            if not asin and "/dp/" in product_url:
+                asin = product_url.split("/dp/")[-1].split("?")[0].split("#")[0]
+            if _is_dead_asin(asin):
+                continue  # skip known-dead products for 24h
+
+            try:
+                # Up to 2 attempts per deal: scrapedo first, scraperapi as retry
+                resp = fetch_with_scrapedo(product_url, render_js=False, country="eg")
+                if not resp or is_blocked_response(resp, min_length=2000):
+                    resp = fetch_with_scraperapi(product_url, render_js=False, country="eg",
+                                                 _skip_scrapedo=True)
+
+                still_live = False
+                if resp and not is_blocked_response(resp, min_length=2000):
+                    consecutive_failures[site] = 0  # reset on success
+                    soup = BeautifulSoup(resp.content, "lxml")
+                    cp_raw = ""
+                    op_raw = ""
+                    if "amazon" in site:
+                        cp_el = soup.find("span", class_="a-price-whole")
+                        if cp_el:
+                            cp_raw = cp_el.get_text(strip=True)
+                        op_block = soup.find("span", class_="a-price a-text-price")
+                        if op_block:
+                            op_el = op_block.find("span", class_="a-offscreen")
+                            if op_el:
+                                op_raw = op_el.get_text(strip=True)
+                    elif "jumia" in site:
+                        cp_el = soup.find("span", class_="prc") or soup.find("div", class_="prc")
+                        if cp_el:
+                            cp_raw = cp_el.get_text(strip=True)
+                        op_el = soup.find("span", class_="old") or soup.find("div", class_="old")
+                        if op_el:
+                            op_raw = op_el.get_text(strip=True)
+                    elif "noon" in site:
+                        cp_el = soup.find("span", attrs={"data-qa": "price"})
+                        if cp_el:
+                            cp_raw = cp_el.get_text(strip=True)
+
+                    cp = clean_price(cp_raw)
+                    op = clean_price(op_raw) or cp
+                    if cp and cp >= MIN_PRODUCT_PRICE and op >= cp:
+                        disc = calculate_discount(op, cp)
+                        if disc >= MIN_DISCOUNT:
+                            still_live = True
+                            db.collection("deals").document(d.id).update({
+                                "last_scraped": now_iso(),
+                                "status": "active",
+                                "current_price": cp,
+                                "original_price": op,
+                                "discount_percent": disc,
+                            })
+                            print(f"  [RECHECK] Still live: {data.get('title','')[:40]} | {disc}% off")
+                else:
+                    consecutive_failures[site] = consecutive_failures.get(site, 0) + 1
+                    if asin:
+                        _mark_dead_asin(asin)  # HTTP 502 or blocked — don't retry for 24h
+
+                if not still_live:
+                    db.collection("deals").document(d.id).update({
+                        "status": "expired",
+                        "last_scraped": now_iso(),
+                    })
+                    expired_count += 1
+                    print(f"  [RECHECK] Expired: {data.get('title','')[:40]}")
+
+            except Exception as re_err:
+                consecutive_failures[site] = consecutive_failures.get(site, 0) + 1
+                if asin:
+                    _mark_dead_asin(asin)
+                print(f"  [RECHECK] Error for {d.id[:16]}: {re_err}")
+
+            time.sleep(1)
+
+        skipped_by_failures = {s: c for s, c in consecutive_failures.items() if c >= 5}
+        print(f"  [RECHECK] Expired: {expired_count} | Deleted (>7d): {deleted_count} | Skipped (suspended): {skipped_suspended} | Rechecked per source: {dict(checked)}")
+        if skipped_by_failures:
+            print(f"  [RECHECK] Sources abandoned after 5 failures: {skipped_by_failures}")
+
+    except Exception as e:
+        print(f"  [RECHECK] Error: {e}")
 
 
 def _purge_bad_deals():
@@ -3292,9 +4754,16 @@ def _purge_bad_deals():
             site = data.get("site", "")
             bad = False
             reason = ""
-            if cp < 200:
+            is_amazon = "amazon" in str(site).lower()
+            # USD detection: Amazon prices in EGP are always whole numbers.
+            # A decimal value under 500 on an Amazon listing is almost certainly
+            # a raw USD price that was never converted (e.g. $71.83).
+            if is_amazon and cp < 500 and cp != int(cp):
                 bad = True
-                reason = f"cp={cp} below 200 floor"
+                reason = f"cp={cp} looks like raw USD (Amazon, non-integer, <500)"
+            elif cp < 50:
+                bad = True
+                reason = f"cp={cp} below 50 floor"
             elif op > 0 and cp > 0 and op / cp > 8.0:
                 bad = True
                 reason = f"ratio={op/cp:.1f} (op={op} cp={cp}) exceeds 8×"
@@ -3348,17 +4817,31 @@ def _purge_bad_deals():
         print(f"  [PURGE] Error: {e}")
 
 
+# v11.2: Start System 1 (price history) — works with both direct and server.py entry points
+# Runs in background thread with 10s delay to let Flask start first
+def _delayed_start_system_1():
+    import time
+    time.sleep(10)
+    try:
+        start_price_history_system()
+        print("[OK] System 1 (price history) scheduler started")
+    except Exception as e:
+        print(f"[WARN] System 1 failed to start: {e}")
+
+import threading
+threading.Thread(target=_delayed_start_system_1, daemon=True).start()
+
 if __name__ == "__main__":
-    print("DealHunter Egypt Scraper v7 FIXED")
-    print(f"Stores: Amazon EG/AE/SA + Noon EG/AE/SA + Jumia + B.Tech + Carrefour + Sharaf DG + HyperOne + Sahla")
-    print(f"Fake check: Kanbkam (fixed URL) + Safqa (rebuilt)")
-    print(f"Min discount: {MIN_DISCOUNT}% | Interval: {INTERVAL} min")
-    if MIN_PRICE > 0 or MAX_PRICE < 9999999:
-        print(f"Price filter: EGP {MIN_PRICE:,.0f} – EGP {MAX_PRICE:,.0f}")
-    print("Scraper started, waiting for first cycle...")
+    print("DealHunter Egypt Scraper v12.0 — System 1 + Noon Fix")
+    print(f"Stores: Amazon EG + Noon EG/AE/SA (discovery={'ON' if ENGINE1_DISCOVERY_ENABLED else 'OFF'})")
+    print(f"Interval: {INTERVAL} min | Min discount: {MIN_DISCOUNT}%")
+    print(f"Engine1 Discovery: {ENGINE1_DISCOVERY_ENABLED}")
+    if not ENGINE1_DISCOVERY_ENABLED:
+        print("[CREDIT SAVE] Discovery OFF — only tracking known ASINs")
     print()
     run_scraper()
     schedule.every(INTERVAL).minutes.do(run_scraper)
+    print(f"[SCHEDULER] Next run in {INTERVAL} minutes")
     while True:
         schedule.run_pending()
         time.sleep(30)

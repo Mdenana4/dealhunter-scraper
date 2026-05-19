@@ -2,7 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/deal_model.dart';
 
-const _baseUrl = 'https://dealhunter-scraper.onrender.com';
+const _baseUrl = 'https://dealhunter-server-q2rbodm3ta-uc.a.run.app';
 
 class ApiService {
   final Dio _dio;
@@ -48,11 +48,13 @@ class ApiService {
   }
 
   // ─── Deals ─────────────────────────────────────────────────────────────────
+  // NOTE: Only Amazon Egypt deals are shown to users. Other sources (Noon, Jumia)
+  // are still scraped for price history / fake deal detection, but not displayed.
 
   Future<List<DealModel>> getDeals({
     String? category,
     String? country,
-    String? source,
+    String? source = 'amazon_eg',  // Default: only Amazon Egypt deals
     String? marketplaceCountry,
     double minDiscount = 0,
     int page = 1,

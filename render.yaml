@@ -16,8 +16,8 @@ services:
       - key: PYTHON_VERSION
         value: 3.11
 
-    # Auto-deploy on push
-    autoDeploy: true
+    # Disabled — migrated to Google Cloud Run
+    autoDeploy: false
 
     # Health check
     healthCheckPath: /health

@@ -2,11 +2,13 @@ workflows:
   flutter-android:
     name: Flutter Android Build
     instance_type: mac_mini
-    max_build_duration: 30
+    max_build_duration: 45
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
+      vars:
+        GRADLE_OPTS: "-Xmx4096m -XX:MaxMetaspaceSize=512m"
     triggering:
       events:
         - push
@@ -14,15 +16,23 @@ workflows:
         - main
     scripts:
       - name: Get Flutter packages
-        script: flutter pub get
+        script: |
+          cd app/user_app
+          flutter pub get
+      - name: Generate app icons
+        script: |
+          cd app/user_app
+          flutter pub run flutter_launcher_icons:main
       - name: Build APK
-        script: flutter build apk --release
+        script: |
+          cd app/user_app
+          flutter build apk --release --no-tree-shake-icons
     artifacts:
-      - build/app/outputs/flutter-apk/app-release.apk
+      - app/user_app/build/app/outputs/flutter-apk/app-release.apk
     publishing:
       email:
         recipients:
-          - admin@example.com
+          - mansy4@ymail.com
         notify:
           success: true
           failure: true

@@ -23,7 +23,6 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 ENV SCRAPEDO_TOKEN=3041e7da00be45828a61c399c063750ba0cb05219d0
 ENV DATABASE_URL=postgresql://postgres:Egypt99%40%4077777@db.rmkaljwjskxihkuvxosc.supabase.co:5432/postgres
 ENV TIMESCALE_URL=postgresql://postgres:Egypt99%40%4077777@db.rmkaljwjskxihkuvxosc.supabase.co:5432/postgres
-ENV TIMESCALE_URL=postgresql://postgres:Egypt99%40%4077777@db.rmkaljwjskxihkuvxosc.supabase.co:5432/postgres
 ENV AMAZON_ENABLED=true
 ENV NOON_ENABLED=true
 ENV JUMIA_ENABLED=true

@@ -1,0 +1,31 @@
+# Git
+.git/
+.gitignore
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log
+/tmp/
+
+# Documentation
+README.md
+references/
+
+# Test files
+test_*.py
+
+# Local environment
+.env
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

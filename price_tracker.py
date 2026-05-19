@@ -26,6 +26,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from firebase_admin import firestore
+from google.cloud.firestore import FieldFilter
 
 
 # ─── Marketplace metadata ─────────────────────────────────────────────────────
@@ -81,6 +82,142 @@ def _trend(prices: list[float]) -> str:
     if pct < -3:
         return "falling"
     return "stable"
+
+
+def _detect_fake_discount(
+    current_price: float,
+    current_original: Optional[float],
+    historical_prices: list[float],
+) -> float:
+    """
+    Detect "fake discounts" where a store inflates the original/list
+    price to make the discount look bigger.
+
+    Returns a score from 0.0 (genuine discount) to 1.0 (definitely fake).
+
+    Signals:
+      1. current_original is much higher than historical average
+      2. current_price is close to the historical median (not really discounted)
+    """
+    if not current_original or not historical_prices or len(historical_prices) < 5:
+        return 0.0  # not enough data
+
+    historical_avg = sum(historical_prices) / len(historical_prices)
+    if historical_avg <= 0:
+        return 0.0
+
+    # Signal 1: original price inflated vs historical average
+    inflation_ratio = current_original / historical_avg
+    inflation_score = max(0.0, min(1.0, (inflation_ratio - 1.1) / 0.4))
+    #  1.1x  → 0.0    (slight inflation = probably real)
+    #  1.3x  → 0.5    (moderate inflation = suspicious)
+    #  1.5x  → 1.0    (heavy inflation = definitely fake)
+
+    # Signal 2: current price is close to historical average (not actually discounted)
+    baseline_match = 1.0 - abs(current_price - historical_avg) / historical_avg
+    baseline_score = max(0.0, min(1.0, baseline_match))
+    #  same as average → 1.0  (not discounted at all)
+    #  20% below avg  → 0.0  (genuine discount)
+
+    # Combined: inflation matters more (60%), baseline match (40%)
+    return round(inflation_score * 0.6 + baseline_score * 0.4, 2)
+
+
+def _buy_recommendation(
+    current_price: float,
+    lowest_ever: Optional[float],
+    avg_30d: Optional[float],
+    trend: str,
+    fake_discount_score: float,
+) -> str:
+    """
+    Recommend whether to buy now, wait, or that it's a good deal.
+
+    Returns one of: 'buy_now', 'good_deal', 'wait', 'normal'
+    """
+    # Near all-time low → BUY NOW
+    if lowest_ever and current_price <= lowest_ever * 1.05:
+        return "buy_now"
+
+    # Significantly below average → GOOD DEAL
+    if avg_30d and current_price <= avg_30d * 0.85:
+        return "good_deal"
+
+    # Price is falling → WAIT (might drop more)
+    if trend == "falling" and fake_discount_score < 0.5:
+        return "wait"
+
+    # Fake discount detected → WAIT (real price is same as always)
+    if fake_discount_score > 0.6:
+        return "wait"
+
+    return "normal"
+
+
+def _update_product_analytics(
+    marketplace_country: str,
+    product_id: str,
+    current_price: float,
+    current_original: Optional[float],
+) -> None:
+    """
+    Compute and save price analytics to the product document.
+    Called automatically after every price record.
+
+    This creates a Kanbkam-style analytics overlay:
+      - lowest/highest/average prices
+      - price trend
+      - fake discount score
+      - buy recommendation
+    """
+    db = _db()
+    doc_id = make_product_doc_id(marketplace_country, product_id)
+
+    # Get 30-day price history for analytics
+    history = get_price_history(marketplace_country, product_id, days=30)
+    prices = [h["price"] for h in history if h.get("price") is not None]
+
+    if len(prices) < 3:
+        return  # not enough data yet
+
+    # Core stats
+    lowest = min(prices)
+    highest = max(prices)
+    avg = round(sum(prices) / len(prices), 2)
+    trend = _trend(prices)
+
+    # Get all-time historical prices for fake discount detection
+    all_history = get_price_history(marketplace_country, product_id, days=365)
+    all_prices = [h["price"] for h in all_history if h.get("price") is not None]
+
+    # Fake discount detection
+    fake_score = _detect_fake_discount(current_price, current_original, all_prices)
+
+    # Buy recommendation
+    recommendation = _buy_recommendation(current_price, lowest, avg, trend, fake_score)
+
+    # Save analytics to product document
+    analytics = {
+        "analytics": {
+            "lowest_price_ever": lowest,
+            "highest_price_ever": highest,
+            "average_price_30d": avg,
+            "price_trend": trend,
+            "fake_discount_score": fake_score,
+            "fake_discount_label": (
+                "FAKE" if fake_score > 0.7 else
+                "SUSPICIOUS" if fake_score > 0.4 else
+                "GENUINE"
+            ),
+            "buy_recommendation": recommendation,
+            "total_snapshots": len(prices),
+            "last_analytics_update": _now(),
+        }
+    }
+
+    db.collection("products").document(doc_id).update(analytics)
+    # v9.9: [ANALYTICS] log moved to scraper.py _engine2_tracking() with real _compute_fake_score()
+    # to avoid duplicate output. Firestore analytics update above still runs.
 
 
 def make_product_doc_id(marketplace_country: str, product_id: str) -> str:
@@ -262,6 +399,14 @@ def record_price(
             })
 
     _run(db.transaction())
+
+    # ── Update Kanbkam-style analytics (non-transactional, best-effort) ──
+    try:
+        _update_product_analytics(marketplace_country, product_id, price, original_price)
+    except Exception as _ae:
+        # Analytics are advisory — never let them break price recording
+        print(f"  [ANALYTICS-SKIP] {_ae}")
+
     return result
 
 
@@ -289,7 +434,7 @@ def get_price_history(
         db.collection("products")
           .document(doc_id)
           .collection("price_history")
-          .where("timestamp", ">=", since)
+          .where(filter=FieldFilter("timestamp", ">=", since))
           .order_by("timestamp", direction=firestore.Query.ASCENDING)
           .limit(limit)
           .stream()
@@ -379,14 +524,14 @@ def get_recent_price_changes(
     """
     db    = _db()
     since = _now() - timedelta(hours=hours)
-    q     = db.collection("price_change_events").where("timestamp", ">=", since)
+    q     = db.collection("price_change_events").where(filter=FieldFilter("timestamp", ">=", since))
 
     if marketplace_country:
-        q = q.where("marketplace_country", "==", marketplace_country)
+        q = q.where(filter=FieldFilter("marketplace_country", "==", marketplace_country))
     elif marketplace:
-        q = q.where("marketplace", "==", marketplace)
+        q = q.where(filter=FieldFilter("marketplace", "==", marketplace))
     elif country:
-        q = q.where("country", "==", country)
+        q = q.where(filter=FieldFilter("country", "==", country))
 
     docs = (
         q.order_by("timestamp", direction=firestore.Query.DESCENDING)
@@ -480,8 +625,8 @@ def get_triggered_alerts(price_change_event: dict) -> list[dict]:
 
     alerts = (
         db.collection("price_alerts")
-          .where("product_doc_id", "==", doc_id)
-          .where("is_active", "==", True)
+          .where(filter=FieldFilter("product_doc_id", "==", doc_id))
+          .where(filter=FieldFilter("is_active", "==", True))
           .stream()
     )
 
@@ -508,8 +653,8 @@ def get_user_alerts(user_id: str) -> list[dict]:
     db = _db()
     docs = (
         db.collection("price_alerts")
-          .where("user_id", "==", user_id)
-          .where("is_active", "==", True)
+          .where(filter=FieldFilter("user_id", "==", user_id))
+          .where(filter=FieldFilter("is_active", "==", True))
           .order_by("created_at", direction="DESCENDING")
           .stream()
     )
