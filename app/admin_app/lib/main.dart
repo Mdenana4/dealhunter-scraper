@@ -29,7 +29,7 @@ class AdminApp extends StatelessWidget {
       useMaterial3: true,
       colorSchemeSeed: const Color(0xFF1E88E5),
       brightness: brightness,
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         elevation: 2,
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12)),
