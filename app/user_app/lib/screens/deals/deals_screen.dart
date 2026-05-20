@@ -8,17 +8,32 @@ import '../../models/deal_model.dart';
 import '../../providers/app_providers.dart';
 import '../../widgets/deal_widgets.dart';
 
-// Category keys map to S keys for translation
+// (apiKey, displayStringKey) — apiKey is sent to the server, '' = All (no filter)
 const _categoryKeys = [
-  ('All', 'cat_all'),
-  ('Electronics', 'cat_electronics'),
-  ('Fashion', 'cat_fashion'),
-  ('Home', 'cat_home'),
-  ('Beauty', 'cat_beauty'),
-  ('Sports', 'cat_sports'),
-  ('Toys', 'cat_toys'),
-  ('Books', 'cat_books'),
-  // ('Food', 'cat_food'), // TODO: Add when grocery scraper is active
+  ('',              'cat_all'),
+  ('electronics',   'cat_electronics'),
+  ('smartphones',   'cat_smartphones'),
+  ('laptops',       'cat_laptops'),
+  ('headphones',    'cat_headphones'),
+  ('tvs',           'cat_tvs'),
+  ('cameras',       'cat_cameras'),
+  ('gaming',        'cat_gaming'),
+  ('mens_fashion',  'cat_mens_fashion'),
+  ('womens_fashion','cat_womens_fashion'),
+  ('shoes',         'cat_shoes'),
+  ('watches',       'cat_watches'),
+  ('bags',          'cat_bags'),
+  ('home_kitchen',  'cat_home_kitchen'),
+  ('furniture',     'cat_furniture'),
+  ('beauty',        'cat_beauty'),
+  ('skincare',      'cat_skincare'),
+  ('perfume',       'cat_perfume'),
+  ('sports',        'cat_sports'),
+  ('baby',          'cat_baby'),
+  ('books',         'cat_books'),
+  ('automotive',    'cat_automotive'),
+  ('pets',          'cat_pets'),
+  ('grocery',       'cat_grocery'),
 ];
 
 class DealsScreen extends ConsumerStatefulWidget {
@@ -36,17 +51,18 @@ const _countries = [
   ('sa',  'country_sa'),
 ];
 
-// Source options: (code sent to API, string key)
+// Source options: (partial platform name sent to API, string key)
+// Server does site ILIKE '%amazon%' so 'amazon' matches amazon_eg / amazon_ae / amazon_sa
 const _sources = [
-  (null,         'source_all'),
-  ('amazon_eg',  'source_amazon'),
-  ('noon_eg',    'source_noon'),
-  ('jumia_eg',   'source_jumia'),
+  (null,      'source_all'),
+  ('amazon',  'source_amazon'),
+  ('noon',    'source_noon'),
+  ('jumia',   'source_jumia'),
 ];
 
 class _DealsScreenState extends ConsumerState<DealsScreen> {
   final _scrollCtrl = ScrollController();
-  String _category = 'All';
+  String _category = '';  // '' = All (no filter)
   String? _country;
   String? _source;
 
@@ -72,9 +88,9 @@ class _DealsScreenState extends ConsumerState<DealsScreen> {
 
   Future<void> _refresh() => ref.read(dealsProvider.notifier).refresh();
 
-  void _setCategory(String cat) {
-    setState(() => _category = cat);
-    ref.read(dealsProvider.notifier).setCategory(cat == 'All' ? null : cat.toLowerCase());
+  void _setCategory(String apiKey) {
+    setState(() => _category = apiKey);
+    ref.read(dealsProvider.notifier).setCategory(apiKey.isEmpty ? null : apiKey);
   }
 
   void _setCountry(String? code) {
@@ -240,12 +256,12 @@ class _CategoryBar extends StatelessWidget {
         itemCount: _categoryKeys.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (_, i) {
-          final (key, strKey) = _categoryKeys[i];
-          final active = key == selected;
+          final (apiKey, strKey) = _categoryKeys[i];
+          final active = apiKey == selected;
           return FilterChip(
             label: Text(context.s(strKey)),
             selected: active,
-            onSelected: (_) => onSelect(key),
+            onSelected: (_) => onSelect(apiKey),
             showCheckmark: false,
           );
         },

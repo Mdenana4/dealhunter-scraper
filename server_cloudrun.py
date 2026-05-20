@@ -550,6 +550,7 @@ def list_deals() -> Response:
         # Parse parameters
         source = sanitize_string(request.args.get("source", ""), 50)
         category = sanitize_string(request.args.get("category", ""), 50)
+        country = sanitize_string(request.args.get("country", ""), 10)
         min_discount = get_int_param("min_discount", Config.MIN_DISCOUNT, 0, 100)
         max_price = get_float_param("max_price", 0, 0, 9999999)
         search_query = sanitize_string(request.args.get("search", ""), 200)
@@ -569,16 +570,34 @@ def list_deals() -> Response:
         sort_column = allowed_sort.get(sort_by, "discount_percent")
         sort_direction = "DESC" if sort_order.lower() == "desc" else "ASC"
 
+        # Category alias expansion — broad UI labels → exact DB category names
+        _CAT_ALIASES: Dict[str, tuple] = {
+            "fashion":   ("mens_fashion", "womens_fashion", "shoes", "watches", "bags"),
+            "home":      ("home_kitchen", "furniture"),
+            "toys":      ("baby", "gaming"),
+            "clothing":  ("mens_fashion", "womens_fashion"),
+        }
+
         # Build query — use COALESCE so query works even if is_active column is missing
         conditions = ["discount_percent >= %s", "COALESCE(is_active, TRUE) = TRUE"]
         params: List[Any] = [min_discount]
 
         if source:
-            conditions.append("site = %s")
-            params.append(source)
+            # source can be 'amazon', 'noon', 'jumia' (partial) or full 'amazon_eg'
+            conditions.append("site ILIKE %s")
+            params.append(f"%{source}%")
         if category:
-            conditions.append("category = %s")
-            params.append(category)
+            if category in _CAT_ALIASES:
+                placeholders = ",".join(["%s"] * len(_CAT_ALIASES[category]))
+                conditions.append(f"category IN ({placeholders})")
+                params.extend(_CAT_ALIASES[category])
+            else:
+                conditions.append("category = %s")
+                params.append(category)
+        if country:
+            # country = 'eg'|'ae'|'sa' — matches marketplace_country column
+            conditions.append("marketplace_country = %s")
+            params.append(country)
         if max_price > 0:
             conditions.append("current_price <= %s")
             params.append(max_price)
