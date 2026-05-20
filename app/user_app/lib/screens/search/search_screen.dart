@@ -75,7 +75,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 ),
                 const SizedBox(height: 24),
                 FilledButton(
-                  onPressed: () => context.go('/home/membership'),
+                  onPressed: () => ref.read(homeTabIndexProvider.notifier).state = 3,
                   child: Text(context.s('upgrade_now')),
                 ),
               ],
