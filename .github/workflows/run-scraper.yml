@@ -19,29 +19,54 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: API key status
+        run: |
+          echo "=== API key status ==="
+          if [ -z "${{ secrets.RAPIDAPI_KEY }}" ]; then
+            echo "WARNING: RAPIDAPI_KEY not set — Amazon scraping will be skipped"
+          else
+            echo "OK: RAPIDAPI_KEY set — Amazon scraping enabled"
+          fi
+          if [ -z "${{ secrets.SCRAPEDO_TOKEN }}" ]; then
+            echo "WARNING: SCRAPEDO_TOKEN not set — Jumia/Noon scraping will be skipped"
+          else
+            echo "OK: SCRAPEDO_TOKEN set — Jumia/Noon scraping enabled"
+          fi
+
       - name: Run scraper
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           SCRAPEDO_TOKEN: ${{ secrets.SCRAPEDO_TOKEN }}
           SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
           FIREBASE_CREDENTIALS_JSON: ${{ secrets.FIREBASE_CREDENTIALS_JSON }}
         run: python scraper.py
 
-      - name: Show results
+      - name: Show results (Firestore deal count)
         if: always()
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FIREBASE_CREDENTIALS_JSON: ${{ secrets.FIREBASE_CREDENTIALS_JSON }}
         run: |
-          python3 -c "
-          import psycopg2, os
-          url = os.environ['DATABASE_URL']
-          conn = psycopg2.connect(url)
-          cur = conn.cursor()
-          cur.execute('SELECT COUNT(*) FROM deals;')
-          print(f'Total deals in database: {cur.fetchone()[0]}')
-          cur.execute('SELECT site, COUNT(*) FROM deals GROUP BY site ORDER BY COUNT(*) DESC;')
-          for row in cur.fetchall():
-              print(f'  {row[0]}: {row[1]} deals')
-          conn.close()
-          "
+          python3 - <<'EOF'
+          import json, os, sys
+
+          creds_json = os.environ.get("FIREBASE_CREDENTIALS_JSON", "")
+          if not creds_json:
+              print("FIREBASE_CREDENTIALS_JSON not set — cannot show results")
+              sys.exit(0)
+
+          import firebase_admin
+          from firebase_admin import credentials, firestore
+
+          key = json.loads(creds_json)
+          cred = credentials.Certificate(key)
+          firebase_admin.initialize_app(cred)
+          db = firestore.client()
+
+          total = db.collection("deals").get()
+          print(f"Total deals in Firestore: {len(total)}")
+
+          from collections import Counter
+          site_counts = Counter(d.to_dict().get("site", "unknown") for d in total)
+          for site, count in site_counts.most_common():
+              print(f"  {site}: {count} deals")
+          EOF
