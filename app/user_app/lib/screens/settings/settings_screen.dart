@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -229,6 +230,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 trailing: IconButton(
                   icon: const Icon(Icons.copy_outlined),
                   onPressed: () {
+                    Clipboard.setData(
+                        ClipboardData(text: user.referralCode!));
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text(context.s('code_copied'))),
                     );
