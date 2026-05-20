@@ -1,11 +1,15 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/deal_model.dart';
 
+// Deals are read directly from Firestore (where the scraper writes).
+// The Cloud Run server is only used for search, verify, price history, alerts.
 const _baseUrl = 'https://dealhunter-server-q2rbodm3ta-uc.a.run.app';
 
 class ApiService {
   final Dio _dio;
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   ApiService()
       : _dio = Dio(
@@ -27,7 +31,6 @@ class ApiService {
         },
         onError: (err, handler) async {
           if (err.response?.statusCode == 401) {
-            // Token may have expired — force refresh and retry once
             try {
               final user = FirebaseAuth.instance.currentUser;
               if (user != null) {
@@ -37,9 +40,7 @@ class ApiService {
                 final resp = await _dio.fetch(opts);
                 return handler.resolve(resp);
               }
-            } catch (_) {
-              // Refresh failed — fall through to original error
-            }
+            } catch (_) {}
           }
           handler.next(err);
         },
@@ -47,40 +48,56 @@ class ApiService {
     );
   }
 
-  // ─── Deals ─────────────────────────────────────────────────────────────────
-  // NOTE: Only Amazon Egypt deals are shown to users. Other sources (Noon, Jumia)
-  // are still scraped for price history / fake deal detection, but not displayed.
+  // ─── Deals (Firestore) ─────────────────────────────────────────────────────
+  // Reads directly from the 'deals' Firestore collection (populated by scraper).
+  // 'source' maps to the 'site' field (e.g. 'amazon_eg', 'noon', 'jumia').
 
   Future<List<DealModel>> getDeals({
     String? category,
     String? country,
-    String? source = 'amazon_eg',  // Default: only Amazon Egypt deals
+    String? source = 'amazon_eg',
     String? marketplaceCountry,
     double minDiscount = 0,
     int page = 1,
     int limit = 30,
   }) async {
-    final resp = await _dio.get('/api/deals', queryParameters: {
-      if (category != null && category.isNotEmpty) 'category': category,
-      if (country != null) 'country': country,
-      if (source != null) 'source': source,
-      if (marketplaceCountry != null) 'marketplace_country': marketplaceCountry,
-      if (minDiscount > 0) 'min_discount': minDiscount,
-      'page': page,
-      'limit': limit,
-    });
-    final data = resp.data as Map<String, dynamic>;
-    final list = (data['deals'] as List?) ?? [];
-    return list
-        .map((e) => DealModel.fromJson(e as Map<String, dynamic>))
-        .toList();
+    Query<Map<String, dynamic>> q = _db.collection('deals');
+
+    final site = marketplaceCountry ?? source;
+    if (site != null && site.isNotEmpty) {
+      q = q.where('site', isEqualTo: site);
+    }
+    if (category != null && category.isNotEmpty) {
+      q = q.where('category', isEqualTo: category);
+    }
+    if (minDiscount > 0) {
+      q = q.where('discount_percent', isGreaterThanOrEqualTo: minDiscount.toInt());
+    }
+
+    q = q.orderBy('discount_percent', descending: true).limit(limit);
+
+    final snap = await q.get();
+    return snap.docs.map((doc) {
+      final data = Map<String, dynamic>.from(doc.data());
+      data['id'] = doc.id;
+      // 'source' in DealModel maps to 'site' field in Firestore
+      data['source'] = data['source'] ?? data['site'] ?? '';
+      data['store'] = data['store'] ?? data['site_display'] ?? data['site'] ?? '';
+      return DealModel.fromJson(data);
+    }).toList();
   }
 
   Future<DealModel> getDeal(String id) async {
-    final resp = await _dio.get('/api/deals/$id');
-    final data = resp.data as Map<String, dynamic>;
-    return DealModel.fromJson(data['deal'] as Map<String, dynamic>);
+    final doc = await _db.collection('deals').doc(id).get();
+    if (!doc.exists) throw Exception('Deal not found: $id');
+    final data = Map<String, dynamic>.from(doc.data()!);
+    data['id'] = doc.id;
+    data['source'] = data['source'] ?? data['site'] ?? '';
+    data['store'] = data['store'] ?? data['site_display'] ?? data['site'] ?? '';
+    return DealModel.fromJson(data);
   }
+
+  // ─── Search (Cloud Run) ────────────────────────────────────────────────────
 
   Future<List<DealModel>> search(
     String query, {
@@ -89,18 +106,36 @@ class ApiService {
     String? marketplaceCountry,
     int limit = 30,
   }) async {
-    final resp = await _dio.get('/api/search', queryParameters: {
-      'q': query,
-      if (category != null) 'category': category,
-      if (brand != null) 'brand': brand,
-      if (marketplaceCountry != null) 'marketplace_country': marketplaceCountry,
-      'limit': limit,
-    });
-    final data = resp.data as Map<String, dynamic>;
-    final list = (data['results'] as List?) ?? [];
-    return list
-        .map((e) => DealModel.fromJson(e as Map<String, dynamic>))
-        .toList();
+    try {
+      final resp = await _dio.get('/api/search', queryParameters: {
+        'q': query,
+        if (category != null) 'category': category,
+        if (brand != null) 'brand': brand,
+        if (marketplaceCountry != null) 'marketplace_country': marketplaceCountry,
+        'limit': limit,
+      });
+      final data = resp.data as Map<String, dynamic>;
+      final list = (data['results'] as List?) ?? [];
+      return list.map((e) => DealModel.fromJson(e as Map<String, dynamic>)).toList();
+    } catch (_) {
+      // Fall back to Firestore title search if server unavailable
+      final snap = await _db
+          .collection('deals')
+          .orderBy('discount_percent', descending: true)
+          .limit(limit)
+          .get();
+      final q = query.toLowerCase();
+      return snap.docs
+          .where((d) => (d.data()['title'] as String? ?? '').toLowerCase().contains(q))
+          .map((doc) {
+            final data = Map<String, dynamic>.from(doc.data());
+            data['id'] = doc.id;
+            data['source'] = data['source'] ?? data['site'] ?? '';
+            data['store'] = data['store'] ?? data['site_display'] ?? data['site'] ?? '';
+            return DealModel.fromJson(data);
+          })
+          .toList();
+    }
   }
 
   // ─── Verify ────────────────────────────────────────────────────────────────

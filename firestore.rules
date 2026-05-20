@@ -2,7 +2,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── Helper functions ────────────────────────────────────────────────────
     function isSignedIn() {
       return request.auth != null;
     }
@@ -11,28 +10,33 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
+    // Admin check uses email as document key (admin_users/user@email.com)
     function isAdmin() {
       return isSignedIn() &&
-        exists(/databases/$(database)/documents/admin_users/$(request.auth.uid));
+        exists(/databases/$(database)/documents/admin_users/$(request.auth.token.email));
     }
 
     // ── Admin users ─────────────────────────────────────────────────────────
-    match /admin_users/{uid} {
+    match /admin_users/{email} {
       allow read: if isAdmin();
-      allow write: if false; // managed via Firebase Console only
+      allow write: if false;
     }
 
     // ── Users ───────────────────────────────────────────────────────────────
-    // Each user can read/write their own document; admins can read all.
     match /users/{uid} {
       allow read: if isOwner(uid) || isAdmin();
       allow write: if isOwner(uid);
     }
 
-    // ── Deals ───────────────────────────────────────────────────────────────
+    // ── Deals — any signed-in user can read; scraper writes via service account
     match /deals/{dealId} {
       allow read: if isSignedIn();
-      allow write: if false; // backend service account only
+      allow write: if false;
+
+      match /price_history/{historyId} {
+        allow read: if isSignedIn();
+        allow write: if false;
+      }
     }
 
     // ── Products (price-tracker) ────────────────────────────────────────────
@@ -69,29 +73,35 @@ service cloud.firestore {
         (isSignedIn() && resource.data.user_id == request.auth.uid);
       allow delete: if isAdmin() ||
         (isSignedIn() && resource.data.user_id == request.auth.uid);
-      allow create, update: if false; // backend only
+      allow create, update: if false;
     }
 
     // ── Scraper health ──────────────────────────────────────────────────────
     match /scraper_health/{docId} {
-      allow read: if isSignedIn();
+      allow read: if isAdmin();
       allow write: if false;
     }
 
     // ── Sources (scraper config) ────────────────────────────────────────────
     match /sources/{sourceId} {
-      allow read: if isSignedIn();
+      allow read: if isAdmin();
       allow write: if isAdmin();
     }
 
-    // ── Groups ──────────────────────────────────────────────────────────────
-    match /groups/{groupId} {
-      allow read: if isSignedIn();
+    // ── User groups ─────────────────────────────────────────────────────────
+    match /user_groups/{groupId} {
+      allow read: if isAdmin();
       allow write: if isAdmin();
     }
 
     // ── Notification log ────────────────────────────────────────────────────
     match /notification_log/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // ── Notifications ───────────────────────────────────────────────────────
+    match /notifications/{docId} {
       allow read: if isAdmin();
       allow write: if false;
     }
@@ -117,6 +127,11 @@ service cloud.firestore {
     match /admin/{docId} {
       allow read: if isAdmin();
       allow write: if isAdmin();
+    }
+
+    // ── Deny everything else ────────────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }
