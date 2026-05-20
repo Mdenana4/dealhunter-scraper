@@ -108,9 +108,11 @@ class _DealsScreenState extends ConsumerState<DealsScreen> {
       );
       setState(() {
         _deals.addAll(docs);
-        _lastDoc  = last;
-        _hasMore  = docs.length == _pageSize;
-        _loading  = false;
+        _lastDoc = last;
+        // When last == null the service returned everything at once (filtered
+        // mode), so there are no more pages.
+        _hasMore = last != null && docs.length == _pageSize;
+        _loading = false;
       });
     } catch (e) {
       setState(() => _loading = false);

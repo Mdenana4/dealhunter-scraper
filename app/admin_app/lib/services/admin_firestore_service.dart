@@ -315,24 +315,55 @@ class AdminFirestoreService {
   // ─── DEALS ────────────────────────────────────────────────────────────────
 
   /// Paginated deal fetch. Returns (docs, lastDocument) for cursor-based paging.
+  ///
+  /// When filters are active we skip Firestore's orderBy to avoid requiring
+  /// composite indexes (which need Datastore Owner permissions to create).
+  /// Results are sorted by timestamp client-side after fetching.
   Future<(List<Map<String, dynamic>>, DocumentSnapshot?)> getDeals({
     String? source,
     String? category,
     DocumentSnapshot? startAfter,
     int limit = 30,
   }) async {
-    // Equality filters must come before orderBy to use composite indexes.
+    final hasFilter = source != null || category != null;
     Query<Map<String, dynamic>> q = _db.collection('deals');
+
     if (source != null)   q = q.where('site',     isEqualTo: source);
     if (category != null) q = q.where('category', isEqualTo: category);
-    q = q.orderBy('timestamp', descending: true);
-    if (startAfter != null) q = q.startAfterDocument(startAfter);
-    q = q.limit(limit);
+
+    if (!hasFilter) {
+      // No filter: server-side orderBy + cursor pagination.
+      // The default single-field index on timestamp handles this.
+      q = q.orderBy('timestamp', descending: true);
+      if (startAfter != null) q = q.startAfterDocument(startAfter);
+      q = q.limit(limit);
+    } else {
+      // Filtered: equality-only queries use auto-created single-field indexes
+      // — no composite index needed. Load all matching docs at once (up to
+      // 500) and sort client-side. With a few hundred deals this is fast.
+      q = q.limit(500);
+    }
 
     final snap = await q.get();
-    final docs = snap.docs
+    var docs = snap.docs
         .map((d) => <String, dynamic>{'id': d.id, ...d.data()})
         .toList();
+
+    if (hasFilter) {
+      docs.sort((a, b) {
+        final ta = a['timestamp'];
+        final tb = b['timestamp'];
+        if (ta == null && tb == null) return 0;
+        if (ta == null) return 1;
+        if (tb == null) return -1;
+        final sa = ta is Timestamp ? ta.millisecondsSinceEpoch : 0;
+        final sb = tb is Timestamp ? tb.millisecondsSinceEpoch : 0;
+        return sb.compareTo(sa);
+      });
+      // Return all at once so the screen knows there are no more pages.
+      return (docs, null);
+    }
+
     final last = snap.docs.isNotEmpty ? snap.docs.last : null;
     return (docs, last);
   }
