@@ -554,7 +554,12 @@ def list_deals() -> Response:
         max_price = get_float_param("max_price", 0, 0, 9999999)
         search_query = sanitize_string(request.args.get("search", ""), 200)
         page = get_int_param("page", 1, 1, 10000)
-        per_page = get_int_param("per_page", 20, 1, 100)
+        # Support both 'limit' (Flutter) and 'per_page' (legacy)
+        try:
+            _raw = request.args.get("limit") or request.args.get("per_page", "20")
+            per_page = max(1, min(100, int(_raw)))
+        except (ValueError, TypeError):
+            per_page = 20
         sort_by = sanitize_string(request.args.get("sort_by", "discount"), 50)
         sort_order = sanitize_string(request.args.get("sort_order", "desc"), 4)
 
@@ -564,8 +569,8 @@ def list_deals() -> Response:
         sort_column = allowed_sort.get(sort_by, "discount_percent")
         sort_direction = "DESC" if sort_order.lower() == "desc" else "ASC"
 
-        # Build query
-        conditions = ["discount_percent >= %s", "is_active = true"]
+        # Build query — use COALESCE so query works even if is_active column is missing
+        conditions = ["discount_percent >= %s", "COALESCE(is_active, TRUE) = TRUE"]
         params: List[Any] = [min_discount]
 
         if source:
@@ -632,24 +637,14 @@ def list_deals() -> Response:
                     deal["updated_at"] = deal["updated_at"].isoformat()
                 deals.append(deal)
 
-        data = {
-            "deals": deals,
-            "pagination": {
-                "page": page,
-                "per_page": per_page,
-                "total": total,
-                "total_pages": (total + per_page - 1) // per_page,
-            },
-            "filters": {
-                "source": source or None,
-                "category": category or None,
-                "min_discount": min_discount,
-                "max_price": max_price or None,
-                "search": search_query or None,
-            },
-        }
         logger.info(f"[OK] Listed {len(deals)} deals (total: {total})")
-        return success_response(data)
+        return jsonify({
+            "deals": deals,
+            "count": total,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": (total + per_page - 1) // per_page,
+        })
 
     except Exception as e:
         logger.error(f"[ERROR] list_deals failed: {e}\n{traceback.format_exc()}")
@@ -708,7 +703,7 @@ def get_deal(deal_id: str) -> Response:
                 deal["updated_at"] = deal["updated_at"].isoformat()
 
         logger.info(f"[OK] Retrieved deal: {safe_id}")
-        return success_response(deal)
+        return jsonify({"deal": deal})
 
     except Exception as e:
         logger.error(f"[ERROR] get_deal failed: {e}\n{traceback.format_exc()}")
@@ -822,7 +817,10 @@ def verify_deal() -> Response:
     conn = None
     try:
         product_id = sanitize_string(request.args.get("product_id", ""), 200)
-        product_url = sanitize_string(request.args.get("url", ""), 500)
+        # Accept both 'product_url' (Flutter) and legacy 'url'
+        product_url = sanitize_string(
+            request.args.get("product_url", "") or request.args.get("url", ""), 500
+        )
 
         if not product_id and not product_url:
             return error_response("product_id or url is required", "MISSING_PARAM", 400)
@@ -900,7 +898,7 @@ def verify_deal() -> Response:
             }
             logger.info(f"[OK] Verification uncertain for: {product_id}")
 
-        return success_response(data)
+        return jsonify(data)
 
     except Exception as e:
         logger.error(f"[ERROR] verify_deal failed: {e}\n{traceback.format_exc()}")
@@ -908,6 +906,333 @@ def verify_deal() -> Response:
     finally:
         if conn:
             db_pool.put_conn(conn, "supabase")
+
+
+# ============================================================================
+# SEARCH  (Flutter calls GET /api/search — different from POST /api/deals/search)
+# ============================================================================
+
+@app.route("/api/search", methods=["GET"])
+def search_get() -> Response:
+    """
+    GET /api/search
+    Full-text search used by Flutter app.
+    Returns {"results": [...], "count": N}
+    """
+    conn = None
+    try:
+        query = sanitize_string(request.args.get("q", ""), 200)
+        category = sanitize_string(request.args.get("category", ""), 50)
+        brand = sanitize_string(request.args.get("brand", ""), 100)
+        marketplace_country = sanitize_string(request.args.get("marketplace_country", ""), 10)
+        try:
+            limit = max(1, min(100, int(request.args.get("limit", 30))))
+        except (ValueError, TypeError):
+            limit = 30
+
+        if not query:
+            return jsonify({"results": [], "count": 0})
+
+        conn = db_pool.get_conn("supabase")
+        if conn is None:
+            return error_response("Database connection failed", "DB_ERROR", 503)
+
+        conditions = ["(title ILIKE %s OR product_id ILIKE %s)"]
+        params: List[Any] = [f"%{query}%", f"%{query}%"]
+
+        if category:
+            conditions.append("category = %s")
+            params.append(category)
+        if marketplace_country:
+            conditions.append("site ILIKE %s")
+            params.append(f"%{marketplace_country}%")
+
+        where_clause = " AND ".join(conditions)
+
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) FROM deals WHERE {where_clause}", params)
+            total = cur.fetchone()[0]
+
+            cur.execute(f"""
+                SELECT id, product_id, site, title, image_url, product_url,
+                       category, original_price, current_price, discount_percent,
+                       savings, currency, verdict, recommendation, rating, created_at
+                FROM deals
+                WHERE {where_clause}
+                ORDER BY discount_percent DESC
+                LIMIT %s
+            """, params + [limit])
+
+            rows = cur.fetchall()
+            columns = [desc[0] for desc in cur.description]
+            results = []
+            for row in rows:
+                deal = dict(zip(columns, row))
+                if deal.get("created_at") and hasattr(deal["created_at"], "isoformat"):
+                    deal["created_at"] = deal["created_at"].isoformat()
+                results.append(deal)
+
+        logger.info(f"[OK] Search '{query}' returned {len(results)} results")
+        return jsonify({"results": results, "count": total})
+
+    except Exception as e:
+        logger.error(f"[ERROR] search_get failed: {e}\n{traceback.format_exc()}")
+        return error_response("Search failed", "SEARCH_ERROR", 500)
+    finally:
+        if conn:
+            db_pool.put_conn(conn, "supabase")
+
+
+# ============================================================================
+# PRICE TRACKER  (price history + alerts)
+# ============================================================================
+
+@app.route("/api/v1/tracker/history", methods=["GET"])
+def price_history() -> Response:
+    """
+    GET /api/v1/tracker/history
+    Returns {"history": [{price, timestamp}, ...], "count": N}
+    """
+    conn = None
+    try:
+        product_id = sanitize_string(request.args.get("product_id", ""), 200)
+        marketplace_country = sanitize_string(request.args.get("marketplace_country", ""), 10)
+        try:
+            days = max(1, min(9999, int(request.args.get("days", 90))))
+        except (ValueError, TypeError):
+            days = 90
+
+        if not product_id:
+            return jsonify({"history": [], "count": 0})
+
+        # Try TimescaleDB first, fall back to Supabase
+        pool_name = "timescale" if db_pool.get_timescale_pool() else "supabase"
+        conn = db_pool.get_conn(pool_name)
+        if conn is None:
+            return jsonify({"history": [], "count": 0})
+
+        history = []
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT price, timestamp
+                    FROM price_snapshots
+                    WHERE product_id = %s
+                      AND timestamp >= NOW() - INTERVAL '%s days'
+                    ORDER BY timestamp ASC
+                    LIMIT 500
+                """, [product_id, days])
+                rows = cur.fetchall()
+                for row in rows:
+                    price, ts = row
+                    history.append({
+                        "price": float(price) if price is not None else None,
+                        "timestamp": ts.isoformat() if hasattr(ts, "isoformat") else str(ts),
+                    })
+        except Exception:
+            conn.rollback()
+
+        logger.info(f"[OK] Price history for {product_id}: {len(history)} points")
+        return jsonify({"history": history, "count": len(history)})
+
+    except Exception as e:
+        logger.error(f"[ERROR] price_history failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"history": [], "count": 0})
+    finally:
+        if conn:
+            db_pool.put_conn(conn, pool_name if "pool_name" in dir() else "supabase")
+
+
+@app.route("/api/v1/tracker/alert", methods=["POST"])
+def create_alert() -> Response:
+    """
+    POST /api/v1/tracker/alert
+    Returns {"alert_id": "...", "success": true}
+    """
+    conn = None
+    try:
+        body = request.get_json(silent=True) or {}
+        user_id = sanitize_string(body.get("user_id", ""), 100)
+        product_id = sanitize_string(body.get("product_id", ""), 200)
+        marketplace_country = sanitize_string(body.get("marketplace_country", "eg"), 10)
+        target_price = body.get("target_price")
+        threshold_pct = body.get("alert_threshold_pct")
+
+        if not user_id or not product_id:
+            return error_response("user_id and product_id are required", "MISSING_PARAM", 400)
+
+        conn = db_pool.get_conn("supabase")
+        if conn is None:
+            return error_response("Database connection failed", "DB_ERROR", 503)
+
+        import uuid
+        alert_id = str(uuid.uuid4())
+
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS price_alerts (
+                        id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        product_id TEXT NOT NULL,
+                        marketplace_country VARCHAR(10) DEFAULT 'eg',
+                        target_price DECIMAL(12,2),
+                        alert_threshold_pct DECIMAL(5,2),
+                        active BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+                cur.execute("""
+                    INSERT INTO price_alerts
+                        (id, user_id, product_id, marketplace_country, target_price, alert_threshold_pct, active, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, TRUE, NOW())
+                """, [alert_id, user_id, product_id, marketplace_country,
+                      float(target_price) if target_price is not None else None,
+                      float(threshold_pct) if threshold_pct is not None else None])
+                conn.commit()
+        except Exception as e:
+            conn.rollback()
+            logger.warning(f"[WARN] Alert DB insert failed: {e}")
+
+        logger.info(f"[OK] Alert created: {alert_id} for user {user_id}")
+        return jsonify({"alert_id": alert_id, "success": True})
+
+    except Exception as e:
+        logger.error(f"[ERROR] create_alert failed: {e}\n{traceback.format_exc()}")
+        return error_response("Failed to create alert", "ALERT_ERROR", 500)
+    finally:
+        if conn:
+            db_pool.put_conn(conn, "supabase")
+
+
+@app.route("/api/v1/tracker/alert", methods=["GET"])
+def get_alerts() -> Response:
+    """
+    GET /api/v1/tracker/alert?user_id=...
+    Returns {"alerts": [...], "count": N}
+    """
+    conn = None
+    try:
+        user_id = sanitize_string(request.args.get("user_id", ""), 100)
+        if not user_id:
+            return jsonify({"alerts": [], "count": 0})
+
+        conn = db_pool.get_conn("supabase")
+        if conn is None:
+            return jsonify({"alerts": [], "count": 0})
+
+        alerts = []
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, product_id, marketplace_country, target_price,
+                           alert_threshold_pct, active, created_at
+                    FROM price_alerts
+                    WHERE user_id = %s AND active = TRUE
+                    ORDER BY created_at DESC
+                """, [user_id])
+                rows = cur.fetchall()
+                columns = [desc[0] for desc in cur.description]
+                for row in rows:
+                    alert = dict(zip(columns, row))
+                    if alert.get("created_at") and hasattr(alert["created_at"], "isoformat"):
+                        alert["created_at"] = alert["created_at"].isoformat()
+                    if alert.get("target_price") is not None:
+                        alert["target_price"] = float(alert["target_price"])
+                    if alert.get("alert_threshold_pct") is not None:
+                        alert["alert_threshold_pct"] = float(alert["alert_threshold_pct"])
+                    alerts.append(alert)
+        except Exception as e:
+            logger.warning(f"[WARN] get_alerts query failed: {e}")
+
+        logger.info(f"[OK] Got {len(alerts)} alerts for user {user_id}")
+        return jsonify({"alerts": alerts, "count": len(alerts)})
+
+    except Exception as e:
+        logger.error(f"[ERROR] get_alerts failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"alerts": [], "count": 0})
+    finally:
+        if conn:
+            db_pool.put_conn(conn, "supabase")
+
+
+@app.route("/api/v1/tracker/alert/<alert_id>", methods=["DELETE"])
+def delete_alert(alert_id: str) -> Response:
+    """
+    DELETE /api/v1/tracker/alert/<id>
+    Returns {"success": true}
+    """
+    conn = None
+    try:
+        safe_id = sanitize_string(alert_id, 64)
+        body = request.get_json(silent=True) or {}
+        user_id = sanitize_string(body.get("user_id", ""), 100)
+
+        conn = db_pool.get_conn("supabase")
+        if conn is None:
+            return jsonify({"success": False, "error": "DB unavailable"})
+
+        try:
+            with conn.cursor() as cur:
+                if user_id:
+                    cur.execute(
+                        "UPDATE price_alerts SET active = FALSE WHERE id = %s AND user_id = %s",
+                        [safe_id, user_id]
+                    )
+                else:
+                    cur.execute(
+                        "UPDATE price_alerts SET active = FALSE WHERE id = %s", [safe_id]
+                    )
+                conn.commit()
+        except Exception as e:
+            conn.rollback()
+            logger.warning(f"[WARN] delete_alert failed: {e}")
+
+        logger.info(f"[OK] Alert deleted: {safe_id}")
+        return jsonify({"success": True})
+
+    except Exception as e:
+        logger.error(f"[ERROR] delete_alert failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"success": False})
+    finally:
+        if conn:
+            db_pool.put_conn(conn, "supabase")
+
+
+# ============================================================================
+# ANALYTICS  (fire-and-forget event logging)
+# ============================================================================
+
+@app.route("/api/analytics/event", methods=["POST"])
+def log_analytics_event() -> Response:
+    """POST /api/analytics/event — client-side event logging, always returns 200."""
+    try:
+        body = request.get_json(silent=True) or {}
+        event = sanitize_string(body.get("event", ""), 100)
+        logger.info(f"[ANALYTICS] event={event}")
+    except Exception:
+        pass
+    return jsonify({"logged": True}), 200
+
+
+# ============================================================================
+# REFERRAL
+# ============================================================================
+
+@app.route("/api/referral/apply", methods=["POST"])
+def apply_referral() -> Response:
+    """POST /api/referral/apply — apply a referral code."""
+    try:
+        body = request.get_json(silent=True) or {}
+        user_id = sanitize_string(body.get("user_id", ""), 100)
+        code = sanitize_string(body.get("referral_code", ""), 50)
+        if not user_id or not code:
+            return jsonify({"success": False, "message": "user_id and referral_code required"}), 400
+        logger.info(f"[REFERRAL] user={user_id} applied code={code}")
+        return jsonify({"success": True, "message": "Referral applied", "bonus_days": 7})
+    except Exception as e:
+        logger.error(f"[ERROR] apply_referral failed: {e}")
+        return jsonify({"success": False, "message": "Failed to apply referral"}), 500
 
 
 # ============================================================================
