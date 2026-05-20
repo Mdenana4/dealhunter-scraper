@@ -1,0 +1,46 @@
+name: Run Scraper Now
+
+on:
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scraper
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+          SCRAPERDO_API_KEY: ${{ secrets.SCRAPERDO_API_KEY }}
+          FIREBASE_CREDENTIALS_JSON: ${{ secrets.FIREBASE_CREDENTIALS_JSON }}
+        run: python scraper.py
+
+      - name: Show results
+        if: always()
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python3 -c "
+          import psycopg2, os
+          url = os.environ['DATABASE_URL']
+          conn = psycopg2.connect(url)
+          cur = conn.cursor()
+          cur.execute('SELECT COUNT(*) FROM deals;')
+          print(f'Total deals in database: {cur.fetchone()[0]}')
+          cur.execute('SELECT site, COUNT(*) FROM deals GROUP BY site ORDER BY COUNT(*) DESC;')
+          for row in cur.fetchall():
+              print(f'  {row[0]}: {row[1]} deals')
+          conn.close()
+          "
