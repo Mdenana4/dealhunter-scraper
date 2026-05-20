@@ -310,7 +310,7 @@ class _DealTile extends StatelessWidget {
     final currency   = deal['currency']      as String? ?? '';
     final current    = (deal['current_price']  as num?)?.toDouble() ?? 0;
     final original   = (deal['original_price'] as num?)?.toDouble() ?? 0;
-    final discount   = (deal['discount']       as num?)?.toInt()    ?? 0;
+    final discount   = (deal['discount_percent'] as num?)?.toInt() ?? (deal['discount'] as num?)?.toInt() ?? 0;
     final imageUrl   = deal['image_url']     as String? ?? '';
     final isFake     = deal['fake_verdict']  == 'FAKE';
     final isManualFake = deal['manually_flagged'] == true;

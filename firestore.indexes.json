@@ -1,0 +1,163 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "deals",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "site",      "order": "ASCENDING"},
+        {"fieldPath": "timestamp", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "deals",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "category",  "order": "ASCENDING"},
+        {"fieldPath": "timestamp", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "deals",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "site",      "order": "ASCENDING"},
+        {"fieldPath": "category",  "order": "ASCENDING"},
+        {"fieldPath": "timestamp", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "deals",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "site",             "order": "ASCENDING"},
+        {"fieldPath": "discount_percent", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "deals",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "category",         "order": "ASCENDING"},
+        {"fieldPath": "discount_percent", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "deals",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "site",             "order": "ASCENDING"},
+        {"fieldPath": "category",         "order": "ASCENDING"},
+        {"fieldPath": "discount_percent", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "stripe_customer_id", "order": "ASCENDING"},
+        {"fieldPath": "referral_code",      "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "subscriptions",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "user_id", "order": "ASCENDING"},
+        {"fieldPath": "status",  "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "subscriptions",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "stripe_subscription_id", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "referrals",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "referrer_id", "order": "ASCENDING"},
+        {"fieldPath": "status",      "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "user_groups",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "owner_id",    "order": "ASCENDING"},
+        {"fieldPath": "created_at",  "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "price_history",
+      "queryScope": "CollectionGroup",
+      "fields": [
+        {"fieldPath": "timestamp", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "price_change_events",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "timestamp", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "price_change_events",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "marketplace_country", "order": "ASCENDING"},
+        {"fieldPath": "timestamp",           "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "price_change_events",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "marketplace", "order": "ASCENDING"},
+        {"fieldPath": "timestamp",   "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "price_change_events",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "country",   "order": "ASCENDING"},
+        {"fieldPath": "timestamp", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "products",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "marketplace_country", "order": "ASCENDING"},
+        {"fieldPath": "last_updated_at",     "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "products",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "scrape_priority", "order": "ASCENDING"},
+        {"fieldPath": "last_updated_at", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "price_alerts",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "product_doc_id", "order": "ASCENDING"},
+        {"fieldPath": "is_active",      "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "price_alerts",
+      "queryScope": "Collection",
+      "fields": [
+        {"fieldPath": "user_id",   "order": "ASCENDING"},
+        {"fieldPath": "is_active", "order": "ASCENDING"}
+      ]
+    }
+  ]
+}

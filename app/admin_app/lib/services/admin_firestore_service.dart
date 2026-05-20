@@ -321,12 +321,11 @@ class AdminFirestoreService {
     DocumentSnapshot? startAfter,
     int limit = 30,
   }) async {
-    Query<Map<String, dynamic>> q = _db
-        .collection('deals')
-        .orderBy('timestamp', descending: true);
-
+    // Equality filters must come before orderBy to use composite indexes.
+    Query<Map<String, dynamic>> q = _db.collection('deals');
     if (source != null)   q = q.where('site',     isEqualTo: source);
     if (category != null) q = q.where('category', isEqualTo: category);
+    q = q.orderBy('timestamp', descending: true);
     if (startAfter != null) q = q.startAfterDocument(startAfter);
     q = q.limit(limit);
 
