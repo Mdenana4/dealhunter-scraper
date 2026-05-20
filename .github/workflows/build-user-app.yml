@@ -49,12 +49,14 @@ jobs:
 
       - name: Find APK
         if: always()
-        run: find app/user_app/android/app/build -name "*.apk" 2>/dev/null || echo "No APK found"
+        run: find app/user_app -name "*.apk" 2>/dev/null || echo "No APK found"
 
       - name: Upload APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: user-app-release.apk
-          path: app/user_app/android/app/build/outputs/apk/release/app-release.apk
+          path: |
+            app/user_app/android/app/build/outputs/apk/release/app-release.apk
+            app/user_app/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: warn
