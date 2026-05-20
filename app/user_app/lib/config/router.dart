@@ -6,7 +6,7 @@ import '../screens/auth/login_screen.dart';
 import '../screens/deals/deal_detail_screen.dart';
 import '../screens/home/home_screen.dart';
 
-final appRouter = GoRouter(
+final GoRouter appRouter = GoRouter(
   initialLocation: '/home',
   errorBuilder: (context, state) => Scaffold(
     appBar: AppBar(title: const Text('Page not found')),
