@@ -45,12 +45,14 @@ jobs:
         run: |
           cd app/user_app/android
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease --stacktrace 2>&1
 
       - name: Find APK
+        if: always()
         run: find app/user_app/android/app/build -name "*.apk" 2>/dev/null || echo "No APK found"
 
       - name: Upload APK
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: user-app-release.apk
