@@ -100,38 +100,96 @@ def _notify_new_deals(inserted: int, max_discount: int = 0) -> None:
 _DEAL_SOURCES = {"amazon_eg", "noon_eg", "jumia_eg"}
 
 # URLs to scrape per source
+# Covers: today's deals, best sellers, category discount pages (40%+), flash sales
 _DEAL_URLS: Dict[str, List[str]] = {
     "amazon_eg": [
+        # Today's Deals & Flash Deals
         "https://www.amazon.eg/-/en/gp/goldbox",
-        "https://www.amazon.eg/s?k=deals",
+        # Best Sellers (all + key categories)
+        "https://www.amazon.eg/-/en/gp/bestsellers",
+        "https://www.amazon.eg/-/en/gp/bestsellers/electronics",
+        "https://www.amazon.eg/-/en/gp/bestsellers/fashion",
+        "https://www.amazon.eg/-/en/gp/bestsellers/home",
+        "https://www.amazon.eg/-/en/gp/bestsellers/sports",
+        "https://www.amazon.eg/-/en/gp/bestsellers/beauty",
+        "https://www.amazon.eg/-/en/gp/bestsellers/baby",
+        # Deals search by category
+        "https://www.amazon.eg/s?k=deals&i=electronics",
+        "https://www.amazon.eg/s?k=deals&i=fashion",
+        "https://www.amazon.eg/s?k=deals&i=home",
+        "https://www.amazon.eg/s?k=offers",
     ],
     "amazon_ae": [
         "https://www.amazon.ae/-/en/gp/goldbox",
-        "https://www.amazon.ae/s?k=deals",
+        "https://www.amazon.ae/-/en/gp/bestsellers",
+        "https://www.amazon.ae/-/en/gp/bestsellers/electronics",
+        "https://www.amazon.ae/-/en/gp/bestsellers/fashion",
+        "https://www.amazon.ae/-/en/gp/bestsellers/home",
+        "https://www.amazon.ae/-/en/gp/bestsellers/sports",
+        "https://www.amazon.ae/-/en/gp/bestsellers/beauty",
+        "https://www.amazon.ae/s?k=deals&i=electronics",
+        "https://www.amazon.ae/s?k=deals&i=fashion",
+        "https://www.amazon.ae/s?k=offers",
     ],
     "amazon_sa": [
         "https://www.amazon.sa/-/en/gp/goldbox",
-        "https://www.amazon.sa/s?k=deals",
+        "https://www.amazon.sa/-/en/gp/bestsellers",
+        "https://www.amazon.sa/-/en/gp/bestsellers/electronics",
+        "https://www.amazon.sa/-/en/gp/bestsellers/fashion",
+        "https://www.amazon.sa/-/en/gp/bestsellers/home",
+        "https://www.amazon.sa/-/en/gp/bestsellers/sports",
+        "https://www.amazon.sa/-/en/gp/bestsellers/beauty",
+        "https://www.amazon.sa/s?k=deals&i=electronics",
+        "https://www.amazon.sa/s?k=deals&i=fashion",
+        "https://www.amazon.sa/s?k=offers",
     ],
+    # Noon: pre-filtered to 40%+ discount + all key category pages
     "noon_eg": [
-        "https://www.noon.com/egypt-en/electronics-and-mobiles/",
-        "https://www.noon.com/egypt-en/fashion/",
-        "https://www.noon.com/egypt-en/home-and-kitchen/",
+        "https://www.noon.com/egypt-en/deals/",
+        "https://www.noon.com/egypt-en/electronics-and-mobiles/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/egypt-en/mobiles-and-accessories/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/egypt-en/fashion/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/egypt-en/home-and-kitchen/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/egypt-en/sports-and-outdoors/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/egypt-en/beauty-and-fragrance/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/egypt-en/baby-products/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/egypt-en/grocery/",
     ],
     "noon_ae": [
-        "https://www.noon.com/uae-en/electronics-and-mobiles/",
-        "https://www.noon.com/uae-en/fashion/",
-        "https://www.noon.com/uae-en/home-and-kitchen/",
+        "https://www.noon.com/uae-en/deals/",
+        "https://www.noon.com/uae-en/electronics-and-mobiles/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/uae-en/mobiles-and-accessories/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/uae-en/fashion/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/uae-en/home-and-kitchen/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/uae-en/sports-and-outdoors/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/uae-en/beauty-and-fragrance/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/uae-en/baby-products/?f%5Bdiscount_percent%5D%5B0%5D=40-",
     ],
     "noon_sa": [
-        "https://www.noon.com/saudi-en/electronics-and-mobiles/",
-        "https://www.noon.com/saudi-en/fashion/",
-        "https://www.noon.com/saudi-en/home-and-kitchen/",
+        "https://www.noon.com/saudi-en/deals/",
+        "https://www.noon.com/saudi-en/electronics-and-mobiles/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/saudi-en/mobiles-and-accessories/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/saudi-en/fashion/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/saudi-en/home-and-kitchen/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/saudi-en/sports-and-outdoors/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/saudi-en/beauty-and-fragrance/?f%5Bdiscount_percent%5D%5B0%5D=40-",
+        "https://www.noon.com/saudi-en/baby-products/?f%5Bdiscount_percent%5D%5B0%5D=40-",
     ],
     "jumia_eg": [
+        # Deals & Flash Sales
         "https://www.jumia.com.eg/deals-of-the-day/",
+        "https://www.jumia.com.eg/flash-sales/",
+        # Category pages (Jumia always shows discounts prominently)
         "https://www.jumia.com.eg/electronics/",
+        "https://www.jumia.com.eg/phones-tablets/",
+        "https://www.jumia.com.eg/tvs-audio-video/",
+        "https://www.jumia.com.eg/computing/",
         "https://www.jumia.com.eg/fashion/",
+        "https://www.jumia.com.eg/home-office/",
+        "https://www.jumia.com.eg/sports-fitness/",
+        "https://www.jumia.com.eg/beauty-perfumes-hair/",
+        "https://www.jumia.com.eg/baby-products/",
+        "https://www.jumia.com.eg/automotive/",
     ],
 }
 
@@ -1055,6 +1113,28 @@ class DealHunterScraper:
         if category not in _VALID_CATEGORIES:
             category = 'other'
 
+        # Currency per country
+        currency = {"eg": "EGP", "ae": "AED", "sa": "SAR"}.get(country, "EGP")
+
+        # Basic fake discount detection:
+        # Suspiciously high discounts (>75%) are flagged for later price-history review
+        disc_pct = discount["percent"]
+        fake_score = 0.0
+        verdict = "GENUINE"
+        fraud_reasons: List[str] = []
+        if disc_pct >= 85:
+            fake_score = 0.8
+            verdict = "SUSPICIOUS"
+            fraud_reasons.append(f"Unusually high discount ({disc_pct:.0f}%) — verify original price")
+        elif disc_pct >= 75:
+            fake_score = 0.4
+            verdict = "SUSPICIOUS"
+            fraud_reasons.append(f"Very high discount ({disc_pct:.0f}%) — price history needed to confirm")
+
+        recommendation = "buy_now" if disc_pct >= 50 and fake_score == 0 else (
+            "research_first" if fake_score > 0 else "good_deal"
+        )
+
         deal = {
             "id": make_deal_id(site, url, current),
             "product_id": "",
@@ -1065,16 +1145,18 @@ class DealHunterScraper:
             "category": category,
             "original_price": original,
             "current_price": current,
-            "discount_percent": discount["percent"],
+            "discount_percent": disc_pct,
             "savings": discount["savings"],
-            "currency": "EGP",
-            "verdict": "GENUINE",
-            "fake_score": 0.0,
-            "recommendation": "good_deal",
-            "confidence": 0.0,
-            "fraud_reasons": [],
+            "currency": currency,
+            "verdict": verdict,
+            "fake_score": fake_score,
+            "recommendation": recommendation,
+            "confidence": 0.5 if fake_score == 0 else 0.3,
+            "fraud_reasons": fraud_reasons,
             "rating": rating,
             "review_count": reviews,
+            "marketplace_country": country,
+            "is_active": True,
         }
         return deal
 
@@ -1384,7 +1466,169 @@ class DealHunterScraper:
         country: str,
         proxy: Optional[str] = None,
     ) -> List[dict]:
-        """Scrape a single Noon page."""
+        """Scrape a single Noon page using Playwright.
+        Noon is a React SPA — BeautifulSoup always gets 0 results.
+        Playwright renders the full page including JS-loaded products.
+        """
+        try:
+            from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+        except ImportError:
+            logger.warning("[WARN] Playwright not installed — Noon scraping skipped")
+            return []
+
+        deals: List[dict] = []
+        currency = {"eg": "EGP", "ae": "AED", "sa": "SAR"}.get(country, "EGP")
+        base_url = "https://www.noon.com"
+
+        try:
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu",
+                        "--disable-blink-features=AutomationControlled",
+                    ],
+                )
+                context = browser.new_context(
+                    user_agent=random.choice(_USER_AGENTS),
+                    viewport={"width": 1280, "height": 900},
+                    extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+                )
+                page = context.new_page()
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                    # Wait for any product card to appear
+                    try:
+                        page.wait_for_selector(
+                            '[data-qa="product-item"], .productPane, '
+                            'div[class*="sc-"][class*="box"], div[data-testid="product"]',
+                            timeout=20000,
+                        )
+                    except PWTimeout:
+                        logger.warning(f"[WARN] Noon product cards timeout on {url}")
+                    # Scroll half-way to trigger lazy loading
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
+                    page.wait_for_timeout(2500)
+
+                    # Extract all product data via JS — much faster than querying elements
+                    raw_products = page.evaluate("""
+                        () => {
+                            const results = [];
+                            const cards = document.querySelectorAll(
+                                '[data-qa="product-item"], .productPane, ' +
+                                'div[data-testid="product"], div[class*="card"] a[href*="/p/"]'
+                            );
+                            const seen = new Set();
+                            cards.forEach(card => {
+                                try {
+                                    const titleEl = card.querySelector(
+                                        '[data-qa="product-name"], h2, h3, ' +
+                                        'div[class*="name"], p[class*="title"], span[class*="title"]'
+                                    );
+                                    const title = titleEl ? titleEl.textContent.trim() : '';
+                                    if (!title) return;
+
+                                    const linkEl = card.querySelector('a[href*="/p/"]') ||
+                                                   card.querySelector('a[href*="/catalog/"]') ||
+                                                   (card.tagName === 'A' ? card : null);
+                                    const href = linkEl ? linkEl.getAttribute('href') : '';
+                                    if (!href || seen.has(href)) return;
+                                    seen.add(href);
+
+                                    const priceEl = card.querySelector(
+                                        '[data-qa="product-price"], strong[class*="amount"], ' +
+                                        'div[class*="price"] strong, span[class*="salePrice"], ' +
+                                        'div[class*="Amount"]'
+                                    );
+                                    const priceText = priceEl ? priceEl.textContent.trim() : '';
+
+                                    const origEl = card.querySelector(
+                                        'span[class*="oldPrice"], del, s, ' +
+                                        'span[class*="wasPrice"], span[class*="strikethrough"]'
+                                    );
+                                    const origText = origEl ? origEl.textContent.trim() : '';
+
+                                    const imgEl = card.querySelector('img');
+                                    const imgUrl = imgEl
+                                        ? (imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '')
+                                        : '';
+
+                                    const discEl = card.querySelector(
+                                        'span[class*="discount"], div[class*="discount"], ' +
+                                        'span[class*="percent"], span[class*="off"]'
+                                    );
+                                    const discText = discEl ? discEl.textContent.trim() : '';
+
+                                    results.push({ title, href, priceText, origText, imgUrl, discText });
+                                } catch(e) {}
+                            });
+                            return results;
+                        }
+                    """)
+
+                    logger.info(f"[NOON-PW] {url}: {len(raw_products)} raw products extracted")
+
+                    for item in raw_products:
+                        try:
+                            title = (item.get("title") or "").strip()
+                            if not title:
+                                continue
+                            href = item.get("href") or ""
+                            if href.startswith("http"):
+                                product_url = href
+                            else:
+                                product_url = f"{base_url}{href}"
+                            if "/p/" not in product_url and "/catalog/" not in product_url:
+                                continue
+
+                            current_price = self.price_cleaner.clean_price(item.get("priceText", ""))
+                            original_price = self.price_cleaner.clean_price(item.get("origText", ""))
+
+                            # Recover original price from discount badge if missing
+                            if original_price <= 0 and current_price > 0:
+                                m = re.search(r"(\d+)", item.get("discText", ""))
+                                if m:
+                                    pct = int(m.group(1))
+                                    if 0 < pct < 100:
+                                        original_price = round(current_price / (1 - pct / 100), 2)
+
+                            deal = self._build_deal(
+                                site=site,
+                                platform=platform,
+                                country=country,
+                                title=title,
+                                url=product_url,
+                                current_price=current_price,
+                                original_price=original_price if original_price > current_price else current_price,
+                                image_url=item.get("imgUrl", ""),
+                            )
+                            if deal:
+                                deals.append(deal)
+                        except Exception as exc:
+                            logger.debug(f"[DEBUG] Noon item parse error: {exc}")
+
+                except Exception as exc:
+                    logger.error(f"[ERROR] Noon page load failed {url}: {exc}")
+                finally:
+                    browser.close()
+
+        except Exception as exc:
+            logger.error(f"[ERROR] Playwright launch failed for Noon {country}: {exc}")
+
+        return deals
+
+    def _scrape_noon_page_bs4(
+        self,
+        url: str,
+        site: str,
+        platform: str,
+        country: str,
+        proxy: Optional[str] = None,
+    ) -> List[dict]:
+        """Legacy BeautifulSoup fallback — kept for reference but not called."""
         resp = self._fetch(url, proxy=proxy)
         if resp is None:
             return []
