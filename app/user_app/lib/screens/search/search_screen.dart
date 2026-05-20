@@ -111,7 +111,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       ),
       body: Column(
         children: [
-          // Category filter
+          // Category filter — (apiKey, strKey), apiKey sent directly to server
           SizedBox(
             height: 48,
             child: ListView(
@@ -129,17 +129,35 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                 ),
                 const SizedBox(width: 8),
                 for (final entry in [
-                  ('Electronics', 'cat_electronics'),
-                  ('Fashion', 'cat_fashion'),
-                  ('Home', 'cat_home'),
-                  ('Beauty', 'cat_beauty'),
-                  ('Sports', 'cat_sports'),
+                  ('electronics',   'cat_electronics'),
+                  ('smartphones',   'cat_smartphones'),
+                  ('laptops',       'cat_laptops'),
+                  ('headphones',    'cat_headphones'),
+                  ('tvs',           'cat_tvs'),
+                  ('cameras',       'cat_cameras'),
+                  ('gaming',        'cat_gaming'),
+                  ('mens_fashion',  'cat_mens_fashion'),
+                  ('womens_fashion','cat_womens_fashion'),
+                  ('shoes',         'cat_shoes'),
+                  ('watches',       'cat_watches'),
+                  ('bags',          'cat_bags'),
+                  ('home_kitchen',  'cat_home_kitchen'),
+                  ('furniture',     'cat_furniture'),
+                  ('beauty',        'cat_beauty'),
+                  ('skincare',      'cat_skincare'),
+                  ('perfume',       'cat_perfume'),
+                  ('sports',        'cat_sports'),
+                  ('baby',          'cat_baby'),
+                  ('books',         'cat_books'),
+                  ('automotive',    'cat_automotive'),
+                  ('pets',          'cat_pets'),
+                  ('grocery',       'cat_grocery'),
                 ]) ...[
                   FilterChip(
                     label: Text(context.s(entry.$2)),
-                    selected: _category == entry.$1.toLowerCase(),
+                    selected: _category == entry.$1,
                     onSelected: (_) {
-                      setState(() => _category = entry.$1.toLowerCase());
+                      setState(() => _category = entry.$1);
                       _search();
                     },
                     showCheckmark: false,

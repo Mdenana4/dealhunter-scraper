@@ -1144,8 +1144,8 @@ def get_alerts() -> Response:
         try:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT id, product_id, marketplace_country, target_price,
-                           alert_threshold_pct, active, created_at
+                    SELECT id AS alert_id, product_id, marketplace_country,
+                           target_price, alert_threshold_pct, active, created_at
                     FROM price_alerts
                     WHERE user_id = %s AND active = TRUE
                     ORDER BY created_at DESC
