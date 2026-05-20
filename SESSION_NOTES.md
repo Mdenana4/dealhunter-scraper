@@ -1,209 +1,270 @@
-# DealHunter Scraper — Session Notes
-**Date:** 2026-05-02  
-**Project:** `Mdenana4/dealhunter-scraper`  
-**Branch:** `claude/review-app-deployment-o70ke` → merged to `main`
+# DealHunter — Full Session Notes
+
+## Overview
+Complete record of all work done to get the DealHunter app system operational — CI/CD, mobile APK builds, Firebase admin access, Firestore rules, and database setup.
 
 ---
 
-## Summary
+## Architecture
 
-Full debug, fix, and infrastructure migration session for the DealHunter admin panel and backend.
+```
+User App (Flutter)
+  ├── Firebase Auth      → login / JWT token
+  ├── Firestore          → user profile, saved deals, membership tier
+  ├── Firebase FCM       → push notifications
+  └── Cloud Run Server   → deals data (reads from Supabase PostgreSQL)
 
----
+Admin App (Flutter)
+  ├── Firebase Auth      → admin login
+  └── Firestore          → all admin data (sources, deals, users, scraper health)
 
-## Root Causes Found & Fixed
+Scraper (Python)
+  └── Writes deals → Supabase PostgreSQL → Server reads → App displays
+```
 
-### 1. Login Completely Broken — "429 Quota exceeded"
-**Root cause:** `admin_stats()` called `db.collection('deals').stream()` (ALL deals) + `db.collection('users').stream()` (ALL users) on every request. Monitor page polled every 60 seconds = **400,000+ Firestore reads/day** against a 50,000/day free-tier limit. Once quota exhausted, every Firestore call including login failed with 429.
-
-**Fixes applied:**
-- `server.py`: Load `admin_users` into memory at startup (`_admin_cache`), refresh hourly — login now needs **zero Firestore reads**
-- `server.py`: Cache stats response for 5 minutes (`_stats_cache`)
-- `admin.html`: Reduce stats polling from 60s → 300s
-- `admin.html`: Add localStorage session cache — valid for 4 hours, skips check-auth on repeated page loads
-
-### 2. Server Using verify_id_token → Firebase API Quota
-**Root cause:** Old `check-auth` endpoint called `fb_auth.verify_id_token()` which hits Google's `identitytoolkit.googleapis.com` — a separate quota from Firestore.
-
-**Fix:** `_uid_email_from_token()` — pure local JWT base64 decode, zero network calls, zero quota usage.
-
-### 3. Admin Stats 500 Error
-**Root cause:** `deals.index(d)` — Python `list.index()` compares dict objects containing Firestore Timestamp values; always throws ValueError.
-
-**Fix:** Store `_doc_id` inside each deal dict during stream, extract cleanly at end.
-
-### 4. Revenue Endpoint 500 — `list.index(x): x not in list`
-**Root cause:** `['free','trial','premium','vip'].index(tier)` crashes when tier value is empty string or unknown name.
-
-**Fix:** Safe `_tier_rank()` function with try/except.
-
-### 5. Logs Endpoint 500
-**Root cause:** `order_by('timestamp')` on `admin_logs` collection fails when collection is new/empty (Firestore index not yet built).
-
-**Fix:** Try ordered fetch, fall back to unordered, sort in Python.
-
-### 6. Offers Endpoint 500
-**Root cause:** `order_by('timestamp').where('site', '==', source)` requires a Firestore composite index that was never created.
-
-**Fix:** Fetch with order only, filter by source/category in Python.
-
-### 7. Proxy PATCH 500
-**Root cause:** Firestore `update()` fails with NOT_FOUND if document doesn't exist.
-
-**Fix:** Changed to `set(merge=True)` which creates or updates.
-
-### 8. Team Tab "Error loading team"
-**Root cause:** `m.role.toUpperCase()` throws TypeError when `role` field is missing from Firestore admin_users document.
-
-**Fix:** Null-safe rendering: `(m.role || 'admin').toUpperCase()` for all fields.
-
-### 9. Duplicate Function Name Breaking Daily Limit Save
-**Root cause:** Two functions named `updateDailyLimit` — second (modal helper) overwrote first (API call function).
-
-**Fix:** Renamed modal helper to `syncAddUserLimit()`.
-
-### 10. Tier Pricing Reading Wrong Collection
-**Root cause:** Frontend wrote to `tier_config` but `admin_tiers` read from `tiers`.
-
-**Fix:** `admin_tiers()` tries `tier_config` first, falls back to `tiers`.
-
-### 11. Notifications Saved Twice
-**Root cause:** `saveNotif()` in admin.html called `dbp('notifications', ...)` AND then called the server endpoint which also saved to Firestore.
-
-**Fix:** Removed client-side `dbp` save; server handles both FCM + Firestore.
-
-### 12. Source Filter Showing Only 3 Sites
-**Root cause:** `while(sel.options.length>3) sel.remove(3)` removed all Egypt/UAE/Saudi static options.
-
-**Fix:** Use `data-custom='1'` attribute to only remove dynamically-added options.
-
-### 13. Render Never Deployed Code
-**Root cause:** GitHub Actions workflow required `RENDER_DEPLOY_HOOK` secret (not configured). Render's native GitHub integration also not connected. `autoDeploy: true` in render.yaml has no effect without integration.
-
-**Status:** User upgraded Render plan + Firebase to Blaze.
-
-### 14. Railway Health Check Failing
-**Root cause:** Railway assigns dynamic `PORT` env var. App was hardcoded to listen on port 5000. Railway health checker hit its assigned port, got nothing, killed container.
-
-**Fix:** `server.py` reads `PORT = int(os.getenv('PORT', 5000))`. `start.sh` passes `PORT` through. Dockerfile sets `ENV PORT=5000` as default.
-
-### 15. Railway Firebase Credentials Not Found
-**Root cause:** User set env var as `FIREBASE_CREDENTIALS_JSON` but code expected `FIREBASE_KEY_JSON`.
-
-**Fix:** Code now accepts `FIREBASE_KEY_JSON`, `FIREBASE_CREDENTIALS_JSON`, or `FIREBASE_SERVICE_ACCOUNT_JSON` — whichever is set.
+**Firebase project:** `dealhunter-admin-prod`
+**Supabase project:** `dealhunter-prices` (ID: `rmkaljwjskxihkuvxosc`, region: eu-west-1)
+**Backend server:** `https://dealhunter-server-q2rbodm3ta-uc.a.run.app`
 
 ---
 
-## Architecture Changes
+## 1. CI/CD — Admin APK Build (FIXED ✓)
 
-### Infrastructure Migration
-- **From:** Render Free → **To:** Render Paid ($7/mo) + Railway Hobby ($5/mo)
-- **Database:** Firebase Spark (50K reads/day) → **Firebase Blaze** (pay-per-use, no limits)
-- **Auto-deploy:** GitHub push to `main` → Railway auto-deploys
+**File:** `.github/workflows/build.yml`
 
-### New Server-Side Features Added
-- `_uid_email_from_token()` — local JWT decode, no Firebase API calls
-- `_admin_cache` — in-memory admin users cache, refreshes hourly
-- `_stats_cache` — 5-minute stats cache
-- `_log_event()` — structured logging to Firestore `admin_logs` collection
-- Global exception handler — catches all 500s and logs them
-- `/api/v1/admin/logs` — returns recent error logs
-- `/api/v1/admin/alarms` — real-time health alarms
-- `/api/v1/admin/revenue` — financial dashboard data
-- `/api/v1/admin/country-pricing` — per-country pricing management
-- `/api/v1/notifications/send` — FCM topic/token push with Firestore save
-- Generic Firestore proxy — `GET/POST/PATCH/PUT/DELETE /api/v1/admin/db/<collection>[/<doc_id>]`
+### Root Causes Fixed
+| Error | Fix |
+|---|---|
+| `Gradle build failed to produce an .apk file` (268s timeout) | Replace `flutter build apk` with `./gradlew assembleRelease` directly |
+| `FLUTTER_HOME` env var empty | Use `$FLUTTER_ROOT` (what `subosito/flutter-action@v2` exports) |
+| `chmod: cannot access 'gradlew'` | Downloaded `gradlew` + `gradle-wrapper.jar` from Gradle v8.13 GitHub release |
+| `ReleaseMinSdkCheck FAILED` | `minSdk 21` → `minSdk 23` |
+| Gradle 8.13 warning | `gradle-8.13-bin.zip` → `gradle-8.14-bin.zip` |
+| Kotlin 2.0.0 detected instead of 2.2.20 | Added `org.jetbrains.kotlin.android version "2.2.20" apply false` to settings.gradle |
 
-### New Admin Panel Features Added
-- Revenue tab with MRR, tier breakdown, tier change history
-- Logs tab with error viewer and stack traces
-- Alarm banner on Monitor page
-- Bulk user tier change (select multiple → apply tier)
-- Country pricing editor (Egypt EGP, Saudi SAR, UAE AED, Kuwait KWD, Qatar QAR)
-- Membership overrides table in Pricing tab
-- localStorage session cache (4-hour, survives page reloads)
-- Fallback login path using Firestore client SDK direct read
+### Key Build Config — `app/admin_app/android/app/build.gradle`
+```groovy
+plugins {
+    id "com.android.application"
+    id "dev.flutter.flutter-gradle-plugin"
+    id "com.google.gms.google-services"
+}
+android {
+    namespace "com.dealhunter.admin"
+    compileSdk 35
+    defaultConfig {
+        applicationId "com.dealhunter.admin"
+        minSdk 23
+        targetSdk 35
+        multiDexEnabled true
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+```
+
+### Workflow Build Step
+```yaml
+- name: Create local.properties
+  run: |
+    echo "flutter.sdk=$FLUTTER_ROOT" > app/admin_app/android/local.properties
+    echo "sdk.dir=$ANDROID_SDK_ROOT"  >> app/admin_app/android/local.properties
+
+- name: Build APK
+  run: |
+    cd app/admin_app/android
+    chmod +x gradlew
+    ./gradlew assembleRelease
+```
 
 ---
 
-## Pending Issues (Still Open)
+## 2. CI/CD — User APK Build (FIXED ✓)
 
-| Issue | Root Cause | Status |
-|---|---|---|
-| Amazon/Jumia deals not updated | Scraper may be blocked or hitting old URLs | Not fixed |
-| Noon scraper returns 0 deals | Scraper endpoint/selectors broken | Not fixed |
-| Team add/edit/delete | Server endpoints may be missing POST/PATCH/DELETE | Under investigation |
-| Tier add/edit modals | `openTierModal()` / `openTierEditModal()` JS may not call correct endpoint | Under investigation |
-| Country pricing "Loading..." | `loadTierPricing()` → `renderCountryPricing()` chain needs verification | Under investigation |
-| FCM notifications delivery | Users not subscribed to FCM topics in mobile app | Needs mobile app fix |
-| Deal fake-checker from deals list | No "open deal" modal/route in current admin panel | Missing feature |
-| Revenue Excel export | Feature not implemented | Missing feature |
-| Dashboard user/revenue stats | Partial — needs country breakdown, login count | Partially implemented |
+**File:** `.github/workflows/build-user-app.yml`
+
+### Root Causes Fixed
+| Error | Fix |
+|---|---|
+| `checkReleaseAarMetadata FAILED` | `compileSdk 35` → `compileSdk 36`, added `ndkVersion "28.2.13676358"` |
+| `processReleaseMainManifest FAILED` | `minSdk 23` → `minSdk 24` (shared_preferences_android requirement) |
+| APK not found after successful build | Broadened find path to `app/user_app/**` + added `if: always()` to Find/Upload steps |
+
+### Key Build Config — `app/user_app/android/app/build.gradle`
+```groovy
+android {
+    namespace "com.dealhunter.app"
+    compileSdk 36
+    ndkVersion "28.2.13676358"
+    defaultConfig {
+        applicationId "com.dealhunter.app"
+        minSdk 24
+        targetSdk 35
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+```
 
 ---
 
-## Key Files
+## 3. Scraper Fixes
+
+### Jumia Price History Discovery (FIXED ✓)
+**File:** `price_history_system.py` line ~665
+
+**Problem:** Was only discovering discounted products (URL had `?sort=discountPercent&type=lowest-price` filter)
+**Fix:** Removed the filter so ALL products are tracked for price history
+```python
+# Before
+url = f"https://{domain}/{kw}?sort=discountPercent&type=lowest-price"
+# After
+url = f"https://{domain}/{kw}"  # collect all prices for history
+```
+
+### Amazon Saudi Re-enabled (FIXED ✓)
+**File:** `scraper.py`
+
+**Problem:** Suspended due to scraper.do geo limitation
+**Fix:** Now uses RapidAPI directly (supports SA natively, no proxy needed)
+```python
+def scrape_amazon_sa():
+    return _scrape_amazon_via_api(
+        country="SA",
+        marketplace_country="amazon_sa",
+        site_display="Amazon Saudi",
+        currency="SAR",
+    )
+```
+
+---
+
+## 4. Firebase Admin Login (FIXED ✓)
+
+### The Login Flow
+The admin app does TWO checks:
+1. Firebase Authentication — valid email + password
+2. Firestore `admin_users` — document ID must match `request.auth.token.email`
+
+### Admin Credentials
+| | |
+|---|---|
+| **Email** | `mansy4@gmail.com` |
+| **Password** | `Admin@123` |
+
+### Firestore Documents Created
+- `admin_users/mansy4@gmail.com` — email-keyed (required by deployed rules)
+- `admin_users/tyNnlDRvsRWYbeAli4KCxhd2h8L2` — UID-keyed (backup)
+
+---
+
+## 5. Firestore Security Rules (ACTION REQUIRED ⚠️)
+
+### Problem
+The deployed rules only cover `users`, `deals`, `notifications`, `admin_users`. All other collections (`sources`, `scraper_health`, `notification_log`, etc.) are blocked by a catch-all deny rule.
+
+### Fix
+Go to **Firebase Console → dealhunter-admin-prod → Firestore → Rules tab → delete everything → paste below → click Publish:**
+
+```javascript
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null &&
+             exists(/databases/$(database)/documents/admin_users/$(request.auth.token.email));
+    }
+    function isOwner() {
+      let admin = get(/databases/$(database)/documents/admin_users/$(request.auth.token.email));
+      return admin != null && admin.data.role == 'owner';
+    }
+    match /admin_users/{email} { allow read: if isAdmin(); allow write: if isOwner(); }
+    match /users/{uid} { allow read, write: if isAdmin(); }
+    match /deals/{id} { allow read, write: if isAdmin(); }
+    match /sources/{id} { allow read, write: if isAdmin(); }
+    match /scraper_health/{id} { allow read, write: if isAdmin(); }
+    match /notification_log/{id} { allow read, write: if isAdmin(); }
+    match /notifications/{id} { allow read, write: if isAdmin(); }
+    match /user_groups/{id} { allow read, write: if isAdmin(); }
+    match /scraper_control/{id} { allow read, write: if isAdmin(); }
+    match /analytics_events/{id} { allow read: if isAdmin(); allow write: if false; }
+    match /price_change_events/{id} { allow read: if isAdmin(); allow write: if false; }
+    match /products/{id} { allow read: if isAdmin(); allow write: if false; }
+    match /{document=**} { allow read, write: if false; }
+  }
+}
+```
+
+---
+
+## 6. User App "No Deals Found" (PENDING ⚠️)
+
+### Root Cause
+Supabase database is empty — the scraper has never run against production.
+
+### What needs to happen
+1. Get Supabase `DATABASE_URL` (with real password) — reset in Supabase → Project Settings → Database
+2. Get `RAPIDAPI_KEY` — from RapidAPI dashboard
+3. Get `SCRAPERDO_API_KEY` (optional — for Jumia/Noon)
+4. Run scraper locally or trigger Cloud Run job
+
+### Scraper Schedule (when deployed)
+- Deal scraper: Cloud Run Job, every 6 hours (`0 */6 * * *`)
+- Price tracker: Cloud Run Job, every 8 hours (`0 */8 * * *`)
+
+### RapidAPI Key (provided)
+`3041e7da00be45828a61c399c063750ba0cb05219d0`
+
+---
+
+## 7. System Overview
+
+### System 1 — Price History + Fake Deal Detection
+- 24h background cycle: discovery → snapshots → analytics
+- Collects price history for ALL products (not just discounted ones)
+- Detects fake discounts by comparing current price vs 30-day history
+- Jumia: collects all categories, no discount filter
+
+### System 2 — Deal Collection (≥40% off)
+- Sources: Amazon Egypt, Amazon Saudi, Noon Egypt, Jumia Egypt
+- Amazon: RapidAPI (no proxy needed)
+- Jumia/Noon: scraper.do proxy
+- Minimum discount threshold: 40%
+
+### Push Notifications
+- FCM topic-based: `tier_vip`, `tier_premium`, `tier_free`
+- Per-user topics for price alerts
+- Admin app can send manual broadcasts
+
+### Deal Categories
+Electronics, Fashion, Home & Kitchen, Beauty, Sports, Books, Toys, Automotive, Health, Food & Grocery
+
+---
+
+## 8. Remaining TODO
+
+- [ ] Paste new Firestore rules in Firebase Console (fixes admin app scraper_health error)
+- [ ] Get Supabase password → reset in Supabase → Project Settings → Database → Reset password
+- [ ] Run scraper with DATABASE_URL + RAPIDAPI_KEY to populate deals
+- [ ] Verify Cloud Run server env vars are set (DATABASE_URL, FIREBASE_CREDENTIALS_JSON)
+- [ ] Set up GitHub Secrets for automated scraper deployment
+
+---
+
+## Key Files Reference
 
 | File | Purpose |
 |---|---|
-| `server.py` | Flask backend (~2500 lines) |
-| `admin.html` | Admin panel SPA (~3500 lines) |
-| `scraper.py` | Deal scraper (Amazon, Noon, Jumia, etc.) |
-| `fake_checker.py` | Fake deal detection logic |
-| `price_tracker.py` | Price history tracking |
-| `scraper_health.py` | Scraper health monitoring |
-| `start.sh` | Container startup (scraper + server) |
-| `Dockerfile` | Docker image definition |
-| `railway.json` | Railway deployment config |
-| `render.yaml` | Render deployment config |
-| `.github/workflows/deploy-render.yml` | GitHub Actions CI/CD |
-
----
-
-## Environment Variables Required
-
-| Variable | Description |
-|---|---|
-| `FIREBASE_KEY_JSON` | Firebase service account JSON (full content) |
-| `FLASK_ENV` | Set to `production` |
-| `CORS_ORIGINS` | Comma-separated allowed origins |
-| `SCRAPERAPI_KEY` | ScraperAPI key for scraping |
-
----
-
-## Firestore Collections Used
-
-| Collection | Purpose |
-|---|---|
-| `admin_users` | Admin panel users (email or uid as doc ID) |
-| `admin_logs` | Structured error/event logs |
-| `deals` | All scraped deals |
-| `users` | App users |
-| `tier_config` | Tier pricing and features |
-| `notifications` | Sent notifications history |
-| `user_groups` | User groups for shared plans |
-| `country_pricing` | Per-country price configs |
-| `tier_history` | Tier upgrade/downgrade audit trail |
-| `scraper_health` | Per-source scraper health stats |
-
----
-
-## Recommended Next Steps
-
-1. **Fix scraper selectors** for Amazon EG, Jumia, Noon — site layouts change and selectors break
-2. **Add Composite Firestore Indexes** for queries that need order_by + where
-3. **Mobile app FCM topic subscription** — app must call `subscribeToTopic("all_users")` on startup
-4. **Migrate to PostgreSQL** (Supabase) when ready — better for complex queries, no per-read quota
-5. **Add Excel export** for revenue and user data
-6. **Complete deal viewer modal** in admin panel
-
----
-
-## Scaling Recommendations
-
-| Phase | Users | Stack | Cost |
-|---|---|---|---|
-| Now | <10K | Railway + Firebase Blaze | ~$7/mo |
-| Phase 2 | 10K-100K | Railway + Supabase + Redis | ~$50/mo |
-| Phase 3 | 100K-1M | Google Cloud Run + Firestore Blaze + CloudFlare | ~$150/mo |
-| Phase 4 | 1M+ | AWS ECS + RDS + ElastiCache | ~$500+/mo |
+| `scraper.py` | Main deal scraper (Amazon, Noon, Jumia) |
+| `price_history_system.py` | Price history tracking + fake deal detection |
+| `server_cloudrun.py` | Backend API server (Flask, reads Supabase) |
+| `app/admin_app/` | Flutter admin app |
+| `app/user_app/` | Flutter user app |
+| `.github/workflows/build.yml` | Admin APK CI |
+| `.github/workflows/build-user-app.yml` | User APK CI |
+| `firestore.rules` | Firestore security rules (local copy) |
+| `firebase.json` | Firebase project config |
