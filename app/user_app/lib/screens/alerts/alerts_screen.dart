@@ -154,7 +154,7 @@ class _AlertTile extends StatelessWidget {
       confirmDismiss: (_) => _confirmDelete(context),
       onDismissed: (_) => onDelete(),
       child: ListTile(
-        onTap: () => context.go('/home/deal/$productId'),
+        onTap: () => context.go('/home'),
         leading: CircleAvatar(
           backgroundColor: cs.primaryContainer,
           child: Icon(Icons.notifications_active_outlined,
@@ -198,11 +198,14 @@ class _AlertTile extends StatelessWidget {
   }
 
   String _fmtPrice(dynamic price, String marketplace) {
-    final currency = marketplace.contains('_ae') ||
-            marketplace.contains('_sa') ||
-            marketplace.contains('_kw')
-        ? 'AED'
-        : 'EGP';
+    final String currency;
+    if (marketplace.contains('_sa')) {
+      currency = 'SAR';
+    } else if (marketplace.contains('_ae')) {
+      currency = 'AED';
+    } else {
+      currency = 'EGP';
+    }
     final n = NumberFormat('#,##0.##');
     return '${n.format(price)} $currency';
   }
