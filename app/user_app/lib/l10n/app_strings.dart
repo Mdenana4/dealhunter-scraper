@@ -34,6 +34,7 @@ class S {
       'cat_toys': 'Toys',
       'cat_books': 'Books',
       'cat_food': 'Food',
+      'cat_general': 'General',
 
       // Deals screen
       'no_deals': 'No deals found',
@@ -158,6 +159,7 @@ class S {
       'cat_toys': 'ألعاب',
       'cat_books': 'كتب',
       'cat_food': 'طعام',
+      'cat_general': 'عام',
 
       // Deals screen
       'no_deals': 'لا توجد عروض',

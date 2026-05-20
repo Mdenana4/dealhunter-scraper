@@ -41,9 +41,24 @@ class DealModel {
     required this.fraudReasons,
   });
 
+  static double _d(dynamic v) {
+    if (v == null) return 0.0;
+    if (v is double) return v;
+    if (v is int) return v.toDouble();
+    if (v is String) return double.tryParse(v) ?? 0.0;
+    return 0.0;
+  }
+
+  static int _i(dynamic v) {
+    if (v == null) return 0;
+    if (v is int) return v;
+    if (v is double) return v.toInt();
+    if (v is String) return int.tryParse(v) ?? (double.tryParse(v)?.toInt() ?? 0);
+    return 0;
+  }
+
   factory DealModel.fromJson(Map<String, dynamic> json) {
     final docId = json['id'] as String? ?? '';
-    // product_id is the raw ASIN/SKU; fall back to doc ID if missing
     final rawProductId = json['product_id'] as String? ??
         json['productId'] as String? ??
         docId;
@@ -53,16 +68,9 @@ class DealModel {
       title: json['title'] as String? ?? '',
       store: json['store'] as String? ?? json['source'] as String? ?? '',
       source: json['source'] as String? ?? '',
-      currentPrice: (json['current_price'] ?? json['currentPrice'] as num?)
-              ?.toDouble() ??
-          0.0,
-      originalPrice: (json['original_price'] ?? json['originalPrice'] as num?)
-              ?.toDouble() ??
-          0.0,
-      discountPercent:
-          (json['discount_percent'] ?? json['discountPercent'] as num?)
-                  ?.toInt() ??
-              0,
+      currentPrice: _d(json['current_price'] ?? json['currentPrice']),
+      originalPrice: _d(json['original_price'] ?? json['originalPrice']),
+      discountPercent: _i(json['discount_percent'] ?? json['discountPercent']),
       currency: json['currency'] as String? ?? 'EGP',
       imageUrl: json['image_url'] as String? ??
           json['imageUrl'] as String? ??
@@ -71,13 +79,11 @@ class DealModel {
           json['productUrl'] as String? ??
           '',
       category: json['category'] as String? ?? 'general',
-      rating: (json['rating'] as num?)?.toDouble() ?? 0.0,
+      rating: _d(json['rating']),
       verdict: json['verdict'] as String? ?? 'UNVERIFIED',
-      fakeScore: (json['fake_score'] ?? json['fakeScore'] as num?)
-              ?.toDouble() ??
-          0.0,
+      fakeScore: _d(json['fake_score'] ?? json['fakeScore']),
       recommendation: json['recommendation'] as String? ?? 'normal',
-      confidence: (json['confidence'] as num?)?.toDouble() ?? 0.0,
+      confidence: _d(json['confidence']),
       fraudReasons: (json['fraud_reasons'] ?? json['fraudReasons'] as List?)
               ?.map((e) => e.toString())
               .toList() ??

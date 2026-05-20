@@ -64,27 +64,56 @@ class ApiService {
     Query<Map<String, dynamic>> q = _db.collection('deals');
 
     final site = marketplaceCountry ?? source;
+    final hasFilter = (site != null && site.isNotEmpty) ||
+        (category != null && category.isNotEmpty);
+
     if (site != null && site.isNotEmpty) {
       q = q.where('site', isEqualTo: site);
     }
     if (category != null && category.isNotEmpty) {
       q = q.where('category', isEqualTo: category);
     }
-    if (minDiscount > 0) {
-      q = q.where('discount_percent', isGreaterThanOrEqualTo: minDiscount.toInt());
+
+    if (!hasFilter) {
+      // No equality filter — single-field index on discount_percent is enough.
+      q = q.orderBy('discount_percent', descending: true).limit(limit);
+    } else {
+      // With equality filters, orderBy('discount_percent') would need a
+      // composite index. Load all matching docs (≤500) and sort client-side.
+      q = q.limit(500);
     }
 
-    q = q.orderBy('discount_percent', descending: true).limit(limit);
-
     final snap = await q.get();
-    return snap.docs.map((doc) {
+    var docs = snap.docs.map((doc) {
       final data = Map<String, dynamic>.from(doc.data());
       data['id'] = doc.id;
-      // 'source' in DealModel maps to 'site' field in Firestore
       data['source'] = data['source'] ?? data['site'] ?? '';
       data['store'] = data['store'] ?? data['site_display'] ?? data['site'] ?? '';
-      return DealModel.fromJson(data);
+      return data;
     }).toList();
+
+    if (hasFilter) {
+      // Filter by minDiscount client-side.
+      if (minDiscount > 0) {
+        docs = docs.where((d) {
+          final dp = d['discount_percent'];
+          final v = dp is num ? dp.toDouble() : double.tryParse(dp?.toString() ?? '') ?? 0.0;
+          return v >= minDiscount;
+        }).toList();
+      }
+      // Sort by discount_percent descending client-side.
+      docs.sort((a, b) {
+        final da = (a['discount_percent'] as num?)?.toDouble() ?? 0.0;
+        final db = (b['discount_percent'] as num?)?.toDouble() ?? 0.0;
+        return db.compareTo(da);
+      });
+      // Apply page-based offset.
+      final offset = (page - 1) * limit;
+      if (offset >= docs.length) return [];
+      docs = docs.sublist(offset, (offset + limit).clamp(0, docs.length));
+    }
+
+    return docs.map((data) => DealModel.fromJson(data)).toList();
   }
 
   Future<DealModel> getDeal(String id) async {

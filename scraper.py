@@ -368,7 +368,7 @@ def detect_category(title):
         return "grocery"
     if re.search(r'book|novel|textbook|stationery|pen|notebook|pencil|magazine|dictionary|academic|study', t):
         return "books"
-    return None
+    return "general"
 
 
 # ─────────────────────────────────────────────────────

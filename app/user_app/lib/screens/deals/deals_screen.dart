@@ -18,7 +18,7 @@ const _categoryKeys = [
   ('Sports', 'cat_sports'),
   ('Toys', 'cat_toys'),
   ('Books', 'cat_books'),
-  // ('Food', 'cat_food'), // TODO: Add when grocery scraper is active
+  ('General', 'cat_general'),
 ];
 
 class DealsScreen extends ConsumerStatefulWidget {
