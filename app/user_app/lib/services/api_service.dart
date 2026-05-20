@@ -1,3 +1,4 @@
+import 'dart:math' show min;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:dio/dio.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -188,25 +189,45 @@ class ApiService {
     return resp.data as Map<String, dynamic>;
   }
 
-  // ─── Price history ─────────────────────────────────────────────────────────
+  // ─── Price history (Firestore) ─────────────────────────────────────────────
+  // Reads directly from products/{doc_id}/price_history subcollection.
+  // Same doc_id format as price_tracker.py: make_product_doc_id().
+
+  static String _productDocId(String marketplaceCountry, String productId) {
+    final safe = productId.trim().replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    final capped = safe.substring(0, min(80, safe.length));
+    return '${marketplaceCountry}_$capped';
+  }
 
   Future<List<Map<String, dynamic>>> getPriceHistory(
     String marketplaceCountry,
     String productId, {
     int days = 90,
   }) async {
-    final resp = await _dio.get('/api/v1/tracker/history', queryParameters: {
-      'marketplace_country': marketplaceCountry,
-      'product_id': productId,
-      'days': days,
-    });
-    final data = resp.data as Map<String, dynamic>;
-    return ((data['history'] as List?) ?? [])
-        .map((e) => e as Map<String, dynamic>)
-        .toList();
+    final docId = _productDocId(marketplaceCountry, productId);
+    final since = DateTime.now().subtract(Duration(days: days));
+
+    final snap = await _db
+        .collection('products')
+        .doc(docId)
+        .collection('price_history')
+        .where('timestamp', isGreaterThan: since)
+        .orderBy('timestamp')
+        .limit(1000)
+        .get();
+
+    return snap.docs.map((d) {
+      final data = Map<String, dynamic>.from(d.data());
+      final ts = data['timestamp'];
+      if (ts is Timestamp) {
+        data['timestamp'] = ts.toDate().toIso8601String();
+      }
+      return data;
+    }).toList();
   }
 
-  // ─── Alerts ────────────────────────────────────────────────────────────────
+  // ─── Alerts (Firestore) ────────────────────────────────────────────────────
+  // Reads/writes price_alerts collection directly — mirrors price_tracker.py schema.
 
   Future<String> createAlert({
     required String userId,
@@ -215,29 +236,52 @@ class ApiService {
     double? targetPrice,
     double? alertThresholdPct,
   }) async {
-    final resp = await _dio.post('/api/v1/tracker/alert', data: {
-      'user_id': userId,
-      'marketplace_country': marketplaceCountry,
-      'product_id': productId,
-      if (targetPrice != null) 'target_price': targetPrice,
-      if (alertThresholdPct != null) 'alert_threshold_pct': alertThresholdPct,
+    if (targetPrice == null && alertThresholdPct == null) {
+      throw ArgumentError('Provide targetPrice or alertThresholdPct.');
+    }
+    final docId = _productDocId(marketplaceCountry, productId);
+    final ref = _db.collection('price_alerts').doc();
+    await ref.set({
+      'user_id':              userId,
+      'product_doc_id':       docId,
+      'marketplace_country':  marketplaceCountry,
+      'product_id':           productId,
+      'target_price':         targetPrice,
+      'alert_threshold_pct':  alertThresholdPct,
+      'notification_channels': ['push', 'email'],
+      'is_active':            true,
+      'created_at':           DateTime.now().toUtc().toIso8601String(),
+      'last_alerted_at':      null,
     });
-    final data = resp.data as Map<String, dynamic>;
-    return data['alert_id'] as String? ?? '';
+    return ref.id;
   }
 
   Future<List<Map<String, dynamic>>> getAlerts(String userId) async {
-    final resp = await _dio.get('/api/v1/tracker/alert',
-        queryParameters: {'user_id': userId});
-    final data = resp.data as Map<String, dynamic>;
-    return ((data['alerts'] as List?) ?? [])
-        .map((e) => e as Map<String, dynamic>)
-        .toList();
+    final snap = await _db
+        .collection('price_alerts')
+        .where('user_id', isEqualTo: userId)
+        .where('is_active', isEqualTo: true)
+        .get();
+
+    return snap.docs.map((d) {
+      final data = Map<String, dynamic>.from(d.data());
+      data['alert_id'] = d.id;
+      // normalise Timestamp fields to ISO strings
+      for (final k in ['created_at', 'last_alerted_at']) {
+        final v = data[k];
+        if (v is Timestamp) data[k] = v.toDate().toIso8601String();
+      }
+      return data;
+    }).toList();
   }
 
   Future<void> deleteAlert(String alertId, String userId) async {
-    await _dio.delete('/api/v1/tracker/alert/$alertId',
-        data: {'user_id': userId});
+    // Soft-delete: set is_active=false (mirrors price_tracker.py delete_alert)
+    final ref = _db.collection('price_alerts').doc(alertId);
+    final doc = await ref.get();
+    if (doc.exists && doc.data()?['user_id'] == userId) {
+      await ref.update({'is_active': false});
+    }
   }
 
   // ─── Analytics ─────────────────────────────────────────────────────────────

@@ -49,11 +49,29 @@ class _DealHunterAppState extends ConsumerState<DealHunterApp> {
     // Request permission (required on iOS; harmless on Android 13+)
     await messaging.requestPermission();
 
-    // Subscribe to broadcast topic so the server can push "new deals" alerts
-    await messaging.subscribeToTopic('new_deals');
+    // Subscribe to deal broadcast topics. Scraper sends to tier_free/premium/vip.
+    // On first launch we subscribe to tier_free (≥60% off deals).
+    // The settings screen handles upgrading to premium/vip topics based on tier.
+    final prefs = await SharedPreferences.getInstance();
+    final notifEnabled = prefs.getBool('notifications_enabled') ?? true;
+    if (notifEnabled) {
+      await messaging.subscribeToTopic('tier_free');
+    }
 
     // Save token on refresh
     messaging.onTokenRefresh.listen(_saveFcmToken);
+
+    // When user logs in, subscribe to their personal price-alert topic.
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user != null) {
+        final prefs2 = SharedPreferences.getInstance();
+        prefs2.then((p) {
+          if (p.getBool('notifications_enabled') ?? true) {
+            messaging.subscribeToTopic('user_${user.uid}');
+          }
+        });
+      }
+    });
 
     // Try to get initial token (may be null if not granted yet)
     final token = await messaging.getToken();

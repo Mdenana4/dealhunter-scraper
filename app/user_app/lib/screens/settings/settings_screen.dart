@@ -74,13 +74,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _toggleNotifications(bool value) async {
+    final fcm = FirebaseMessaging.instance;
+
     if (value) {
-      final status = await FirebaseMessaging.instance.requestPermission();
+      // Request permission first; abort if denied.
+      final status = await fcm.requestPermission();
       if (status.authorizationStatus != AuthorizationStatus.authorized &&
           status.authorizationStatus != AuthorizationStatus.provisional) {
         return;
       }
+      // Subscribe to deal-broadcast topics + personal alert topic.
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final user = ref.read(currentUserProvider).valueOrNull;
+      final tier = user?.membership.tier ?? 'free';
+
+      await Future.wait([
+        fcm.subscribeToTopic('tier_free'),
+        if (tier == 'premium' || tier == 'vip') fcm.subscribeToTopic('tier_premium'),
+        if (tier == 'vip') fcm.subscribeToTopic('tier_vip'),
+        if (uid != null) fcm.subscribeToTopic('user_$uid'),
+      ]);
+    } else {
+      // Unsubscribe from all deal topics.
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      await Future.wait([
+        fcm.unsubscribeFromTopic('tier_free'),
+        fcm.unsubscribeFromTopic('tier_premium'),
+        fcm.unsubscribeFromTopic('tier_vip'),
+        if (uid != null) fcm.unsubscribeFromTopic('user_$uid'),
+      ]);
     }
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('notifications_enabled', value);
     if (mounted) setState(() => _notificationsEnabled = value);

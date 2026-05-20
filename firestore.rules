@@ -71,9 +71,14 @@ service cloud.firestore {
     match /price_alerts/{alertId} {
       allow read: if isAdmin() ||
         (isSignedIn() && resource.data.user_id == request.auth.uid);
+      // Users create their own alerts (user_id must match their uid).
+      allow create: if isSignedIn() &&
+        request.resource.data.user_id == request.auth.uid;
+      // Users can soft-delete (update is_active=false) their own alerts.
+      allow update: if isAdmin() ||
+        (isSignedIn() && resource.data.user_id == request.auth.uid);
       allow delete: if isAdmin() ||
         (isSignedIn() && resource.data.user_id == request.auth.uid);
-      allow create, update: if false;
     }
 
     // ── Scraper health ──────────────────────────────────────────────────────
