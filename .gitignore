@@ -19,3 +19,4 @@ build/
 *.jks
 *.keystore
 .claude/worktrees/
+firebase-debug.log
