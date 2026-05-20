@@ -1,0 +1,77 @@
+name: Run Scraper Now
+
+on:
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Warn about optional API keys
+        run: |
+          echo "=== API key status ==="
+          if [ -z "${{ secrets.RAPIDAPI_KEY }}" ]; then
+            echo "⚠️  RAPIDAPI_KEY not set — Amazon scraping will be skipped"
+          else
+            echo "✅ RAPIDAPI_KEY set — Amazon scraping enabled"
+          fi
+          if [ -z "${{ secrets.SCRAPEDO_TOKEN }}" ]; then
+            echo "⚠️  SCRAPEDO_TOKEN not set — Jumia/Noon scraping will be skipped"
+          else
+            echo "✅ SCRAPEDO_TOKEN set — Jumia/Noon scraping enabled"
+          fi
+          if [ -z "${{ secrets.SCRAPER_API_KEY }}" ]; then
+            echo "ℹ️  SCRAPER_API_KEY not set — ScraperAPI fallback disabled"
+          else
+            echo "✅ SCRAPER_API_KEY set — ScraperAPI fallback enabled"
+          fi
+
+      - name: Run scraper
+        env:
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+          SCRAPEDO_TOKEN: ${{ secrets.SCRAPEDO_TOKEN }}
+          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
+          FIREBASE_CREDENTIALS_JSON: ${{ secrets.FIREBASE_CREDENTIALS_JSON }}
+        run: python scraper.py
+
+      - name: Show results (Firestore deal count)
+        if: always()
+        env:
+          FIREBASE_CREDENTIALS_JSON: ${{ secrets.FIREBASE_CREDENTIALS_JSON }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, sys
+
+          creds_json = os.environ.get("FIREBASE_CREDENTIALS_JSON", "")
+          if not creds_json:
+              print("FIREBASE_CREDENTIALS_JSON not set — cannot show results")
+              sys.exit(0)
+
+          import firebase_admin
+          from firebase_admin import credentials, firestore
+
+          key = json.loads(creds_json)
+          cred = credentials.Certificate(key)
+          firebase_admin.initialize_app(cred)
+          db = firestore.client()
+
+          total = db.collection("deals").get()
+          print(f"Total deals in Firestore: {len(total)}")
+
+          from collections import Counter
+          site_counts = Counter(d.to_dict().get("site", "unknown") for d in total)
+          for site, count in site_counts.most_common():
+              print(f"  {site}: {count} deals")
+          EOF
