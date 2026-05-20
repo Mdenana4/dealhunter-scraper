@@ -22,37 +22,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check required secrets
-        id: check
-        run: |
-          if [ -z "$GCP_SA_KEY" ]; then
-            echo "::warning::GCP_SA_KEY secret not set — skipping GCP deploy. Add it at: Settings → Secrets → Actions"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-        env:
-          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
-
       - uses: actions/checkout@v4
-        if: steps.check.outputs.skip == 'false'
         with:
           fetch-depth: 1
 
       - uses: google-github-actions/auth@v2
-        if: steps.check.outputs.skip == 'false'
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          credentials_json: ${{ secrets.FIREBASE_CREDENTIALS_JSON }}
 
       - uses: google-github-actions/setup-gcloud@v2
-        if: steps.check.outputs.skip == 'false'
 
       - name: Configure Docker for GCR
-        if: steps.check.outputs.skip == 'false'
         run: gcloud auth configure-docker --quiet
 
       - name: Build server image
-        if: steps.check.outputs.skip == 'false'
         run: |
           docker build \
             -f Dockerfile.server \
@@ -60,17 +43,16 @@ jobs:
             .
 
       - name: Push server image
-        if: steps.check.outputs.skip == 'false'
         run: docker push gcr.io/${{ env.PROJECT_ID }}/dealhunter-server:latest
 
       - name: Deploy server to Cloud Run
-        if: steps.check.outputs.skip == 'false'
         run: |
           gcloud run deploy dealhunter-server \
             --image=gcr.io/${{ env.PROJECT_ID }}/dealhunter-server:latest \
             --region=${{ env.REGION }} \
             --platform=managed \
             --allow-unauthenticated \
+            --ingress=all \
             --port=8080 \
             --min-instances=0 \
             --max-instances=3 \
@@ -80,7 +62,6 @@ jobs:
             --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }},TIMESCALE_URL=${{ secrets.DATABASE_URL }},FLASK_ENV=production,MIN_DISCOUNT=40,FCM_SERVER_KEY=${{ secrets.FCM_SERVER_KEY }}"
 
       - name: Print server URL
-        if: steps.check.outputs.skip == 'false'
         run: |
           gcloud run services describe dealhunter-server \
             --region=${{ env.REGION }} \
@@ -92,37 +73,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check required secrets
-        id: check
-        run: |
-          if [ -z "$GCP_SA_KEY" ]; then
-            echo "::warning::GCP_SA_KEY secret not set — skipping GCP deploy. Add it at: Settings → Secrets → Actions"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-        env:
-          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
-
       - uses: actions/checkout@v4
-        if: steps.check.outputs.skip == 'false'
         with:
           fetch-depth: 1
 
       - uses: google-github-actions/auth@v2
-        if: steps.check.outputs.skip == 'false'
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          credentials_json: ${{ secrets.FIREBASE_CREDENTIALS_JSON }}
 
       - uses: google-github-actions/setup-gcloud@v2
-        if: steps.check.outputs.skip == 'false'
 
       - name: Configure Docker for GCR
-        if: steps.check.outputs.skip == 'false'
         run: gcloud auth configure-docker --quiet
 
       - name: Build scraper image
-        if: steps.check.outputs.skip == 'false'
         run: |
           docker build \
             -f Dockerfile.scraper \
@@ -130,11 +94,9 @@ jobs:
             .
 
       - name: Push scraper image
-        if: steps.check.outputs.skip == 'false'
         run: docker push gcr.io/${{ env.PROJECT_ID }}/dealhunter-scraper:latest
 
       - name: Deploy scraper Cloud Run Job
-        if: steps.check.outputs.skip == 'false'
         run: |
           gcloud run jobs deploy dealhunter-scraper \
             --image=gcr.io/${{ env.PROJECT_ID }}/dealhunter-scraper:latest \
@@ -146,7 +108,6 @@ jobs:
             --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }},TIMESCALE_URL=${{ secrets.DATABASE_URL }},MIN_DISCOUNT=40,SCRAPEDO_TOKEN=${{ secrets.SCRAPEDO_TOKEN }},FCM_SERVER_KEY=${{ secrets.FCM_SERVER_KEY }}"
 
       - name: Schedule scraper every 6 hours
-        if: steps.check.outputs.skip == 'false'
         run: |
           JOB_URI="https://${{ env.REGION }}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${{ env.PROJECT_ID }}/jobs/dealhunter-scraper:run"
           gcloud scheduler jobs update http dealhunter-scraper-schedule \
@@ -169,37 +130,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check required secrets
-        id: check
-        run: |
-          if [ -z "$GCP_SA_KEY" ]; then
-            echo "::warning::GCP_SA_KEY secret not set — skipping GCP deploy. Add it at: Settings → Secrets → Actions"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-        env:
-          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
-
       - uses: actions/checkout@v4
-        if: steps.check.outputs.skip == 'false'
         with:
           fetch-depth: 1
 
       - uses: google-github-actions/auth@v2
-        if: steps.check.outputs.skip == 'false'
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          credentials_json: ${{ secrets.FIREBASE_CREDENTIALS_JSON }}
 
       - uses: google-github-actions/setup-gcloud@v2
-        if: steps.check.outputs.skip == 'false'
 
       - name: Configure Docker for GCR
-        if: steps.check.outputs.skip == 'false'
         run: gcloud auth configure-docker --quiet
 
       - name: Build tracker image
-        if: steps.check.outputs.skip == 'false'
         run: |
           docker build \
             -f Dockerfile.tracker \
@@ -207,11 +151,9 @@ jobs:
             .
 
       - name: Push tracker image
-        if: steps.check.outputs.skip == 'false'
         run: docker push gcr.io/${{ env.PROJECT_ID }}/dealhunter-tracker:latest
 
       - name: Deploy tracker Cloud Run Job
-        if: steps.check.outputs.skip == 'false'
         run: |
           gcloud run jobs deploy dealhunter-tracker \
             --image=gcr.io/${{ env.PROJECT_ID }}/dealhunter-tracker:latest \
@@ -223,7 +165,6 @@ jobs:
             --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }},TIMESCALE_URL=${{ secrets.DATABASE_URL }}"
 
       - name: Fix Cloud Scheduler to point to tracker job
-        if: steps.check.outputs.skip == 'false'
         run: |
           JOB_URI="https://${{ env.REGION }}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${{ env.PROJECT_ID }}/jobs/dealhunter-tracker:run"
           gcloud scheduler jobs update http dealhunter-tracker-schedule \

@@ -1,0 +1,84 @@
+name: Fix Cloud Run Server
+
+on:
+  workflow_dispatch:
+    inputs:
+      database_url:
+        description: 'Supabase DATABASE_URL (leave blank to use secret)'
+        required: false
+        default: ''
+
+jobs:
+  fix-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_CREDENTIALS_JSON }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set DATABASE_URL
+        id: db
+        run: |
+          if [ -n "${{ github.event.inputs.database_url }}" ]; then
+            echo "url=${{ github.event.inputs.database_url }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=${{ secrets.DATABASE_URL }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fix Cloud Run ingress and DATABASE_URL
+        run: |
+          echo "=== Updating Cloud Run service ==="
+          gcloud run services update dealhunter-server \
+            --region=us-central1 \
+            --project=dealhunter-egypt-70d29 \
+            --ingress=all \
+            --update-env-vars="DATABASE_URL=${{ steps.db.outputs.url }}" \
+            --quiet
+          echo "=== Done! ==="
+
+      - name: Verify server is healthy
+        run: |
+          sleep 10
+          echo "Checking server health..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://dealhunter-server-q2rbodm3ta-uc.a.run.app/health" \
+            --max-time 30)
+          echo "Health check HTTP status: $STATUS"
+          if [ "$STATUS" = "200" ]; then
+            echo "✅ Server is healthy!"
+          else
+            echo "⚠️  Server returned $STATUS — may still be starting up"
+            curl -s "https://dealhunter-server-q2rbodm3ta-uc.a.run.app/health" || true
+          fi
+
+      - name: If permission denied — manual steps
+        if: failure()
+        run: |
+          echo ""
+          echo "============================================================"
+          echo "  PERMISSION DENIED — Firebase SA needs Cloud Run access"
+          echo "============================================================"
+          echo ""
+          echo "Fix manually in Google Cloud Console:"
+          echo ""
+          echo "1. Open: https://console.cloud.google.com/run/detail/us-central1/dealhunter-server/revisions?project=dealhunter-egypt-70d29"
+          echo ""
+          echo "2. Click: EDIT & DEPLOY NEW REVISION"
+          echo ""
+          echo "3. Variables & Secrets tab — set:"
+          echo "   DATABASE_URL = postgresql://postgres.rmkaljwjskxihkuvxosc:Egypt99%40%4077_@aws-0-eu-west-1.pooler.supabase.com:6543/postgres"
+          echo ""
+          echo "4. Security tab — Ingress: All (allow all traffic)"
+          echo ""
+          echo "5. Click DEPLOY"
+          echo ""
+          echo "Then grant Cloud Run Admin role to fix this workflow:"
+          echo "   https://console.cloud.google.com/iam-admin/iam?project=dealhunter-egypt-70d29"
+          echo "   Add: firebase-adminsdk-fbsvc@dealhunter-egypt-70d29.iam.gserviceaccount.com"
+          echo "   Role: Cloud Run Admin"
