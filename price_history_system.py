@@ -52,7 +52,7 @@ SOURCES: dict[str, dict[str, str]] = {
     "jumia_eg":  {"name": "Jumia Egypt", "domain": "www.jumia.com.eg", "currency": "EGP"},
 }
 _COUNTRY_CODES: dict[str, str] = {"eg": "eg", "ae": "ae", "sa": "ae"}  # Saudi uses UAE geocode (scrape.do SA unsupported)
-SUSPENDED_SOURCES: set[str] = {"amazon_sa"}  # Skip discovery + snapshots for failing sources
+SUSPENDED_SOURCES: set[str] = set()  # No sources suspended — amazon_sa now uses RapidAPI (no proxy needed)
 
 DEAL_CATEGORIES: dict[str, dict[str, str]] = {
     "electronics": {"amazon": "electronics", "noon": "electronics", "jumia": "electronics"},
@@ -662,7 +662,7 @@ class PriceHistoryScheduler:
                 elif platform == "noon":
                     url = f"https://www.{domain}/search?q={kw}&sort[by]=price&sort[dir]=desc"
                 elif platform == "jumia":
-                    url = f"https://{domain}/{kw}?sort=discountPercent&type=lowest-price"
+                    url = f"https://{domain}/{kw}"  # no discount filter — collect all prices for history
                 else: url = f"https://{domain}/s?k={kw}"
 
                 resp = _get_fetch()(url, render_js=True, country=cc)

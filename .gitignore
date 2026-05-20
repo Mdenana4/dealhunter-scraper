@@ -19,8 +19,4 @@ build/
 *.jks
 *.keystore
 .claude/worktrees/
-
-# Firebase debug logs
 firebase-debug.log
-firestore-debug.log
-ui-debug.log

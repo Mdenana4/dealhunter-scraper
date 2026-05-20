@@ -41,7 +41,7 @@ AMAZON_KEYWORD_ENABLED = os.getenv("AMAZON_KEYWORD_ENABLED", "false").lower() ==
 # price_history database.  After ~60 days this gives us
 # independent price verification for every product.
 # ═══════════════════════════════════════════════════════════
-_DEAL_SOURCES = {"amazon_eg", "noon_eg", "jumia_eg"}
+_DEAL_SOURCES = {"amazon_eg", "noon_eg", "jumia_eg", "amazon_sa"}
 INTERVAL        = int(os.getenv("SCRAPE_INTERVAL_MINUTES", 120))
 SCRAPER_API_KEY = (
     os.getenv("SCRAPER_API_KEY") or
@@ -2780,10 +2780,13 @@ def scrape_amazon_ae():
     return 0
 
 def scrape_amazon_sa():
-    """Amazon Saudi Arabia — DEAL DISCOVERY SUSPENDED. Price history continues via price_tracker.py."""
-    print("\n[AMAZON/SA] ⏸ Deal discovery SUSPENDED — skipping new deal scrape")
-    print("  Price history collection continues via background re-check")
-    return 0
+    """Amazon Saudi Arabia — deal discovery via RapidAPI (no scraper.do proxy needed)."""
+    return _scrape_amazon_via_api(
+        country="SA",
+        marketplace_country="amazon_sa",
+        site_display="Amazon Saudi",
+        currency="SAR",
+    )
 
 
 # ─────────────────────────────────────────────────────

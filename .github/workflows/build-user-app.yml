@@ -1,0 +1,62 @@
+name: Flutter User APK Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Create local.properties
+        run: |
+          echo "flutter.sdk=$FLUTTER_ROOT" > app/user_app/android/local.properties
+          echo "sdk.dir=$ANDROID_SDK_ROOT"  >> app/user_app/android/local.properties
+
+      - name: Get dependencies
+        run: |
+          cd app/user_app
+          flutter pub get
+
+      - name: Build APK
+        run: |
+          cd app/user_app/android
+          chmod +x gradlew
+          ./gradlew assembleRelease --stacktrace 2>&1
+
+      - name: Find APK
+        if: always()
+        run: find app/user_app -name "*.apk" 2>/dev/null || echo "No APK found"
+
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: user-app-release.apk
+          path: |
+            app/user_app/android/app/build/outputs/apk/release/app-release.apk
+            app/user_app/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: warn
