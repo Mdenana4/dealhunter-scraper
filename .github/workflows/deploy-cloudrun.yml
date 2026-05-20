@@ -217,7 +217,7 @@ jobs:
             --region=${{ env.REGION }} \
             --task-timeout=300 \
             --max-retries=1 \
-            --memory=256Mi \
+            --memory=512Mi \
             --cpu=1 \
             --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }},TIMESCALE_URL=${{ secrets.DATABASE_URL }}"
 
