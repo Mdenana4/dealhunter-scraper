@@ -23,7 +23,8 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
-          SCRAPERDO_API_KEY: ${{ secrets.SCRAPERDO_API_KEY }}
+          SCRAPEDO_TOKEN: ${{ secrets.SCRAPEDO_TOKEN }}
+          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
           FIREBASE_CREDENTIALS_JSON: ${{ secrets.FIREBASE_CREDENTIALS_JSON }}
         run: python scraper.py
 
