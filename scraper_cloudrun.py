@@ -765,6 +765,9 @@ class DealHunterScraper:
                             fraud_reasons JSONB DEFAULT '[]',
                             rating DECIMAL(3,1),
                             review_count INTEGER DEFAULT 0,
+                            is_active BOOLEAN DEFAULT TRUE,
+                            last_seen_at TIMESTAMPTZ DEFAULT NOW(),
+                            marketplace_country VARCHAR(8) DEFAULT 'eg',
                             created_at TIMESTAMPTZ DEFAULT NOW()
                         )
                         """
@@ -781,6 +784,9 @@ class DealHunterScraper:
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS confidence DECIMAL(5,2) DEFAULT 0",
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS fraud_reasons JSONB DEFAULT '[]'",
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS review_count INTEGER DEFAULT 0",
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ DEFAULT NOW()",
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS marketplace_country VARCHAR(8) DEFAULT 'eg'",
                     ]
                     for sql in migrations:
                         cur.execute(sql)
@@ -809,12 +815,29 @@ class DealHunterScraper:
                         """
                         CREATE TABLE IF NOT EXISTS price_snapshots (
                             deal_id TEXT NOT NULL,
+                            product_id TEXT,
+                            site VARCHAR(32) NOT NULL,
                             price DECIMAL(12,2) NOT NULL,
-                            source VARCHAR(32) NOT NULL,
+                            original_price DECIMAL(12,2),
+                            discount_percent DECIMAL(5,1),
+                            currency VARCHAR(8) DEFAULT 'EGP',
                             timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW()
                         )
                         """
                     )
+                    # Migrate existing tables: add columns if missing
+                    ps_migrations = [
+                        "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS product_id TEXT",
+                        "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS site VARCHAR(32)",
+                        "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS original_price DECIMAL(12,2)",
+                        "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS discount_percent DECIMAL(5,1)",
+                        "ALTER TABLE price_snapshots ADD COLUMN IF NOT EXISTS currency VARCHAR(8) DEFAULT 'EGP'",
+                    ]
+                    for sql in ps_migrations:
+                        try:
+                            cur.execute(sql)
+                        except Exception:
+                            conn.rollback()
                     # Convert to hypertable if TimescaleDB is available
                     try:
                         cur.execute(
@@ -2052,7 +2075,7 @@ class DealHunterScraper:
                         COALESCE(ps.price, ls.price) as previous_price,
                         d.site,
                         d.title,
-                        d.url
+                        d.product_url
                     FROM latest_snapshots ls
                     LEFT JOIN previous_snapshots ps ON ls.deal_id = ps.deal_id
                     JOIN deals d ON ls.deal_id = d.id
@@ -2309,129 +2332,3 @@ if __name__ == "__main__":
     result = scraper.run_cycle()
     print(json.dumps(result, indent=2, default=str))
 
-def scrape_noon_playwright(url, site_key="noon_eg", min_discount=40):
-    """Scrape Noon using Playwright - handles client-side rendered React app."""
-    import re
-    from playwright.sync_api import sync_playwright
-    
-    deals = []
-    logger.info(f"[PLAYWRIGHT] Rendering Noon page: {url}")
-    
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto(url, wait_until="networkidle", timeout=30000)
-            
-            # Wait for React hydration
-            page.wait_for_selector('[data-qa="plp-product-box"]', timeout=15000)
-            
-            # Small additional wait for price data to load
-            page.wait_for_timeout(2000)
-            
-            products = page.query_selector_all('[data-qa="plp-product-box"]')
-            logger.info(f"[PLAYWRIGHT] Found {len(products)} products on Noon")
-            
-            for i, product in enumerate(products):
-                try:
-                    name_el = product.query_selector('[data-qa="plp-product-box-name"]')
-                    price_el = product.query_selector('[data-qa="plp-product-box-price"]')
-                    link_el = product.query_selector('a')
-                    
-                    if not all([name_el, price_el, link_el]):
-                        continue
-                    
-                    name = name_el.inner_text().strip()
-                    price_text = price_el.inner_text().strip()
-                    href = link_el.get_attribute('href') or ""
-                    
-                    # Parse price
-                    price_match = re.search(r'[\d,]+\.?\d*', price_text)
-                    if not price_match:
-                        continue
-                    
-                    current_price = float(price_match.group().replace(',', ''))
-                    
-                    # Skip if below minimum
-                    if current_price < 200:
-                        continue
-                    
-                    deal = {
-                        'title': name,
-                        'current_price': current_price,
-                        'original_price': current_price,  # Will be updated if discount found
-                        'discount_percent': 0,
-                        'product_url': f"https://www.noon.com{href}" if href.startswith('/') else href,
-                        'site': site_key,
-                        'category': detect_category(name),
-                    }
-                    deals.append(deal)
-                    
-                except Exception as e:
-                    logger.warning(f"[PLAYWRIGHT] Error parsing product {i}: {e}")
-                    continue
-            
-            browser.close()
-            
-    except Exception as e:
-        logger.error(f"[PLAYWRIGHT] Failed to render Noon: {e}")
-    
-    logger.info(f"[PLAYWRIGHT] Noon {site_key}: {len(deals)} deals extracted")
-    return deals
-
-
-    def _scrape_noon_playwright(self, url: str, site_key: str):
-        """Scrape Noon using Playwright - renders React client-side."""
-        deals = []
-        try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True)
-                page = browser.new_page()
-                page.goto(url, wait_until="networkidle", timeout=30000)
-                page.wait_for_selector('[data-qa="plp-product-box"]', timeout=15000)
-                page.wait_for_timeout(3000)
-                
-                products = page.query_selector_all('[data-qa="plp-product-box"]')
-                print(f"[NOON] Found {len(products)} products via Playwright")
-                
-                for product in products:
-                    try:
-                        name_el = product.query_selector('[data-qa="plp-product-box-name"]')
-                        price_el = product.query_selector('[data-qa="plp-product-box-price"]')
-                        link_el = product.query_selector('a')
-                        if not all([name_el, price_el, link_el]): continue
-                        
-                        name = name_el.inner_text().strip()
-                        price_text = price_el.inner_text().strip()
-                        href = link_el.get_attribute('href') or ""
-                        
-                        price_match = re.search(r'[\d,]+\.?\d*', price_text.replace(',', ''))
-                        if not price_match: continue
-                        current_price = float(price_match.group().replace(',', ''))
-                        if current_price < 100: continue
-                        
-                        deal = {
-                            'id': __import__('hashlib').md5(f"{site_key}:{href}:{current_price}".encode()).hexdigest()[:16],
-                            'title': name,
-                            'product_url': f"https://www.noon.com{href}" if href.startswith('/') else href,
-                            'current_price': current_price,
-                            'original_price': current_price,
-                            'discount_percent': 0,
-                            'site': site_key,
-                            'category': 'electronics',
-                            'timestamp': __import__('datetime').datetime.utcnow().isoformat(),
-                            'currency': 'EGP' if 'eg' in site_key else 'AED' if 'ae' in site_key else 'SAR',
-                            'fraud_reasons': [],
-                            'verdict': 'PENDING',
-                            'fake_score': 0,
-                            'confidence': 0,
-                        }
-                        deals.append(deal)
-                    except: pass
-                
-                browser.close()
-        except Exception as e:
-            print(f"[NOON-ERROR] Playwright failed: {e}")
-        
-        print(f"[NOON] {site_key}: extracted {len(deals)} deals")
-        return deals

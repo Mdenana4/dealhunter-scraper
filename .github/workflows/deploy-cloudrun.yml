@@ -2,9 +2,8 @@ name: Deploy to Google Cloud Run
 
 on:
   workflow_dispatch:
-  # Uncomment to auto-deploy on push to main once GCP secrets are configured:
-  # push:
-  #   branches: [main]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
