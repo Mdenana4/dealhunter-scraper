@@ -74,12 +74,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _toggleNotifications(bool value) async {
+    final messaging = FirebaseMessaging.instance;
     if (value) {
-      final status = await FirebaseMessaging.instance.requestPermission();
+      final status = await messaging.requestPermission();
       if (status.authorizationStatus != AuthorizationStatus.authorized &&
           status.authorizationStatus != AuthorizationStatus.provisional) {
         return;
       }
+      await messaging.subscribeToTopic('new_deals');
+    } else {
+      await messaging.unsubscribeFromTopic('new_deals');
     }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('notifications_enabled', value);

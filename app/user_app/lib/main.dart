@@ -81,7 +81,7 @@ class _DealHunterAppState extends ConsumerState<DealHunterApp> {
 
   void _openDeal(RemoteMessage message) {
     final dealId = message.data['deal_id'] as String?;
-    if (dealId != null) appRouter.go('/home/deal/$dealId');
+    appRouter.go(dealId != null ? '/home/deal/$dealId' : '/home');
   }
 
   void _showInAppBanner(RemoteMessage message) {
@@ -96,7 +96,7 @@ class _DealHunterAppState extends ConsumerState<DealHunterApp> {
           label: 'View',
           onPressed: () {
             final dealId = message.data['deal_id'] as String?;
-            if (dealId != null) appRouter.go('/home/deal/$dealId');
+            appRouter.go(dealId != null ? '/home/deal/$dealId' : '/home');
           },
         ),
         duration: const Duration(seconds: 5),
