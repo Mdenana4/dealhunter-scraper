@@ -219,7 +219,7 @@ jobs:
             --max-retries=1 \
             --memory=512Mi \
             --cpu=1 \
-            --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }},TIMESCALE_URL=${{ secrets.DATABASE_URL }}"
+            --set-env-vars="DATABASE_URL=${{ secrets.DATABASE_URL }},TIMESCALE_URL=${{ secrets.DATABASE_URL }},SCRAPEDO_TOKEN=${{ secrets.SCRAPEDO_TOKEN }}"
 
       - name: Fix Cloud Scheduler to point to tracker job
         if: steps.check.outputs.skip == 'false'

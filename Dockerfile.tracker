@@ -3,9 +3,13 @@ FROM python:3.11-slim-bookworm
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 ca-certificates && rm -rf /var/lib/apt/lists/*
+    libpq5 ca-certificates libxml2 libxslt1.1 && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir psycopg2-binary==2.9.9
+RUN pip install --no-cache-dir \
+    psycopg2-binary==2.9.9 \
+    requests==2.32.3 \
+    beautifulsoup4==4.12.3 \
+    lxml==5.3.0
 
 COPY price_tracker_job.py .
 

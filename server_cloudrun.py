@@ -549,6 +549,7 @@ def list_deals() -> Response:
     try:
         # Parse parameters
         source = sanitize_string(request.args.get("source", ""), 50)
+        country = sanitize_string(request.args.get("country", ""), 10)
         category = sanitize_string(request.args.get("category", ""), 50)
         min_discount = get_int_param("min_discount", Config.MIN_DISCOUNT, 0, 100)
         max_price = get_float_param("max_price", 0, 0, 9999999)
@@ -574,8 +575,11 @@ def list_deals() -> Response:
         params: List[Any] = [min_discount]
 
         if source:
-            conditions.append("site = %s")
-            params.append(source)
+            conditions.append("site ILIKE %s")
+            params.append(f"%{source}%")
+        if country:
+            conditions.append("site ILIKE %s")
+            params.append(f"%{country}%")
         if category:
             conditions.append("category = %s")
             params.append(category)

@@ -789,6 +789,8 @@ class DealHunterScraper:
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ DEFAULT NOW()",
                         "ALTER TABLE deals ADD COLUMN IF NOT EXISTS marketplace_country VARCHAR(8) DEFAULT 'eg'",
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS highest_price_ever DECIMAL(12,2)",
+                        "ALTER TABLE deals ADD COLUMN IF NOT EXISTS lowest_price_ever DECIMAL(12,2)",
                     ]
                     for sql in migrations:
                         cur.execute(sql)
@@ -2090,10 +2092,12 @@ class DealHunterScraper:
                                     product_url, category, original_price, current_price,
                                     discount_percent, savings, currency,
                                     verdict, fake_score, recommendation, confidence,
-                                    fraud_reasons, rating, review_count, is_active, created_at
+                                    fraud_reasons, rating, review_count,
+                                    marketplace_country, is_active, created_at
                                 ) VALUES (
                                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                                    %s, %s, %s, %s, %s, %s, %s, %s, %s, true, NOW()
+                                    %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                    %s, true, NOW()
                                 )
                                 """,
                                 (
@@ -2116,6 +2120,7 @@ class DealHunterScraper:
                                     (deal.get("fraud_reasons") or None),
                                     deal.get("rating"),
                                     deal.get("review_count", 0),
+                                    deal["site"].rsplit("_", 1)[-1] if "_" in deal["site"] else "eg",
                                 ),
                             )
                             inserted += 1
@@ -2138,6 +2143,7 @@ class DealHunterScraper:
                                         rating = %s,
                                         review_count = %s,
                                         recommendation = %s,
+                                        marketplace_country = %s,
                                         is_active = true
                                     WHERE id = %s
                                     """,
@@ -2153,6 +2159,7 @@ class DealHunterScraper:
                                         deal.get("rating"),
                                         deal.get("review_count", 0),
                                         deal.get("recommendation", "good_deal"),
+                                        deal["site"].rsplit("_", 1)[-1] if "_" in deal["site"] else "eg",
                                         deal["id"],
                                     ),
                                 )
