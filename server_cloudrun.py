@@ -487,6 +487,44 @@ def ping() -> Response:
     return jsonify({"ok": True}), 200
 
 
+@app.route("/db-debug", methods=["GET"])
+def db_debug() -> Response:
+    """Diagnose DATABASE_URL format issues without exposing credentials."""
+    url = Config.DATABASE_URL
+    if not url:
+        return jsonify({"error": "DATABASE_URL is not set"}), 503
+
+    # Mask everything after the password @ sign but show scheme and host
+    masked = url
+    try:
+        # Show scheme prefix and host only
+        if "://" in url:
+            scheme = url.split("://")[0]
+            rest = url.split("://", 1)[1]
+            host_part = rest.split("@")[-1] if "@" in rest else rest
+            masked = f"{scheme}://***:***@{host_part}"
+    except Exception:
+        masked = url[:10] + "***"
+
+    # Try to connect and capture the exact error
+    conn_error = None
+    try:
+        import psycopg2
+        conn = psycopg2.connect(url, connect_timeout=10)
+        conn.close()
+        conn_error = None
+    except Exception as e:
+        conn_error = str(e)
+
+    return jsonify({
+        "url_masked": masked,
+        "url_starts_with": url[:20] + "..." if len(url) > 20 else url,
+        "is_postgresql_format": url.startswith("postgresql://") or url.startswith("postgres://"),
+        "connection_error": conn_error,
+        "connected": conn_error is None,
+    }), 200 if conn_error is None else 503
+
+
 @app.route("/", methods=["GET"])
 def root() -> Response:
     """Root endpoint - redirects to health or returns API info."""
