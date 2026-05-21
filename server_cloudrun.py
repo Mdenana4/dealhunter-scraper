@@ -481,6 +481,12 @@ def _get_paymob_payment_key(auth_token: str, amount_cents: int, order_id: str, b
 # ENDPOINTS
 # ============================================================================
 
+@app.route("/ping", methods=["GET"])
+def ping() -> Response:
+    """Lightweight liveness probe — always returns 200 regardless of DB state."""
+    return jsonify({"ok": True}), 200
+
+
 @app.route("/", methods=["GET"])
 def root() -> Response:
     """Root endpoint - redirects to health or returns API info."""
